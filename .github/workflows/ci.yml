@@ -1,4 +1,4 @@
-name: CI  # 闭环④:测试/验证驱动上游 → build → ACR → ACK
+name: CI  # 闭环④:测试/验证驱动上游 → build → ACR → ECS(docker)
 
 on:
   push:
@@ -29,7 +29,7 @@ jobs:
       - name: 验收测试 behave(闭环①)
         run: .venv/bin/behave specs/features
 
-  # ── 构建 + 推 ACR + 部署 ACK(sensors 通过且 main 分支才执行)──
+  # ── 构建 + 推 ACR + 部署到 ECS(docker)──
   deploy:
     needs: sensors
     if: github.ref == 'refs/heads/main'
@@ -50,23 +50,18 @@ jobs:
           docker push "$IMAGE:${{ github.sha }}"
           docker push "$IMAGE:latest"
 
-      # 镜像安全扫描(可选,配好 SAS_* secrets 后启用)
-      # - name: Scan image
-      #   run: docker run --rm sas-image-scanner ... --imageId="$IMAGE:${{ github.sha }}"
-
-      - name: Setup kubectl
-        uses: azure/setup-kubectl@v4
-
-      - name: Configure kubeconfig (ACK)
-        run: |
-          mkdir -p ~/.kube
-          # 兼容 base64 或原文两种粘贴方式
-          printf '%s' "${{ secrets.KUBE_CONFIG }}" | base64 -d > ~/.kube/config 2>/dev/null \
-            || printf '%s' "${{ secrets.KUBE_CONFIG }}" > ~/.kube/config
-          chmod 600 ~/.kube/config
-
-      - name: Deploy to ACK
-        run: |
-          kubectl apply -f k8s/
-          kubectl set image deployment/assets-api api="$IMAGE:${{ github.sha }}"
-          kubectl rollout status deployment/assets-api --timeout=180s
+      - name: Deploy to ECS via SSH
+        uses: appleboy/ssh-action@v1.0.3
+        with:
+          host: ${{ secrets.ECS_HOST }}          # ECS 公网 IP
+          username: ${{ secrets.ECS_USER }}      # 如 root
+          key: ${{ secrets.ECS_SSH_KEY }}        # SSH 私钥(整段)
+          script: |
+            set -e
+            echo '${{ secrets.ACR_PASSWORD }}' | docker login -u '${{ secrets.ACR_USERNAME }}' --password-stdin registry.cn-hangzhou.aliyuncs.com
+            docker pull ${{ env.IMAGE }}:latest
+            docker rm -f assets-api 2>/dev/null || true
+            ENVOPT=""; [ -f /opt/assets/.env ] && ENVOPT="--env-file /opt/assets/.env"
+            docker run -d --name assets-api --restart always -p 80:8000 $ENVOPT ${{ env.IMAGE }}:latest
+            docker image prune -f || true
+            echo "已部署,容器状态:"; docker ps --filter name=assets-api
