@@ -53,9 +53,10 @@ jobs:
       - name: Deploy to ECS via SSH
         uses: appleboy/ssh-action@v1.0.3
         with:
-          host: ${{ secrets.ECS_HOST }}          # ECS 公网 IP
-          username: ${{ secrets.ECS_USER }}      # 如 root
-          key: ${{ secrets.ECS_SSH_KEY }}        # SSH 私钥(整段)
+          host: ${{ secrets.ECS_HOST }}                 # ECS 公网 IP
+          username: ${{ secrets.ECS_USER }}             # 如 root
+          password: ${{ secrets.ECS_SSH_PASSWORD }}     # ECS 登录密码
+          port: 22
           script: |
             set -e
             echo '${{ secrets.ACR_PASSWORD }}' | docker login -u '${{ secrets.ACR_USERNAME }}' --password-stdin registry.cn-hangzhou.aliyuncs.com

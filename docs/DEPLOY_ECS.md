@@ -17,11 +17,7 @@ ssh root@<ECS公网IP> "sudo bash /root/ecs-setup.sh"
 | `ACR_PASSWORD` | ACR 访问凭证固定密码 |
 | `ECS_HOST` | ECS 公网 IP |
 | `ECS_USER` | 登录用户,一般 `root` |
-| `ECS_SSH_KEY` | 登录 ECS 的 **SSH 私钥整段**(见下) |
-
-### 怎么拿 SSH 私钥
-- 若你创建 ECS 时用的是**密钥对**:用那把私钥文件内容(`~/.ssh/xxx.pem` 整段)。
-- 若用的是**密码登录**:把 CI 里 `key:` 换成 `password: ${{ secrets.ECS_SSH_PASSWORD }}`,加个 `ECS_SSH_PASSWORD` secret(我可帮你改)。
+| `ECS_SSH_PASSWORD` | 登录 ECS 的密码(本项目用密码登录) |
 
 ## 三、发布
 `git push` 到 `main` → CI 自动:sensors 全绿 → build → 推 ACR → SSH 进 ECS 拉新镜像、重启 `assets-api` 容器。
