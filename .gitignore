@@ -1,0 +1,38 @@
+# Python
+__pycache__/
+*.py[cod]
+.venv/
+venv/
+*.egg-info/
+.pytest_cache/
+.ruff_cache/
+
+# uv
+uv.lock
+
+# env / secrets
+.env
+.env.*
+*.local
+
+# BMAD(可由 npx bmad-method install 重装,不入库)
+_bmad/
+_bmad-output/
+
+# Claude 本地/生成(可由 setup.sh 重装)
+.claude/settings.local.json
+.claude/skills/
+.claude/commands/
+
+# Node(shadcn/npx 产物)
+node_modules/
+package.json
+package-lock.json
+
+# 构建
+dist/
+build/
+*.log
+
+# OS
+.DS_Store

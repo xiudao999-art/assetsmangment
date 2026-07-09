@@ -1,0 +1,195 @@
+<!doctype html>
+<html lang="zh-CN" data-theme="dark">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>物料中台 · 后台</title>
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link href="https://fonts.googleapis.com/css2?family=Fraunces:opsz,wght@9..144,500;9..144,600&family=Inter:wght@400;500;600&display=swap" rel="stylesheet">
+<style>
+  :root{
+    --bg:#0e0f12; --surface:#16171c; --surface-2:#1c1e24; --line:#282a31;
+    --ink:#eceae4; --muted:#9a968c; --accent:#e6a15c; --accent-ink:#1a1206;
+    --ok:#5bbf7b; --warn:#e6a15c; --bad:#e0685f;
+    --radius:11px;
+  }
+  [data-theme="light"]{
+    --bg:#f6f4ef; --surface:#ffffff; --surface-2:#f0ede6; --line:#e5e1d8;
+    --ink:#20201d; --muted:#6f6a60; --accent:#b9772f; --accent-ink:#fff;
+  }
+  *{box-sizing:border-box}
+  body{margin:0;background:var(--bg);color:var(--ink);font-family:Inter,system-ui,"PingFang SC",sans-serif;font-size:14px;line-height:1.5}
+  .app{display:grid;grid-template-columns:232px 1fr;min-height:100vh}
+  /* 侧栏 */
+  aside{background:var(--surface);border-right:1px solid var(--line);padding:24px 16px;display:flex;flex-direction:column;gap:8px}
+  .wordmark{font-family:Fraunces,serif;font-weight:600;font-size:22px;letter-spacing:-.01em;padding:8px 12px 20px;display:flex;align-items:center;gap:10px}
+  .dot{width:10px;height:10px;border-radius:50%;background:var(--accent);box-shadow:0 0 0 4px color-mix(in oklab,var(--accent) 22%,transparent)}
+  nav{display:flex;flex-direction:column;gap:4px}
+  .nav-item{display:flex;align-items:center;gap:10px;padding:10px 12px;border-radius:9px;color:var(--muted);cursor:pointer;font-weight:500;border:1px solid transparent}
+  .nav-item:hover{background:var(--surface-2);color:var(--ink)}
+  .nav-item.active{background:color-mix(in oklab,var(--accent) 14%,transparent);color:var(--ink);border-color:color-mix(in oklab,var(--accent) 30%,transparent)}
+  .nav-item svg{width:17px;height:17px;stroke:currentColor;fill:none;stroke-width:1.7}
+  .spacer{flex:1}
+  .ghost{background:transparent;border:1px solid var(--line);color:var(--muted);padding:8px 12px;border-radius:9px;cursor:pointer;font:inherit}
+  .ghost:hover{color:var(--ink)}
+  /* 主区 */
+  main{padding:28px 34px;max-width:1040px}
+  .topbar{display:flex;align-items:center;justify-content:space-between;margin-bottom:24px}
+  h1{font-family:Fraunces,serif;font-weight:600;font-size:27px;margin:0;letter-spacing:-.02em}
+  .sub{color:var(--muted);margin-top:4px;font-size:13px}
+  .chip{display:inline-flex;align-items:center;gap:7px;padding:6px 12px;border-radius:999px;border:1px solid var(--line);background:var(--surface);font-size:12.5px;color:var(--muted)}
+  .chip .dot{width:7px;height:7px;box-shadow:none}
+  .grid{display:grid;gap:16px}
+  .card{background:var(--surface);border:1px solid var(--line);border-radius:var(--radius);padding:20px}
+  .card h3{font-family:Fraunces,serif;font-weight:500;font-size:16px;margin:0 0 4px}
+  .card p.hint{color:var(--muted);margin:0 0 16px;font-size:12.5px}
+  label{display:block;color:var(--muted);font-size:12px;margin:0 0 6px}
+  input,select{width:100%;background:var(--surface-2);border:1px solid var(--line);color:var(--ink);padding:9px 11px;border-radius:9px;font:inherit;margin-bottom:12px}
+  input:focus,select:focus{outline:none;border-color:var(--accent)}
+  .row{display:flex;gap:10px}
+  .row>*{flex:1}
+  button.primary{background:var(--accent);color:var(--accent-ink);border:none;padding:9px 16px;border-radius:9px;font:inherit;font-weight:600;cursor:pointer}
+  button.primary:hover{filter:brightness(1.06)}
+  .out{margin-top:12px;font-family:ui-monospace,monospace;font-size:12px;color:var(--muted);background:var(--surface-2);border:1px solid var(--line);border-radius:9px;padding:10px 12px;white-space:pre-wrap;word-break:break-all;min-height:18px}
+  table{width:100%;border-collapse:collapse;font-size:13px}
+  th{text-align:left;color:var(--muted);font-weight:500;font-size:11.5px;text-transform:uppercase;letter-spacing:.04em;padding:8px 10px;border-bottom:1px solid var(--line)}
+  td{padding:11px 10px;border-bottom:1px solid var(--line)}
+  tr:last-child td{border-bottom:none}
+  .badge{display:inline-block;padding:3px 9px;border-radius:999px;font-size:11.5px;font-weight:500}
+  .b-pass{background:color-mix(in oklab,var(--ok) 18%,transparent);color:var(--ok)}
+  .b-review{background:color-mix(in oklab,var(--warn) 18%,transparent);color:var(--warn)}
+  .b-block{background:color-mix(in oklab,var(--bad) 18%,transparent);color:var(--bad)}
+  .stats{display:grid;grid-template-columns:repeat(4,1fr);gap:14px;margin-bottom:20px}
+  .stat{background:var(--surface);border:1px solid var(--line);border-radius:var(--radius);padding:16px 18px}
+  .stat .n{font-family:Fraunces,serif;font-size:26px;font-weight:600}
+  .stat .l{color:var(--muted);font-size:12px;margin-top:2px}
+  .hidden{display:none}
+  .muted{color:var(--muted)}
+</style>
+</head>
+<body>
+<div class="app">
+  <aside>
+    <div class="wordmark"><span class="dot"></span>物料中台</div>
+    <nav id="nav">
+      <div class="nav-item active" data-sec="parse"><svg viewBox="0 0 24 24"><path d="M4 5h16v14H4z"/><path d="M10 9l5 3-5 3z"/></svg>视频反解</div>
+      <div class="nav-item" data-sec="library"><svg viewBox="0 0 24 24"><path d="M4 6h16M4 12h16M4 18h16"/></svg>物料库</div>
+      <div class="nav-item" data-sec="search"><svg viewBox="0 0 24 24"><circle cx="11" cy="11" r="7"/><path d="M21 21l-4-4"/></svg>语义搜索</div>
+      <div class="nav-item" data-sec="access"><svg viewBox="0 0 24 24"><path d="M12 3l7 4v5c0 4-3 7-7 9-4-2-7-5-7-9V7z"/></svg>用户与权限</div>
+    </nav>
+    <div class="spacer"></div>
+    <button class="ghost" onclick="toggleTheme()">◑ 切换主题</button>
+  </aside>
+
+  <main>
+    <div class="topbar">
+      <div>
+        <h1 id="title">视频反解</h1>
+        <div class="sub" id="subtitle">上传视频,智能体自动拆解成物料并送审</div>
+      </div>
+      <span class="chip"><span class="dot" id="health-dot" style="background:var(--muted)"></span><span id="health-txt">检测后端…</span></span>
+    </div>
+
+    <div class="stats">
+      <div class="stat"><div class="n" id="s-total">0</div><div class="l">物料总数</div></div>
+      <div class="stat"><div class="n" id="s-pass">0</div><div class="l">审核通过</div></div>
+      <div class="stat"><div class="n" id="s-review">0</div><div class="l">待复核</div></div>
+      <div class="stat"><div class="n" id="s-block">0</div><div class="l">已拦截</div></div>
+    </div>
+
+    <!-- 视频反解 -->
+    <section class="grid" id="sec-parse">
+      <div class="card">
+        <h3>上传视频反解</h3>
+        <p class="hint">受理 ≤10s 返回任务;反解→embedding→内容安全审核→入库(核心能力 REQ-201)</p>
+        <div class="row">
+          <div><label>OSS Key</label><input id="v-key" value="demo.mp4"></div>
+          <div><label>大小(字节)</label><input id="v-size" value="52428800"></div>
+        </div>
+        <button class="primary" onclick="uploadVideo()">上传并反解</button>
+        <div class="out" id="v-out">等待操作…</div>
+      </div>
+    </section>
+
+    <!-- 物料库 -->
+    <section class="grid hidden" id="sec-library">
+      <div class="card">
+        <h3>物料库</h3>
+        <p class="hint">图/表情包/视频/风格/语料,带审核态(REQ-101/501)</p>
+        <table><thead><tr><th>类型</th><th>OSS Key</th><th>审核</th><th>ID</th></tr></thead>
+          <tbody id="mat-rows"><tr><td colspan="4" class="muted">加载中…</td></tr></tbody></table>
+      </div>
+    </section>
+
+    <!-- 搜索 -->
+    <section class="grid hidden" id="sec-search">
+      <div class="card">
+        <h3>语义搜索</h3>
+        <p class="hint">向量近邻 + hybrid;仅返回审核通过(REQ-301/303)</p>
+        <div class="row">
+          <div style="flex:4"><label>查询词</label><input id="q" placeholder="留空=全部已通过物料" ></div>
+          <div style="flex:1;display:flex;align-items:flex-end"><button class="primary" style="width:100%" onclick="doSearch()">搜索</button></div>
+        </div>
+        <div class="out" id="q-out">输入后点搜索…</div>
+      </div>
+    </section>
+
+    <!-- 用户与权限 -->
+    <section class="grid hidden" id="sec-access" style="grid-template-columns:1fr 1fr">
+      <div class="card">
+        <h3>用户</h3>
+        <p class="hint">注册 / 登录,密码加盐哈希、token 受时限(REQ-601/602)</p>
+        <label>用户名</label><input id="u-name" value="demo">
+        <label>密码</label><input id="u-pw" value="pw123456">
+        <div class="row">
+          <button class="primary" onclick="reg()">注册</button>
+          <button class="ghost" onclick="login()">登录</button>
+        </div>
+        <div class="out" id="u-out"></div>
+      </div>
+      <div class="card">
+        <h3>功能权限(RBAC)</h3>
+        <p class="hint">后台给角色授权,即时生效(REQ-701/702)</p>
+        <label>角色</label><input id="r-role" value="editor">
+        <label>权限</label><input id="r-perm" value="materials.edit">
+        <button class="primary" onclick="grant()">授权</button>
+        <div class="out" id="r-out"></div>
+      </div>
+    </section>
+  </main>
+</div>
+
+<script>
+const $=s=>document.querySelector(s);
+const api=async(m,p,b)=>{const r=await fetch(p,{method:m,headers:{'Content-Type':'application/json'},body:b?JSON.stringify(b):undefined});return{ok:r.ok,status:r.status,data:await r.json().catch(()=>({}))}};
+const TITLES={parse:['视频反解','上传视频,智能体自动拆解成物料并送审'],library:['物料库','已入库的多模态物料与审核态'],search:['语义搜索','向量 + hybrid 检索,违规不可见'],access:['用户与权限','账户与功能权限后台管理']};
+
+document.querySelectorAll('.nav-item').forEach(n=>n.onclick=()=>{
+  document.querySelectorAll('.nav-item').forEach(x=>x.classList.remove('active'));n.classList.add('active');
+  const s=n.dataset.sec;['parse','library','search','access'].forEach(k=>$('#sec-'+k).classList.toggle('hidden',k!==s));
+  $('#title').textContent=TITLES[s][0];$('#subtitle').textContent=TITLES[s][1];
+  if(s==='library')loadMaterials();
+});
+
+function toggleTheme(){const h=document.documentElement;h.dataset.theme=h.dataset.theme==='dark'?'light':'dark';}
+
+async function health(){const r=await api('GET','/health');const ok=r.ok&&r.data.status==='ok';$('#health-dot').style.background=ok?'var(--ok)':'var(--bad)';$('#health-txt').textContent=ok?'后端在线':'后端离线';}
+
+async function refreshStats(){const r=await api('GET','/materials');const it=r.data.items||[];$('#s-total').textContent=it.length;$('#s-pass').textContent=it.filter(m=>m.audit_status==='pass').length;$('#s-review').textContent=it.filter(m=>m.audit_status==='review').length;$('#s-block').textContent=it.filter(m=>m.audit_status==='block').length;}
+
+async function uploadVideo(){$('#v-out').textContent='受理中…';const r=await api('POST','/videos',{oss_key:$('#v-key').value,size_bytes:+$('#v-size').value});$('#v-out').textContent='✓ '+JSON.stringify(r.data);refreshStats();}
+
+async function loadMaterials(){const r=await api('GET','/materials');const it=r.data.items||[];const b={pass:'b-pass',review:'b-review',block:'b-block'};$('#mat-rows').innerHTML=it.length?it.map(m=>`<tr><td>${m.type}</td><td class="muted">${m.oss_key||'—'}</td><td><span class="badge ${b[m.audit_status]}">${m.audit_status}</span></td><td class="muted">${m.id.slice(0,8)}</td></tr>`).join(''):'<tr><td colspan=4 class="muted">暂无物料,先去反解一个视频</td></tr>';}
+
+async function doSearch(){$('#q-out').textContent='搜索中…';const r=await api('GET','/search?q='+encodeURIComponent($('#q').value));$('#q-out').textContent=`命中 ${r.data.count} 条\n`+(r.data.results||[]).map(x=>'· '+x.type+' '+x.id.slice(0,8)).join('\n');}
+
+async function reg(){const r=await api('POST','/users/register',{name:$('#u-name').value,password:$('#u-pw').value});$('#u-out').textContent='注册:'+JSON.stringify(r.data);}
+async function login(){const r=await api('POST','/users/login',{name:$('#u-name').value,password:$('#u-pw').value});$('#u-out').textContent=(r.ok?'✓ ':'✗ ')+JSON.stringify(r.data);}
+async function grant(){const r=await api('POST','/admin/grant',{role:$('#r-role').value,permission:$('#r-perm').value});$('#r-out').textContent='✓ '+JSON.stringify(r.data);}
+
+// 支持 #library / #search / #access 深链
+(function(){const h=location.hash.slice(1);if(h){const n=document.querySelector('.nav-item[data-sec="'+h+'"]');if(n)n.click();}})();
+health();refreshStats();
+</script>
+</body>
+</html>

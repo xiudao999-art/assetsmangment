@@ -1,0 +1,41 @@
+[project]
+name = "assets-management"
+version = "0.1.0"
+description = "物料管理系统 — 图/表情包/视频/风格/语料管理 + 视频反解物料 + 搜索/审核/权限"
+requires-python = ">=3.11"
+dependencies = [
+    "fastapi>=0.115",
+    "uvicorn[standard]>=0.32",
+    "pydantic>=2.9",
+    "pydantic-settings>=2.6",
+    "sqlalchemy>=2.0",
+    "psycopg[binary]>=3.2",
+    "pgvector>=0.3",
+    "alembic>=1.14",
+    "redis>=5.2",
+    "celery>=5.4",
+    "oss2>=2.19",
+    "dashscope>=1.20",
+    "httpx>=0.28",
+    "python-multipart>=0.0.12",
+]
+
+[project.optional-dependencies]
+dev = [
+    "pytest>=8.3",
+    "pytest-asyncio>=0.24",
+    "behave>=1.2.6",
+    "import-linter>=2.0",
+    "ruff>=0.8",
+]
+
+[build-system]
+requires = ["hatchling"]
+build-backend = "hatchling.build"
+
+[tool.hatch.build.targets.wheel]
+packages = ["app"]
+
+[tool.pytest.ini_options]
+testpaths = ["tests"]
+asyncio_mode = "auto"

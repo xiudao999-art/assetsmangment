@@ -1,0 +1,72 @@
+name: CI  # 闭环④:测试/验证驱动上游 → build → ACR → ACK
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+    branches: [main]
+
+env:
+  IMAGE: registry.cn-hangzhou.aliyuncs.com/freeboot/assetsmanagement
+
+jobs:
+  # ── 传感器:每 commit 跑,任一红即挡回对应上游闭环 ──
+  sensors:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - name: Install uv
+        run: curl -LsSf https://astral.sh/uv/install.sh | sh
+      - name: Setup deps
+        run: |
+          export PATH="$HOME/.local/bin:$PATH"
+          uv venv --python 3.11
+          uv pip install -e ".[dev]"
+      - name: 架构契约(闭环②)
+        run: export PATH="$HOME/.local/bin:$PATH"; .venv/bin/lint-imports
+      - name: 单元/集成测试(闭环③)
+        run: .venv/bin/pytest -q
+      - name: 验收测试 behave(闭环①)
+        run: .venv/bin/behave specs/features
+
+  # ── 构建 + 推 ACR + 部署 ACK(sensors 通过且 main 分支才执行)──
+  deploy:
+    needs: sensors
+    if: github.ref == 'refs/heads/main'
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Login to ACR
+        uses: aliyun/acr-login@v1
+        with:
+          login-server: registry.cn-hangzhou.aliyuncs.com
+          username: ${{ secrets.ACR_USERNAME }}
+          password: ${{ secrets.ACR_PASSWORD }}
+
+      - name: Build & Push image
+        run: |
+          docker build -t "$IMAGE:${{ github.sha }}" -t "$IMAGE:latest" .
+          docker push "$IMAGE:${{ github.sha }}"
+          docker push "$IMAGE:latest"
+
+      # 镜像安全扫描(可选,配好 SAS_* secrets 后启用)
+      # - name: Scan image
+      #   run: docker run --rm sas-image-scanner ... --imageId="$IMAGE:${{ github.sha }}"
+
+      - name: Setup kubectl
+        uses: azure/setup-kubectl@v4
+
+      - name: Configure kubeconfig (ACK)
+        run: |
+          mkdir -p ~/.kube
+          # 兼容 base64 或原文两种粘贴方式
+          printf '%s' "${{ secrets.KUBE_CONFIG }}" | base64 -d > ~/.kube/config 2>/dev/null \
+            || printf '%s' "${{ secrets.KUBE_CONFIG }}" > ~/.kube/config
+          chmod 600 ~/.kube/config
+
+      - name: Deploy to ACK
+        run: |
+          kubectl apply -f k8s/
+          kubectl set image deployment/assets-api api="$IMAGE:${{ github.sha }}"
+          kubectl rollout status deployment/assets-api --timeout=180s

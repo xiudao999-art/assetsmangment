@@ -1,0 +1,34 @@
+# 架构适应度函数(闭环②传感器)—— import-linter 2.x
+# 跑法:.venv/bin/lint-imports
+# 模型:Clean/Hexagonal —— domain 是纯净核心;infra 实现 domain 的 port(infra→domain 允许);
+#       依赖方向向内指向 domain。
+
+[importlinter]
+root_package = app
+
+[importlinter:contract:1]
+name = 分层:api > service > domain(上层可依赖下层,反之禁止)
+type = layers
+layers =
+    app.api
+    app.service
+    app.domain
+
+[importlinter:contract:2]
+name = domain 纯净:不依赖 infra/service/api(核心零外向依赖)
+type = forbidden
+source_modules =
+    app.domain
+forbidden_modules =
+    app.infrastructure
+    app.service
+    app.api
+
+[importlinter:contract:3]
+name = infra 只实现 domain 端口:不得依赖 api/service
+type = forbidden
+source_modules =
+    app.infrastructure
+forbidden_modules =
+    app.api
+    app.service

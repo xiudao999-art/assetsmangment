@@ -1,0 +1,19 @@
+# 物料管理系统 API 镜像
+FROM python:3.11-slim
+
+COPY --from=ghcr.io/astral-sh/uv:latest /uv /bin/uv
+WORKDIR /app
+ENV PYTHONPATH=/app PYTHONUNBUFFERED=1
+
+# 只装依赖(不把本项目装成包),从源码运行以保证 frontend 相对路径正确
+RUN uv pip install --system --no-cache \
+    "fastapi>=0.115" "uvicorn[standard]>=0.32" "pydantic>=2.9" "pydantic-settings>=2.6" \
+    "sqlalchemy>=2.0" "psycopg[binary]>=3.2" "pgvector>=0.3" "alembic>=1.14" \
+    "redis>=5.2" "celery>=5.4" "oss2>=2.19" "dashscope>=1.20" "httpx>=0.28" "python-multipart>=0.0.12"
+
+COPY app ./app
+COPY frontend ./frontend
+
+EXPOSE 8000
+# 500 并发:多 worker;生产由 ACK HPA 再水平扩副本
+CMD ["uvicorn", "app.main:app", "--host", "0.0.0.0", "--port", "8000", "--workers", "4"]
