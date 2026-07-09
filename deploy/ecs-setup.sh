@@ -3,10 +3,16 @@
 # 用法(SSH 进 ECS 后):sudo bash ecs-setup.sh
 set -e
 
-# 1) 装 Docker(Alibaba Cloud Linux / CentOS / Ubuntu 通用)
+# 1) 装 Docker(优先用 Alibaba Cloud Linux 的包管理器,回退官方脚本)
 if ! command -v docker >/dev/null 2>&1; then
   echo "安装 Docker…"
-  curl -fsSL https://get.docker.com | bash
+  if command -v dnf >/dev/null 2>&1; then
+    dnf install -y docker || curl -fsSL https://get.docker.com | bash
+  elif command -v yum >/dev/null 2>&1; then
+    yum install -y docker || curl -fsSL https://get.docker.com | bash
+  else
+    curl -fsSL https://get.docker.com | bash
+  fi
   systemctl enable --now docker
 fi
 docker --version
