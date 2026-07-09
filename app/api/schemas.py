@@ -28,3 +28,7 @@ class LoginIn(BaseModel):
 class GrantIn(BaseModel):
     role: str
     permission: str
+
+
+class AuditSet(BaseModel):
+    status: str  # pass / review / block
