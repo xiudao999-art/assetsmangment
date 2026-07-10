@@ -10,6 +10,7 @@ class MaterialType(str, Enum):
     VIDEO = "video"
     STYLE = "style"
     CORPUS = "corpus"
+    MUSIC = "music"
 
 
 class AuditStatus(str, Enum):
@@ -46,6 +47,8 @@ class Material:
     source_job: str
     oss_key: str = ""
     description: str = ""
+    owner_id: str = ""        # 物料归属(我的物料库按此归属)
+    is_public: bool = False   # 是否已发布到公共物料库(管理员发布)
 
 
 @dataclass

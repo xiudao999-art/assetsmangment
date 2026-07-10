@@ -114,12 +114,34 @@ class InMemoryVectorIndex:
 class InMemoryUserRepo:
     def __init__(self) -> None:
         self._by_name: dict[str, User] = {}
+        self._by_id: dict[str, User] = {}
 
     def save(self, user: User) -> None:
         self._by_name[user.name] = user
+        self._by_id[user.id] = user
 
     def get_by_name(self, name: str) -> Optional[User]:
         return self._by_name.get(name)
+
+    def get(self, user_id: str) -> Optional[User]:
+        return self._by_id.get(user_id)
+
+
+class InMemoryFavoriteRepo:
+    def __init__(self) -> None:
+        self._pairs: set[tuple[str, str]] = set()
+
+    def add(self, user_id: str, material_id: str) -> None:
+        self._pairs.add((user_id, material_id))
+
+    def remove(self, user_id: str, material_id: str) -> None:
+        self._pairs.discard((user_id, material_id))
+
+    def material_ids(self, user_id: str) -> set[str]:
+        return {mid for (uid, mid) in self._pairs if uid == user_id}
+
+    def has(self, user_id: str, material_id: str) -> bool:
+        return (user_id, material_id) in self._pairs
 
 
 class FakeHasher:

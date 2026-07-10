@@ -16,8 +16,8 @@ class UserService:
         self._tokens = tokens
 
     def register(self, name: str, password: str) -> User:
-        """REQ-602:密码加盐哈希存储,绝不明文。"""
-        user = User(id=uuid.uuid4().hex, name=name, pwd_hash=self._hasher.hash(password))
+        """REQ-602:密码加盐哈希存储,绝不明文。新用户默认普通用户角色。"""
+        user = User(id=uuid.uuid4().hex, name=name, pwd_hash=self._hasher.hash(password), role="user")
         self._repo.save(user)
         return user
 

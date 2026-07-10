@@ -26,7 +26,7 @@ class VideoParsingService:
         """REQ-201:仅受理(建 job 立即返回),反解异步进行。这里同步很快返回。"""
         return VideoJob(id=uuid.uuid4().hex, oss_key=oss_key, size_bytes=size_bytes)
 
-    def run_job(self, job: VideoJob) -> list[Material]:
+    def run_job(self, job: VideoJob, owner_id: str = "") -> list[Material]:
         """REQ-202/204:反解→embedding→审核→入库;审核超时→review(不放行);保留原视频。"""
         job.status = JobStatus.RUNNING
         materials: list[Material] = []
@@ -44,6 +44,7 @@ class VideoParsingService:
                 embedding=embedding,
                 audit_status=status,
                 source_job=job.id,
+                owner_id=owner_id,
             )
             self._repo.save(material)
             materials.append(material)

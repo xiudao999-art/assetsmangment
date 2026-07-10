@@ -22,7 +22,7 @@ class MaterialService:
         material = Material(
             id=uuid.uuid4().hex, type=type, thumb=f"{oss_key}#thumb",
             source_timecode=0.0, embedding=[], audit_status=AuditStatus.REVIEW,
-            source_job="", oss_key=oss_key,
+            source_job="", oss_key=oss_key, owner_id=owner_id,
         )
         self._repo.save(material)
         return material
