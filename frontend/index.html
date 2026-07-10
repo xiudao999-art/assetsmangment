@@ -162,8 +162,13 @@
 const $=s=>document.querySelector(s),$$=s=>document.querySelectorAll(s);
 let ME=JSON.parse(localStorage.getItem('me')||'null');
 const H=()=>ME?{'Authorization':'Bearer '+ME.token}:{};
+let expiring=false;
+function sessionExpired(){if(expiring)return;expiring=true;localStorage.removeItem('me');ME=null;toast('登录已过期,请重新登录',true);setTimeout(()=>location.reload(),900)}
 const api=async(m,p,b,isForm)=>{const o={method:m,headers:{...H()}};if(b){if(isForm){o.body=b}else{o.headers['Content-Type']='application/json';o.body=JSON.stringify(b)}}
-  const r=await fetch(p,o);let d={};try{d=await r.json()}catch(e){}return{ok:r.ok,status:r.status,data:d}};
+  let r,d={};try{r=await fetch(p,o)}catch(e){return{ok:false,status:0,data:{}}}
+  try{d=await r.json()}catch(e){}
+  if(r.status===401&&ME){sessionExpired();return{ok:false,status:401,data:d}}  // 会话失效→踢回登录(不再静默失败)
+  return{ok:r.ok,status:r.status,data:d}};
 const GLYPH={image:'▦',meme:'☺',video:'►',style:'◈',corpus:'¶',music:'♫'};
 const LT={image:'图片',meme:'表情包',video:'视频',style:'风格',corpus:'语料',music:'音乐'};
 const TCODE=t=>{const s=Math.max(0,Math.floor(t||0));return `00:${String(Math.floor(s/60)).padStart(2,'0')}:${String(s%60).padStart(2,'0')}`};
@@ -227,8 +232,8 @@ $$('#all-status .chip').forEach(c=>c.onclick=()=>{$$('#all-status .chip').forEac
 function setCnt(sec,n){const e=$('#cnt-'+sec);if(e)e.textContent=n}
 
 /* ── 收藏 / 发布 ── */
-async function fav(id){const r=await api('POST',`/materials/${id}/favorite`);if(r.ok){toast('已收藏到我的物料库');loadPublic()}}
-async function unfav(id){const r=await api('DELETE',`/materials/${id}/favorite`);if(r.ok){toast('已取消收藏');loadPublic();loadMine()}}
+async function fav(id){const r=await api('POST',`/materials/${id}/favorite`);if(r.ok){toast('已收藏到我的物料库');loadPublic()}else if(r.status!==401)toast(r.data.detail||'收藏失败',true)}
+async function unfav(id){const r=await api('DELETE',`/materials/${id}/favorite`);if(r.ok){toast('已取消收藏');loadPublic();loadMine()}else if(r.status!==401)toast(r.data.detail||'取消收藏失败',true)}
 async function publish(id){const r=await api('POST',`/materials/${id}/publish`);if(r.ok){toast('已发布到公共物料库');loadAll()}else toast('需要管理员权限',true)}
 
 /* ── 反解摄入 ── */
@@ -268,7 +273,7 @@ async function openDrawer(id,canDel){$('#scrim').classList.add('on');$('#drawer'
     <div class="kv"><span class="kk">签名 URL</span><span class="vv">${url?url.slice(0,42)+'…':'—'}</span></div>
     <div style="margin-top:18px;display:flex;gap:10px">${url?`<a class="btn sm" href="${url}" target="_blank">在 OSS 打开</a>`:''}${delBtn}</div>`}
 function closeDrawer(){$('#scrim').classList.remove('on');$('#drawer').classList.remove('on')}
-async function delMat(id){const r=await api('DELETE','/materials/'+id);if(r.ok){toast('已删除');closeDrawer();loadMine();loadAll&&loadAll()}}
+async function delMat(id){const r=await api('DELETE','/materials/'+id);if(r.ok){toast('已删除');closeDrawer();loadMine();if(ME.role==='admin')loadAll()}else if(r.status!==401)toast(r.data.detail||'删除失败',true)}
 
 /* ── 用户 / 权限 ── */
 async function loadUsers(){$('#u-list').innerHTML='admin(管理员) · demo(普通用户) · 及所有注册用户'}
