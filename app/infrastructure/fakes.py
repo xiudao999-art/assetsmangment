@@ -6,7 +6,10 @@ import hmac
 import time
 from typing import Optional
 from app.config import settings
-from app.domain.models import Material, MaterialCandidate, MaterialType, AuditStatus, User
+from app.domain.models import (
+    Material, MaterialCandidate, MaterialType, AuditStatus, User,
+    TextSegment, TextSourceType, AuditRule,
+)
 
 
 # ── 反解 / embedding ──
@@ -99,6 +102,10 @@ class FakeStorage:
 
     def delete(self, oss_key: str) -> None:
         self._keys.discard(oss_key)
+
+    def snapshot_frame(self, video_key: str, ms: int, dest_key: str) -> bool:
+        self._keys.add(dest_key)
+        return True
 
 
 # ── 向量索引(F4)──
@@ -212,3 +219,65 @@ class ListAuditLog:
 
     def record(self, event: str) -> None:
         self.events.append(event)
+
+
+# ── 审核引擎假实现 ──
+class FakeTranscriber:
+    """假 ASR:返回两段带时间轴的转写(测试/本地用)。"""
+    def transcribe(self, url: str) -> list[TextSegment]:
+        return [
+            TextSegment(source_type=TextSourceType.TRANSCRIPT, text="大家好这是开场白", begin_ms=0, end_ms=2000),
+            TextSegment(source_type=TextSourceType.TRANSCRIPT, text="接下来进入正题", begin_ms=2000, end_ms=5000),
+        ]
+
+
+class FakeVisionDescriber:
+    def describe_image(self, url: str) -> str:
+        return f"画面内容(假):{url[:40]}"
+
+
+class FakeLlm:
+    """假大模型:可编排返回。默认判 pass。可通过 set_response 指定 chat_json 的返回。"""
+    def __init__(self, response: Optional[dict] = None) -> None:
+        self._response = response
+        self.calls: list[tuple[str, str]] = []
+
+    def set_response(self, response: dict) -> None:
+        self._response = response
+
+    def chat_json(self, system: str, user: str) -> dict:
+        self.calls.append((system, user))
+        if self._response is not None:
+            return self._response
+        # 默认:挑重点时间段返回空;规则判定返回 pass
+        if "时间段" in system or "moment" in system.lower():
+            return {"moments_ms": []}
+        return {"decision": "pass", "triggered_rule_ids": [], "reason": "无问题"}
+
+
+class InMemoryAuditRuleRepo:
+    def __init__(self) -> None:
+        self._rules: dict[str, AuditRule] = {}
+
+    def add(self, rule: AuditRule) -> None:
+        self._rules[rule.id] = rule
+
+    def delete(self, rule_id: str) -> None:
+        self._rules.pop(rule_id, None)
+
+    def list(self) -> list[AuditRule]:
+        return list(self._rules.values())
+
+    def list_for(self, source_type: str) -> list[AuditRule]:
+        return [r for r in self._rules.values() if r.applies_to(source_type)]
+
+
+class InMemoryAuditReportRepo:
+    def __init__(self) -> None:
+        self._reports: dict = {}
+
+    def save(self, report_id: str, report) -> None:
+        self._reports[report_id] = report
+
+    def get(self, report_id: str):
+        return self._reports.get(report_id)

@@ -11,10 +11,12 @@ from app.service.indexing import IndexService
 from app.service.user import UserService
 from app.service.authorization import AuthorizationService
 from app.service.library import LibraryService
+from app.service.audit_pipeline import AuditPipelineService
 from app.infrastructure.fakes import (
     InMemoryMaterialRepo, FakeStorage, FakeQueryEmbedder, FakePassAuditor,
     FakeVideoParser, FakeEmbedder, InMemoryVectorIndex, InMemoryUserRepo,
     FakeHasher, FakeTokenIssuer, InMemoryRbac, ListAuditLog, InMemoryFavoriteRepo,
+    FakeTranscriber, FakeVisionDescriber, FakeLlm, InMemoryAuditRuleRepo, InMemoryAuditReportRepo,
 )
 
 # ── 进程内单例 ──
@@ -29,17 +31,22 @@ else:
 if settings.data_dir:
     from app.infrastructure.jsonstore import (
         Store, JsonMaterialRepo, JsonUserRepo, JsonFavoriteRepo, JsonRbac,
+        JsonAuditRuleRepo, JsonAuditReportRepo,
     )
     _store = Store(f"{settings.data_dir.rstrip('/')}/state.json")
     material_repo = JsonMaterialRepo(_store)
     user_repo = JsonUserRepo(_store)
     favorites = JsonFavoriteRepo(_store)
     rbac = JsonRbac(_store)
+    rule_repo = JsonAuditRuleRepo(_store)
+    report_repo = JsonAuditReportRepo(_store)
 else:
     material_repo = InMemoryMaterialRepo()
     user_repo = InMemoryUserRepo()
     favorites = InMemoryFavoriteRepo()
     rbac = InMemoryRbac()
+    rule_repo = InMemoryAuditRuleRepo()
+    report_repo = InMemoryAuditReportRepo()
 
 # 向量索引:有真 embedding(DashScope)+ 真 pg 连接串 → pgvector 语义近邻;否则内存
 _placeholder_db = settings.database_url.startswith("postgresql://user:pass@localhost")
@@ -72,6 +79,12 @@ if settings.dashscope_api_key:
     from app.infrastructure.dashscope_embed import DashScopeEmbedder, DashScopeQueryEmbedder
     _embedder = DashScopeEmbedder(settings.dashscope_api_key, settings.embedding_model)
     _query_embedder = DashScopeQueryEmbedder(settings.dashscope_api_key, settings.embedding_model)
+    from app.infrastructure.dashscope_llm import DashScopeLlm
+    from app.infrastructure.dashscope_asr import DashScopeTranscriber
+    from app.infrastructure.qwen_vl import QwenVLVisionDescriber
+    _llm = DashScopeLlm(settings.dashscope_api_key, settings.qwen_llm_model)
+    _vision = QwenVLVisionDescriber(settings.dashscope_api_key, settings.qwen_vl_model)
+    _transcriber = DashScopeTranscriber(settings.dashscope_api_key, settings.asr_model)
     from app.infrastructure.aliyun_oss import OssStorage as _Oss
     if isinstance(storage, _Oss):  # 视频反解要真 OSS(签名 URL + 截帧)
         from app.infrastructure.qwen_vl import QwenVLVideoParser
@@ -83,6 +96,9 @@ else:
     _embedder = FakeEmbedder()
     _query_embedder = FakeQueryEmbedder()
     _video_parser = FakeVideoParser()
+    _llm = FakeLlm()
+    _vision = FakeVisionDescriber()
+    _transcriber = FakeTranscriber()
 
 # ── 播种账号:一个管理员 + 一个普通用户(演示用)。已存在则不覆盖(持久化后只种一次)──
 if user_repo.get("admin") is None:
@@ -91,7 +107,7 @@ if user_repo.get("user01") is None:
     user_repo.save(User(id="user01", name="demo", pwd_hash=_h.hash("pw123456"), role="user"))
 
 # ── 播种 admin 角色权限(RBAC 真接通:管理端点按权限鉴权,后台 grant 即时生效)──
-ADMIN_PERMS = {"materials.audit", "materials.publish", "materials.delete_any", "library.all", "admin.grant"}
+ADMIN_PERMS = {"materials.audit", "materials.publish", "materials.delete_any", "library.all", "admin.grant", "audit.rules"}
 if not ADMIN_PERMS.issubset(rbac.permissions_of("admin")):
     for _p in ADMIN_PERMS:
         rbac.grant("admin", _p)
@@ -124,6 +140,11 @@ def get_authz_service() -> AuthorizationService:
 
 def get_library_service() -> LibraryService:
     return LibraryService(material_repo, favorites)
+
+
+def get_audit_service() -> AuditPipelineService:
+    return AuditPipelineService(_transcriber, _vision, _llm, rule_repo, report_repo,
+                                storage, material_repo, _embedder, index)
 
 
 def current_user(authorization: str | None):

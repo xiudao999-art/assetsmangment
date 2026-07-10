@@ -1,10 +1,11 @@
-"""HTTP 路由 —— 8 大功能 + 用户物料库/公共库/收藏/发布。只依赖 service(+组合根 deps)。"""
+"""HTTP 路由 —— 8 大功能 + 用户物料库/公共库/收藏/发布 + 多模态内容审核。只依赖 service(+组合根 deps)。"""
 from __future__ import annotations
 import uuid
+import threading
 from fastapi import APIRouter, HTTPException, UploadFile, File, Form, Header, Depends
 from fastapi.concurrency import run_in_threadpool
 from app.api import deps, schemas
-from app.domain.models import MaterialType, AuditStatus, User
+from app.domain.models import MaterialType, AuditStatus, Material, AuditRule, User
 from app.service.material import MaterialNotFound
 from app.service.user import InvalidCredentials, DuplicateName
 from app.service.authorization import PermissionDenied
@@ -180,6 +181,107 @@ def video_status(jid: str):
     if job is None:
         raise HTTPException(404, "job not found")
     return {"job_id": jid, **job}
+
+
+# ── 多模态内容审核 ──
+def _report_out(r) -> dict:
+    return {
+        "verdict": r.verdict, "summary": r.summary, "triggered": r.triggered,
+        "segments": [{"source_type": s.source_type, "text": s.text, "begin_ms": s.begin_ms,
+                      "end_ms": s.end_ms, "frame_oss_key": s.frame_oss_key} for s in r.segments],
+    }
+
+
+def _rule_out(r: AuditRule) -> dict:
+    return {"id": r.id, "source_type": r.source_type, "keywords": r.keywords,
+            "condition": r.condition, "action": r.action, "enabled": r.enabled}
+
+
+def _run_audit_bg(job) -> None:
+    """后台线程跑审核(视频/音频耗时),完成后写回 deps.jobs 供轮询。"""
+    try:
+        report = deps.get_audit_service().run(job)
+        deps.jobs[job.id] = {"status": job.status, "material_id": job.material_id,
+                             "report": _report_out(report)}
+    except Exception as e:  # 兜底,任务不悬挂
+        deps.jobs[job.id] = {"status": "failed", "material_id": job.material_id, "error": str(e)}
+
+
+@router.post("/audit/submit")
+async def audit_submit(type: str = Form("image"), content: str = Form(""),
+                       file: UploadFile = File(None), user: dict = Depends(_user)):
+    """审核入口:文字/图片同步出报告;视频/音频返回 job_id 异步轮询。"""
+    _require_auth(user)
+    try:
+        mtype = MaterialType(type)
+    except ValueError:
+        raise HTTPException(400, f"不支持的类型: {type}")
+    svc = deps.get_audit_service()
+
+    # 文字:直接建语料物料 + 同步审核
+    if mtype == MaterialType.CORPUS:
+        if not content.strip():
+            raise HTTPException(400, "文字内容不能为空")
+        m = Material(id=uuid.uuid4().hex, type=mtype, thumb="", source_timecode=0.0, embedding=[],
+                     audit_status=AuditStatus.REVIEW, source_job="", oss_key="",
+                     description=content.strip(), owner_id=user["id"])
+        deps.material_repo.save(m)
+        job = svc.submit(mtype, owner_id=user["id"], material_id=m.id)
+        report = await run_in_threadpool(svc.run, job, content.strip())
+        deps.jobs[job.id] = {"status": job.status, "material_id": m.id, "report": _report_out(report)}
+        return {"job_id": job.id, "status": job.status, "material_id": m.id, "report": _report_out(report)}
+
+    # 文件类:存 OSS + 建物料
+    if file is None:
+        raise HTTPException(400, "缺少文件")
+    data = await file.read()
+    key = f"audit/{uuid.uuid4().hex}-{file.filename}"
+    m = await run_in_threadpool(deps.get_material_service().create, mtype, key, data, user["id"])
+    deps.get_index_service().index_material(m)
+    job = svc.submit(mtype, oss_key=key, owner_id=user["id"], material_id=m.id)
+
+    if mtype in (MaterialType.VIDEO, MaterialType.AUDIO, MaterialType.MUSIC):
+        deps.jobs[job.id] = {"status": "running", "material_id": m.id}
+        threading.Thread(target=_run_audit_bg, args=(job,), daemon=True).start()  # 异步跑
+        return {"job_id": job.id, "status": "running", "material_id": m.id}
+
+    # 图片/表情/风格:同步(反解较快)
+    report = await run_in_threadpool(svc.run, job)
+    deps.jobs[job.id] = {"status": job.status, "material_id": m.id, "report": _report_out(report)}
+    return {"job_id": job.id, "status": job.status, "material_id": m.id, "report": _report_out(report)}
+
+
+# ── 审核规则后台(管理员)——放在 /audit/{job_id} 之前,避免 rules 被当作 job_id ──
+@router.get("/audit/rules")
+def list_audit_rules(user: dict = Depends(_user)):
+    _require_perm(user, "audit.rules")
+    return {"rules": [_rule_out(r) for r in deps.rule_repo.list()]}
+
+
+@router.post("/audit/rules")
+def add_audit_rule(body: schemas.RuleIn, user: dict = Depends(_user)):
+    _require_perm(user, "audit.rules")
+    action = body.action if body.action in ("block", "review") else "block"
+    rule = AuditRule(id=uuid.uuid4().hex, source_type=body.source_type or "any",
+                     keywords=[k for k in body.keywords if k.strip()], condition=body.condition.strip(),
+                     action=action, enabled=True, created_by=user["id"])
+    deps.rule_repo.add(rule)
+    return _rule_out(rule)
+
+
+@router.delete("/audit/rules/{rule_id}")
+def delete_audit_rule(rule_id: str, user: dict = Depends(_user)):
+    _require_perm(user, "audit.rules")
+    deps.rule_repo.delete(rule_id)
+    return {"deleted": rule_id}
+
+
+@router.get("/audit/{job_id}")
+def audit_status(job_id: str, user: dict = Depends(_user)):
+    j = deps.jobs.get(job_id)
+    if j is None:
+        raise HTTPException(404, "audit job not found")
+    return {"job_id": job_id, **j}
 
 
 # ── 语义搜索(F3)——在公共库范围内搜索 ──

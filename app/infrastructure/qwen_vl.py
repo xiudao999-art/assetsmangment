@@ -11,6 +11,29 @@ from app.infrastructure.aliyun_oss import OssStorage
 
 _ALLOWED = {t.value for t in MaterialType}
 
+
+class QwenVLVisionDescriber:
+    """图像反解成画面内容文字(实现 domain.ports.VisionDescriber)。用于图片/视频帧审核。"""
+    _PROMPT = ("请详细描述这张图片的画面内容(中文):主体、场景、动作、画面中的文字、"
+               "以及任何可能涉及违规的风险点(如暴力、色情、政治敏感、违禁品等)。用于内容审核。")
+
+    def __init__(self, api_key: str, model: str = "qwen3-vl-plus") -> None:
+        import dashscope  # 延迟导入
+        self._dashscope = dashscope
+        self._api_key = api_key
+        self._model = model
+
+    def describe_image(self, url: str) -> str:
+        from dashscope import MultiModalConversation
+        resp = MultiModalConversation.call(
+            api_key=self._api_key, model=self._model,
+            messages=[{"role": "user", "content": [{"image": url}, {"text": self._PROMPT}]}])
+        if getattr(resp, "status_code", None) != 200:
+            raise RuntimeError(f"图像反解失败: {getattr(resp, 'status_code', '?')} "
+                               f"{getattr(resp, 'message', '')}")
+        content = resp.output.choices[0].message.content
+        return content[0]["text"] if isinstance(content, list) else str(content)
+
 _PROMPT = (
     "你是视频物料反解引擎。请把这段视频拆解成若干可复用的物料候选。"
     "只返回一个 JSON 对象,形如 {\"candidates\":[{...}]},不要 markdown、不要任何解释文字。"

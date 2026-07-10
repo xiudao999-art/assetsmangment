@@ -23,9 +23,11 @@ class Settings(BaseSettings):
     oss_access_key_secret: str = ""
     oss_url_expire_seconds: int = 3600
 
-    # 百炼 DashScope(Qwen-VL + multimodal-embedding)
+    # 百炼 DashScope(Qwen-VL + multimodal-embedding + 审核用 LLM/ASR)
     dashscope_api_key: str = ""
     qwen_vl_model: str = "qwen3-vl-plus"
+    qwen_llm_model: str = "qwen-plus"           # 规则判定/挑重点时间段
+    asr_model: str = "paraformer-v2"            # 语音转写(带时间轴)
     embedding_model: str = "multimodal-embedding-v1"
     embedding_dim: int = 1024
     parse_fps: float = 2.0

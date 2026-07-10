@@ -7,7 +7,8 @@ def _hermetic_storage(monkeypatch):
     from app.api import deps
     from app.infrastructure.fakes import (
         FakeStorage, InMemoryMaterialRepo, FakeVideoParser, FakeEmbedder,
-        FakeQueryEmbedder, FakePassAuditor,
+        FakeQueryEmbedder, FakePassAuditor, FakeTranscriber, FakeVisionDescriber,
+        FakeLlm, InMemoryAuditRuleRepo, InMemoryAuditReportRepo,
     )
     monkeypatch.setattr(deps, "storage", FakeStorage())
     monkeypatch.setattr(deps, "material_repo", InMemoryMaterialRepo())
@@ -16,3 +17,8 @@ def _hermetic_storage(monkeypatch):
     monkeypatch.setattr(deps, "_embedder", FakeEmbedder())
     monkeypatch.setattr(deps, "_query_embedder", FakeQueryEmbedder())
     monkeypatch.setattr(deps, "_auditor", FakePassAuditor())
+    monkeypatch.setattr(deps, "_llm", FakeLlm())
+    monkeypatch.setattr(deps, "_vision", FakeVisionDescriber())
+    monkeypatch.setattr(deps, "_transcriber", FakeTranscriber())
+    monkeypatch.setattr(deps, "rule_repo", InMemoryAuditRuleRepo())
+    monkeypatch.setattr(deps, "report_repo", InMemoryAuditReportRepo())

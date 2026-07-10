@@ -1,12 +1,35 @@
 """领域端口(Protocol 接口)。infra 实现它们,service 依赖它们 —— 依赖倒置。"""
 from __future__ import annotations
 from typing import Protocol, Optional
-from app.domain.models import MaterialCandidate, Material, User
+from app.domain.models import MaterialCandidate, Material, User, TextSegment, AuditRule
 
 
 class VideoParser(Protocol):
     """反解智能体端口(Qwen-VL 的抽象)。"""
     def parse_video(self, oss_key: str) -> list[MaterialCandidate]: ...
+
+
+class Transcriber(Protocol):
+    """语音转写端口(ASR,paraformer 的抽象)。输入媒体 URL → 带时间轴的转写段。"""
+    def transcribe(self, url: str) -> list[TextSegment]: ...
+
+
+class VisionDescriber(Protocol):
+    """图像反解端口(Qwen-VL):把图片/关键帧解析成画面内容文字。"""
+    def describe_image(self, url: str) -> str: ...
+
+
+class Llm(Protocol):
+    """通用大模型端口(qwen-plus,JSON 输出)。供「挑重点时间段」与「规则判定」复用。"""
+    def chat_json(self, system: str, user: str) -> dict: ...
+
+
+class AuditRuleRepo(Protocol):
+    """审核规则仓储。"""
+    def add(self, rule: AuditRule) -> None: ...
+    def delete(self, rule_id: str) -> None: ...
+    def list(self) -> list[AuditRule]: ...
+    def list_for(self, source_type: str) -> list[AuditRule]: ...
 
 
 class Embedder(Protocol):

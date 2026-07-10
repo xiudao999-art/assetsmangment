@@ -141,6 +141,39 @@ def test_publish_public_favorite_flow():  # 音乐类型 + 发布 + 公共库 + 
     assert not any(m["id"] == mid for m in pub2["items"])
 
 
+def test_audit_rules_require_admin():
+    assert client.post("/audit/rules", json={"keywords": ["x"]}).status_code == 401           # guest
+    assert client.post("/audit/rules", json={"keywords": ["x"]}, headers=_user_hdr()).status_code == 403
+
+
+def test_audit_text_keyword_block():
+    ah, uh = _admin_hdr(), _user_hdr()
+    client.post("/audit/rules", json={"source_type": "any", "keywords": ["赌博"], "action": "block"}, headers=ah)
+    r = client.post("/audit/submit", data={"type": "corpus", "content": "这是赌博广告"}, headers=uh)
+    assert r.status_code == 200
+    body = r.json()
+    assert body["report"]["verdict"] == "block"
+    assert any("赌博" in t["reason"] for t in body["report"]["triggered"])
+
+
+def test_audit_text_pass_when_clean():
+    uh = _user_hdr()
+    r = client.post("/audit/submit", data={"type": "corpus", "content": "今天阳光明媚"}, headers=uh)
+    assert r.status_code == 200 and r.json()["report"]["verdict"] == "pass"
+
+
+def test_audit_image_sync_describes():
+    uh = _user_hdr()
+    r = client.post("/audit/submit", data={"type": "image"},
+                    files={"file": ("a.png", b"x", "image/png")}, headers=uh)
+    assert r.status_code == 200
+    assert r.json()["report"]["segments"][0]["source_type"] == "image_content"
+
+
+def test_audit_requires_login():
+    assert client.post("/audit/submit", data={"type": "corpus", "content": "hi"}).status_code == 401
+
+
 def test_download_only_in_my_library():
     """我的物料库(自己上传/已收藏)可下载;公共库未收藏不可下载。"""
     uh, ah = _user_hdr(), _admin_hdr()

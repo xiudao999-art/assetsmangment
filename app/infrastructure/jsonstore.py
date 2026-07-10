@@ -10,7 +10,10 @@ import threading
 from dataclasses import asdict
 from typing import Optional
 
-from app.domain.models import Material, MaterialType, AuditStatus, User
+from app.domain.models import (
+    Material, MaterialType, AuditStatus, User,
+    AuditRule, AuditReport, TextSegment, TextSourceType,
+)
 
 
 class Store:
@@ -23,6 +26,8 @@ class Store:
         self.users: dict[str, User] = {}
         self.favorites: set[tuple[str, str]] = set()
         self.roles: dict[str, set[str]] = {}
+        self.rules: dict[str, AuditRule] = {}
+        self.audit_reports: dict[str, AuditReport] = {}
         self._load()
 
     # ── 序列化 ──
@@ -40,6 +45,25 @@ class Store:
         d["audit_status"] = AuditStatus(d["audit_status"])
         return Material(**d)
 
+    @staticmethod
+    def _report_to_dict(r: AuditReport) -> dict:
+        return {
+            "verdict": r.verdict.value,
+            "summary": r.summary,
+            "triggered": r.triggered,
+            "segments": [{"source_type": s.source_type.value, "text": s.text,
+                          "begin_ms": s.begin_ms, "end_ms": s.end_ms,
+                          "frame_oss_key": s.frame_oss_key} for s in r.segments],
+        }
+
+    @staticmethod
+    def _report_from_dict(d: dict) -> AuditReport:
+        segs = [TextSegment(source_type=TextSourceType(s["source_type"]), text=s["text"],
+                            begin_ms=s.get("begin_ms"), end_ms=s.get("end_ms"),
+                            frame_oss_key=s.get("frame_oss_key", "")) for s in d.get("segments", [])]
+        return AuditReport(verdict=AuditStatus(d["verdict"]), segments=segs,
+                           triggered=d.get("triggered", []), summary=d.get("summary", ""))
+
     def _load(self) -> None:
         if not os.path.exists(self.path):
             return
@@ -53,6 +77,11 @@ class Store:
             self.users[user.id] = user
         self.favorites = {tuple(x) for x in d.get("favorites", [])}
         self.roles = {k: set(v) for k, v in d.get("roles", {}).items()}
+        for r in d.get("rules", []):
+            rule = AuditRule(**r)
+            self.rules[rule.id] = rule
+        for rid, rep in d.get("audit_reports", {}).items():
+            self.audit_reports[rid] = self._report_from_dict(rep)
 
     def save(self) -> None:
         with self._lock:
@@ -61,6 +90,9 @@ class Store:
                 "users": [asdict(u) for u in self.users.values()],
                 "favorites": [list(x) for x in self.favorites],
                 "roles": {k: sorted(v) for k, v in self.roles.items()},
+                "rules": [asdict(r) for r in self.rules.values()],
+                "audit_reports": {rid: self._report_to_dict(rep)
+                                  for rid, rep in self.audit_reports.items()},
             }
             os.makedirs(os.path.dirname(self.path) or ".", exist_ok=True)
             tmp = self.path + ".tmp"
@@ -150,3 +182,36 @@ class JsonRbac:
     def revoke(self, role: str, permission: str) -> None:
         self._s.roles.get(role, set()).discard(permission)
         self._s.save()
+
+
+# ── 审核规则 ──
+class JsonAuditRuleRepo:
+    def __init__(self, store: Store) -> None:
+        self._s = store
+
+    def add(self, rule: AuditRule) -> None:
+        self._s.rules[rule.id] = rule
+        self._s.save()
+
+    def delete(self, rule_id: str) -> None:
+        self._s.rules.pop(rule_id, None)
+        self._s.save()
+
+    def list(self) -> list[AuditRule]:
+        return list(self._s.rules.values())
+
+    def list_for(self, source_type: str) -> list[AuditRule]:
+        return [r for r in self._s.rules.values() if r.applies_to(source_type)]
+
+
+# ── 审核报告 ──
+class JsonAuditReportRepo:
+    def __init__(self, store: Store) -> None:
+        self._s = store
+
+    def save(self, report_id: str, report: AuditReport) -> None:
+        self._s.audit_reports[report_id] = report
+        self._s.save()
+
+    def get(self, report_id: str) -> Optional[AuditReport]:
+        return self._s.audit_reports.get(report_id)

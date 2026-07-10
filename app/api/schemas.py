@@ -32,3 +32,10 @@ class GrantIn(BaseModel):
 
 class AuditSet(BaseModel):
     status: str  # pass / review / block
+
+
+class RuleIn(BaseModel):
+    source_type: str = "any"        # any 或 TextSourceType 值
+    keywords: list[str] = []        # 关键词快筛
+    condition: str = ""             # 自然语言条件(交大模型判)
+    action: str = "block"           # block / review
