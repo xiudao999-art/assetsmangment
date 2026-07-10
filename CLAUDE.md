@@ -27,6 +27,24 @@
 - 栅格:8px 节奏;单一强调色;暗色/亮色双主题。
 - 组件优先 shadcn/ui,动效用 Magic UI;每屏改完用 Playwright 截图自检。
 
+## 本地 harness 配置(已装 · 闭环地图)
+**已装**:BMAD(BMM+TEA,56 skills)· 技能 frontend-design/theme-factory/c4-model-skill/software-design-skills/webapp-testing · MCP context7/github/playwright/db/shadcn · 传感器 lint-imports/pytest/behave/playwright(.venv)。
+
+**闭环怎么自动转起来(核心)**:
+- **验证自动化 = Stop hook**:`.claude/settings.json` 里配了 Stop hook,每次我收工自动跑 `make verify`(架构②+代码③+产品①三传感器),**红了自动唤醒我按失败路由修**——这才是"闭环",不靠手动。
+- **前端改动 = PostToolUse 提醒**:改 `frontend/**` 会提示跑 `make ui-qc`。
+
+**四个设计闭环 → 对应命令/技能**(`make design` 可打印):
+| 闭环 | 产出(技能)| 验证(传感器/命令)|
+|---|---|---|
+| ①产品设计 | bmad-prd(EARS)→ bmad-testarch-atdd | `make bdd`(behave) |
+| 界面设计 | frontend-design + shadcn MCP | **`make ui-qc`(真点击,别只截图)** |
+| ②架构设计 | bmad-architecture + c4-model-skill(workspace.dsl+ADR)| `make arch`(lint-imports)|
+| ③代码开发 | bmad-dev-story(先测后码)+ /code-review | `make test`(pytest)|
+| ④验证驱动 | TEA-nfr/trace/release-gate | **`make verify`(Stop hook 自动跑)** |
+
+**铁律**:功能对不对**必须真点击验证**(`make ui-qc`),API 绿灯 + 静态截图不算数。
+
 ## 协作与成本
 - **每个 BMAD 工作流开新 chat**(防上下文污染);规划期可用 Web Bundles 省 token。
 - 小改走 Quick Flow,不上全套敏捷仪式。

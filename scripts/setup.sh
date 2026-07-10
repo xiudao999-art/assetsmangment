@@ -58,7 +58,15 @@ clone_skill() {  # $1=repo  $2=目录名
 }
 clone_skill https://github.com/cheriftj/c4-model-skill c4-model-skill
 clone_skill https://github.com/yonatankarp/software-design-skills software-design-skills
-warn "frontend-design 需在 Claude Code 内执行:/plugin marketplace add anthropics/skills  然后启用 frontend-design"
+# Anthropic 官方设计/QC 技能(界面设计 + 主题 + 真点击测试)
+if [ ! -d .claude/skills/frontend-design ]; then
+  tmp=$(mktemp -d); git clone --depth 1 https://github.com/anthropics/skills "$tmp/s" 2>/dev/null \
+    && for s in frontend-design theme-factory webapp-testing; do cp -r "$tmp/s/skills/$s" .claude/skills/ 2>/dev/null && ok "$s"; done \
+    || warn "anthropic skills clone 失败(检查网络)"; rm -rf "$tmp"
+else warn "frontend-design 已存在,跳过"; fi
+
+# Python Playwright(UI QC 用)
+uv pip install -q playwright 2>/dev/null && .venv/bin/playwright install chromium 2>/dev/null && ok "playwright + chromium" || warn "playwright 装失败"
 
 # ── 5. 验证 ──────────────────────────────────────────────────
 say "5/6 验证协作链"

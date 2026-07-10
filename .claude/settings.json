@@ -1,0 +1,29 @@
+{
+  "hooks": {
+    "Stop": [
+      {
+        "hooks": [
+          {
+            "type": "command",
+            "command": "bash scripts/verify.sh",
+            "asyncRewake": true,
+            "rewakeSummary": "三层闭环验证未通过",
+            "rewakeMessage": "验证 harness 发现红灯(架构/代码/产品其一),按失败路由修对应闭环再收工:",
+            "timeout": 120
+          }
+        ]
+      }
+    ],
+    "PostToolUse": [
+      {
+        "matcher": "Write|Edit",
+        "hooks": [
+          {
+            "type": "command",
+            "command": "jq -r '.tool_input.file_path // \"\"' | grep -q '/frontend/' && printf '%s' '{\"systemMessage\":\"🎬 前端已改 —— 收工前跑 UI QC:make ui-qc(真点击验证,别只看截图)\"}' || true"
+          }
+        ]
+      }
+    ]
+  }
+}
