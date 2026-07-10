@@ -10,14 +10,14 @@ from app.infrastructure.fakes import (
 )
 
 
-def _svc(llm=None, rules=(), repo=None):
+def _svc(llm=None, rules=(), repo=None, auditor=None):
     rr = InMemoryAuditRuleRepo()
     for r in rules:
         rr.add(r)
     repo = repo or InMemoryMaterialRepo()
     reports = InMemoryAuditReportRepo()
     svc = AuditPipelineService(FakeTranscriber(), FakeVisionDescriber(), llm or FakeLlm(),
-                               rr, reports, FakeStorage(), repo, FakeEmbedder(), InMemoryVectorIndex())
+                               rr, reports, FakeStorage(), repo, FakeEmbedder(), InMemoryVectorIndex(), auditor)
     return svc, repo, reports
 
 
@@ -93,6 +93,23 @@ def test_report_persisted_and_material_updated():
     assert repo.get("m1").audit_status == AuditStatus.BLOCK
     assert repo.get("m1").audit_report_id  # 报告 id 写回
     assert reports.get(repo.get("m1").audit_report_id).verdict == AuditStatus.BLOCK
+
+
+def test_content_safety_hard_block():
+    from app.infrastructure.fakes import FakeBlockAuditor
+    # 无任何规则,但内容安全判 block → 最终 block(硬拦兜底,取最严)
+    svc, _, _ = _svc(auditor=FakeBlockAuditor())
+    report = svc.run(svc.submit(MaterialType.IMAGE, oss_key="img/x.png"))
+    assert report.verdict == AuditStatus.BLOCK
+    assert any(t["rule_id"] == "content-safety" for t in report.triggered)
+
+
+def test_content_safety_pass_is_noop():
+    from app.infrastructure.fakes import FakePassAuditor
+    # 内容安全放行(如未开通的假实现)→ 不影响,仍按规则(此处无规则)pass
+    svc, _, _ = _svc(auditor=FakePassAuditor())
+    report = svc.run(svc.submit(MaterialType.IMAGE, oss_key="img/x.png"))
+    assert report.verdict == AuditStatus.PASS
 
 
 def test_rule_repo_list_for():

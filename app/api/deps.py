@@ -144,7 +144,7 @@ def get_library_service() -> LibraryService:
 
 def get_audit_service() -> AuditPipelineService:
     return AuditPipelineService(_transcriber, _vision, _llm, rule_repo, report_repo,
-                                storage, material_repo, _embedder, index)
+                                storage, material_repo, _embedder, index, _auditor)
 
 
 def current_user(authorization: str | None):

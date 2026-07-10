@@ -39,13 +39,16 @@ class AliyunAuditor:
         except Exception as e:  # 网络/权限/超时 → 不放行,转人工
             raise TimeoutError(str(e))
 
+    # 严重风险标签(政治/色情/暴恐/违禁/涉毒/赌博)→ 硬拦 block;其余风险(如广告)→ 转人工 review
+    _SERIOUS = ("porn", "sexual", "political", "violen", "terroris", "contraband", "gambl", "drug")
+
     def _moderate_image(self, url: str) -> str:
         req = self._models.ImageModerationRequest(
             service=self._image_service,
             service_parameters=json.dumps({"imageUrl": url, "dataId": uuid.uuid4().hex}))
         resp = self._client.image_moderation_with_options(req, self._util.RuntimeOptions())
         if resp.status_code != 200 or resp.body.code != 200:
-            raise RuntimeError(f"image moderation {resp.body.code} {resp.body.msg}")
+            raise RuntimeError(f"image moderation {resp.body.code} {getattr(resp.body, 'msg', '')}")
         risk = (getattr(resp.body.data, "risk_level", "") or "").lower()
         return {"none": "pass", "low": "review", "medium": "review", "high": "block"}.get(risk, "review")
 
@@ -55,6 +58,8 @@ class AliyunAuditor:
             service_parameters=json.dumps({"content": text[:9000], "dataId": uuid.uuid4().hex}))
         resp = self._client.text_moderation_with_options(req, self._util.RuntimeOptions())
         if resp.status_code != 200 or resp.body.code != 200:
-            raise RuntimeError(f"text moderation {resp.body.code} {resp.body.msg}")
-        labels = (getattr(resp.body.data, "labels", "") or "").strip()
-        return "pass" if not labels else "block"
+            raise RuntimeError(f"text moderation {resp.body.code} {getattr(resp.body, 'msg', '')}")
+        labels = (getattr(resp.body.data, "labels", "") or "").strip().lower()
+        if not labels:
+            return "pass"
+        return "block" if any(s in labels for s in self._SERIOUS) else "review"

@@ -34,7 +34,7 @@ _MOMENT_SYS = (
 
 class AuditPipelineService:
     def __init__(self, transcriber, vision, llm, rule_repo, report_repo,
-                 storage, material_repo, embedder, index) -> None:
+                 storage, material_repo, embedder, index, auditor=None) -> None:
         self._transcriber = transcriber
         self._vision = vision
         self._llm = llm
@@ -44,6 +44,7 @@ class AuditPipelineService:
         self._repo = material_repo
         self._embedder = embedder
         self._index = index
+        self._auditor = auditor  # 阿里云内容安全硬拦兜底(可选);假实现时恒 pass 无影响
 
     def submit(self, material_type: MaterialType, oss_key: str = "",
                owner_id: str = "", material_id: str = "") -> AuditJob:
@@ -54,7 +55,8 @@ class AuditPipelineService:
     def run(self, job: AuditJob, text: str = "") -> AuditReport:
         try:
             segments = self._to_segments(job, text)
-            triggered = self._prefilter(segments) + self._llm_judge(segments)
+            triggered = (self._prefilter(segments) + self._llm_judge(segments)
+                         + self._content_safety(job, segments))
             verdict = self._combine(triggered)
             summary = self._summary(verdict, triggered)
             report = AuditReport(verdict=verdict, segments=segments, triggered=triggered, summary=summary)
@@ -154,6 +156,34 @@ class AuditPipelineService:
                         triggered.append({"rule_id": rule.id, "source_type": seg.source_type.value,
                                           "action": rule.action, "reason": f"关键词命中「{kw}」"})
                         break
+        return triggered
+
+    # ── 阿里云内容安全硬拦兜底(黄暴政治等,与规则引擎并存取最严)──
+    def _content_safety(self, job: AuditJob, segments: list[TextSegment]) -> list[dict]:
+        if self._auditor is None:
+            return []
+        import types
+        targets: list[tuple] = []
+        if job.material_type in (MaterialType.IMAGE, MaterialType.MEME, MaterialType.STYLE) and job.oss_key:
+            targets.append(("原图", types.SimpleNamespace(oss_key=job.oss_key, description="")))
+        for s in segments:
+            if s.frame_oss_key:
+                targets.append((f"帧{s.begin_ms}ms", types.SimpleNamespace(oss_key=s.frame_oss_key, description="")))
+        # 文本审核只审「真实内容」(原文/转写);AI 反解出的画面描述会点名"暴力/色情"等风险词,
+        # 交给图片审核(直接审像素)即可,不能拿描述去过文本审核(否则正常图也被误判)。
+        real_text = "\n".join(s.text for s in segments
+                              if s.text and s.source_type in (TextSourceType.ORIGINAL_TEXT, TextSourceType.TRANSCRIPT))[:9000]
+        if real_text.strip():
+            targets.append(("文本", types.SimpleNamespace(oss_key="", description=real_text)))
+        triggered: list[dict] = []
+        for label, obj in targets:
+            try:
+                v = self._auditor.audit(obj)  # 'pass'/'review'/'block';FakePassAuditor 恒 pass
+            except Exception:
+                v = "review"  # 内容安全异常/超时 → 不放行
+            if v in ("block", "review"):
+                triggered.append({"rule_id": "content-safety", "source_type": label,
+                                  "action": v, "reason": f"阿里云内容安全:{label}判为{v}"})
         return triggered
 
     # ── 大模型按自然语言规则兜底 ──
