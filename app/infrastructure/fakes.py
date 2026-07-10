@@ -108,6 +108,9 @@ class FakeStorage:
         self._keys.add(dest_key)
         return True
 
+    def video_duration_ms(self, oss_key: str):
+        return 8000  # 假实现:固定 8 秒
+
     def snapshot_url(self, oss_key: str, ms: int = 1000) -> str:
         return f"https://oss.fake/{oss_key}?x-oss-process=video/snapshot,t_{ms}"
 

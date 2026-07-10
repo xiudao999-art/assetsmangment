@@ -4,6 +4,28 @@ from __future__ import annotations
 from app.config import settings
 
 
+def _mvhd_duration_ms(data: bytes):
+    """从 mp4 字节里找 mvhd atom,读 timescale/duration 算时长(ms)。"""
+    i = data.find(b"mvhd")
+    if i < 0:
+        return None
+    v = data[i + 4]  # mvhd 内容首字节 = version
+    try:
+        if v == 0:
+            if i + 24 > len(data):
+                return None
+            ts = int.from_bytes(data[i + 16:i + 20], "big")
+            du = int.from_bytes(data[i + 20:i + 24], "big")
+        else:  # version 1:创建/修改时间各 8 字节
+            if i + 36 > len(data):
+                return None
+            ts = int.from_bytes(data[i + 24:i + 28], "big")
+            du = int.from_bytes(data[i + 28:i + 36], "big")
+        return int(du / ts * 1000) if ts else None
+    except Exception:
+        return None
+
+
 class OssStorage:
     def __init__(self) -> None:
         import oss2  # 延迟导入
@@ -33,6 +55,22 @@ class OssStorage:
 
     def delete(self, oss_key: str) -> None:
         self._bucket.delete_object(oss_key)
+
+    def video_duration_ms(self, oss_key: str):
+        """取视频时长(毫秒)。解析 mp4 的 mvhd atom(timescale+duration),无需 IMM/ffmpeg。
+        moov 可能在文件头(faststart)或尾部,两处都试;拿不到返回 None。"""
+        try:
+            head = self._bucket.get_object(oss_key, byte_range=(0, 512 * 1024 - 1)).read()
+            d = _mvhd_duration_ms(head)
+            if d:
+                return d
+            size = self._bucket.head_object(oss_key).content_length
+            if size and size > 512 * 1024:
+                tail = self._bucket.get_object(oss_key, byte_range=(size - 512 * 1024, size - 1)).read()
+                return _mvhd_duration_ms(tail)
+        except Exception:
+            return None
+        return None
 
     def snapshot_frame(self, video_key: str, ms: int, dest_key: str) -> bool:
         """用 OSS 视频截帧(video/snapshot,无需 ffmpeg)取某时间点的帧图,存回 OSS。

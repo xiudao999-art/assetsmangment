@@ -62,6 +62,7 @@ class ObjectStorage(Protocol):
     def signed_url(self, oss_key: str) -> str: ...          # 预览用签名 URL
     def download_url(self, oss_key: str) -> str: ...        # 下载用签名 URL(强制 attachment)
     def snapshot_url(self, oss_key: str, ms: int = 1000) -> str: ...  # 视频封面帧签名 URL
+    def video_duration_ms(self, oss_key: str): ...                    # 视频时长(ms),拿不到→None
     def exists(self, oss_key: str) -> bool: ...
     def delete(self, oss_key: str) -> None: ...
 

@@ -146,13 +146,28 @@ class AuditPipelineService:
         # 兜底:当作原文
         return [TextSegment(TextSourceType.ORIGINAL_TEXT, (text or "").strip())]
 
+    @staticmethod
+    def _sample_moments(dur_ms) -> list[int]:
+        """按视频时长在其范围内均匀取抽帧时间点(避开首尾),避免超时长截到重复的最后一帧。"""
+        if not dur_ms or dur_ms <= 0:
+            return [500, 1000, 1500]        # 拿不到时长 → 只取前几秒(短视频安全)
+        n = min(5, max(1, round(dur_ms / 2000)))
+        lo, hi = dur_ms * 0.08, dur_ms * 0.92
+        if n == 1:
+            return [int((lo + hi) / 2)]
+        step = (hi - lo) / (n - 1)
+        return [int(lo + i * step) for i in range(n)]
+
     def _video_segments(self, job: AuditJob) -> list[TextSegment]:
         url = self._storage.signed_url(job.oss_key)
         transcript = self._transcriber.transcribe(url)
+        dur = self._storage.video_duration_ms(job.oss_key)
         if transcript:
             moments = self._pick_visual_moments(transcript)
         else:
-            moments = [500, 2000, 4000, 6000, 8000]  # 无语音→按固定间隔抽帧,仍做画面审核
+            moments = self._sample_moments(dur)  # 无语音→按真实时长均匀抽帧
+        if dur:  # 钳制在时长内并去重,避免超时长截到同一最后帧
+            moments = sorted({min(m, max(0, dur - 100)) for m in moments if m is not None})
         frame_segs: list[TextSegment] = []
         for ms in moments:
             dest = f"frames/{job.oss_key.rsplit('/', 1)[-1]}-{uuid.uuid4().hex[:8]}.jpg"
