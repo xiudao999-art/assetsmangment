@@ -15,5 +15,6 @@ COPY app ./app
 COPY frontend ./frontend
 
 EXPOSE 8000
-# 500 并发:多 worker;生产由 ACK HPA 再水平扩副本
-CMD ["uvicorn", "app.main:app", "--host", "0.0.0.0", "--port", "8000", "--workers", "4"]
+# 单 worker:当前用 JSON 文件持久化(AM_DATA_DIR),进程内单一状态,多 worker 会各持一份内存副本导致不一致。
+# 迁到共享 RDS(pgvector)后再开多 worker + 多副本承接 500 并发。
+CMD ["uvicorn", "app.main:app", "--host", "0.0.0.0", "--port", "8000", "--workers", "1"]

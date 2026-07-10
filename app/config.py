@@ -9,6 +9,9 @@ class Settings(BaseSettings):
     # 用假实现还是真阿里云(默认假:本地/CI 无需密钥)
     use_fakes: bool = True
 
+    # 数据持久化目录(设了就把物料/用户/收藏落到 JSON,容器重启不丢;空=纯内存)
+    data_dir: str = ""
+
     # 阿里云 OSS
     oss_endpoint: str = ""
     oss_bucket: str = ""

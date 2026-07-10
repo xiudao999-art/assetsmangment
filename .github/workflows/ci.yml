@@ -69,6 +69,9 @@ jobs:
             docker pull ${{ env.IMAGE }}:latest
             docker rm -f assets-api 2>/dev/null || true
             ENVOPT=""; [ -f /opt/assets/.env ] && ENVOPT="--env-file /opt/assets/.env"
-            docker run -d --name assets-api --restart always -p 80:8000 $ENVOPT ${{ env.IMAGE }}:latest
+            mkdir -p /opt/assets/data   # 持久化卷:物料/用户/收藏落盘,重部署不丢
+            docker run -d --name assets-api --restart always -p 8088:8000 \
+              -e AM_DATA_DIR=/data -v /opt/assets/data:/data \
+              $ENVOPT ${{ env.IMAGE }}:latest
             docker image prune -f || true
             echo "已部署,容器状态:"; docker ps --filter name=assets-api

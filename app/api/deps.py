@@ -17,25 +17,40 @@ from app.infrastructure.fakes import (
     FakeHasher, FakeTokenIssuer, InMemoryRbac, ListAuditLog, InMemoryFavoriteRepo,
 )
 
-# ── 进程内单例;OSS 有密钥就用真实现,其余仍用假实现(逐个可接真)──
-material_repo = InMemoryMaterialRepo()
-
+# ── 进程内单例 ──
+# 存储:OSS 有密钥用真实现,否则假实现。
 if settings.oss_access_key_id and settings.oss_bucket:
     from app.infrastructure.aliyun_oss import OssStorage
     storage = OssStorage()   # 真 OSS
 else:
     storage = FakeStorage()
+
+# 物料/用户/收藏/权限:设了 AM_DATA_DIR 就落 JSON 文件(容器重启不丢),否则纯内存。
+if settings.data_dir:
+    from app.infrastructure.jsonstore import (
+        Store, JsonMaterialRepo, JsonUserRepo, JsonFavoriteRepo, JsonRbac,
+    )
+    _store = Store(f"{settings.data_dir.rstrip('/')}/state.json")
+    material_repo = JsonMaterialRepo(_store)
+    user_repo = JsonUserRepo(_store)
+    favorites = JsonFavoriteRepo(_store)
+    rbac = JsonRbac(_store)
+else:
+    material_repo = InMemoryMaterialRepo()
+    user_repo = InMemoryUserRepo()
+    favorites = InMemoryFavoriteRepo()
+    rbac = InMemoryRbac()
+
 index = InMemoryVectorIndex()
-user_repo = InMemoryUserRepo()
-rbac = InMemoryRbac()
 audit_log = ListAuditLog()
-favorites = InMemoryFavoriteRepo()
 jobs: dict[str, dict] = {}
 
-# ── 播种账号:一个管理员 + 一个普通用户(演示用)──
+# ── 播种账号:一个管理员 + 一个普通用户(演示用)。已存在则不覆盖(持久化后只种一次)──
 _h = FakeHasher()
-user_repo.save(User(id="admin", name="admin", pwd_hash=_h.hash("admin123"), role="admin"))
-user_repo.save(User(id="user01", name="demo", pwd_hash=_h.hash("pw123456"), role="user"))
+if user_repo.get("admin") is None:
+    user_repo.save(User(id="admin", name="admin", pwd_hash=_h.hash("admin123"), role="admin"))
+if user_repo.get("user01") is None:
+    user_repo.save(User(id="user01", name="demo", pwd_hash=_h.hash("pw123456"), role="user"))
 
 
 def get_material_service() -> MaterialService:
