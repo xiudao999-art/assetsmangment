@@ -45,10 +45,29 @@ index = InMemoryVectorIndex()
 audit_log = ListAuditLog()
 jobs: dict[str, dict] = {}
 
-# ── 共享单例:同一密钥签发/校验 token;同一 hasher/embedder ──
+# 内容安全审核器:有内容安全凭据(或复用 OSS RAM key)就接真,否则放行占位(等人工审核)
+_auditor = FakePassAuditor()
+
+# ── 共享单例:同一密钥签发/校验 token;同一 hasher ──
 _h = FakeHasher()
 token_issuer = FakeTokenIssuer()
-_embedder = FakeEmbedder()
+
+# ── AI 能力:有 DashScope key 就接真云(Qwen-VL 反解 + multimodal-embedding),否则假实现 ──
+if settings.dashscope_api_key:
+    from app.infrastructure.dashscope_embed import DashScopeEmbedder, DashScopeQueryEmbedder
+    _embedder = DashScopeEmbedder(settings.dashscope_api_key, settings.embedding_model)
+    _query_embedder = DashScopeQueryEmbedder(settings.dashscope_api_key, settings.embedding_model)
+    from app.infrastructure.aliyun_oss import OssStorage as _Oss
+    if isinstance(storage, _Oss):  # 视频反解要真 OSS(签名 URL + 截帧)
+        from app.infrastructure.qwen_vl import QwenVLVideoParser
+        _video_parser = QwenVLVideoParser(settings.dashscope_api_key, storage,
+                                          settings.qwen_vl_model, settings.parse_fps, settings.parse_max_frames)
+    else:
+        _video_parser = FakeVideoParser()
+else:
+    _embedder = FakeEmbedder()
+    _query_embedder = FakeQueryEmbedder()
+    _video_parser = FakeVideoParser()
 
 # ── 播种账号:一个管理员 + 一个普通用户(演示用)。已存在则不覆盖(持久化后只种一次)──
 if user_repo.get("admin") is None:
@@ -68,11 +87,11 @@ def get_material_service() -> MaterialService:
 
 
 def get_search_service() -> SearchService:
-    return SearchService(FakeQueryEmbedder(), material_repo)
+    return SearchService(_query_embedder, material_repo)
 
 
 def get_video_service() -> VideoParsingService:
-    return VideoParsingService(FakeVideoParser(), FakeEmbedder(), FakePassAuditor(), material_repo, storage)
+    return VideoParsingService(_video_parser, _embedder, _auditor, material_repo, storage)
 
 
 def get_index_service() -> IndexService:

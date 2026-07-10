@@ -28,3 +28,17 @@ class OssStorage:
 
     def delete(self, oss_key: str) -> None:
         self._bucket.delete_object(oss_key)
+
+    def snapshot_frame(self, video_key: str, ms: int, dest_key: str) -> bool:
+        """用 OSS 视频截帧(video/snapshot,无需 ffmpeg)取某时间点的帧图,存回 OSS。
+        仅 H264/H265 有效;失败返回 False(反解仍继续,只是该帧无独立图)。"""
+        try:
+            data = self._bucket.get_object(
+                video_key, process=f"video/snapshot,t_{int(ms)},f_jpg,m_fast"
+            ).read()
+            if not data:
+                return False
+            self._bucket.put_object(dest_key, data)
+            return True
+        except Exception:
+            return False

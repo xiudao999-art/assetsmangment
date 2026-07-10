@@ -33,6 +33,7 @@ class MaterialCandidate:
     thumb: str
     source_timecode: float
     description: str = ""
+    oss_key: str = ""   # 该候选对应的真实文件(如反解截帧图),用于预览/下载;空=无独立文件
 
 
 @dataclass

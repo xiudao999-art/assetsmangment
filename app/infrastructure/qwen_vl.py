@@ -1,0 +1,89 @@
+"""真实视频反解适配器 —— 百炼 DashScope Qwen-VL(实现 domain.ports.VideoParser)。
+把 OSS 里的视频签成 HTTPS URL 交给 Qwen-VL,按 fps 抽帧理解,返回结构化物料候选;
+再用 OSS 视频截帧把每个候选对应的关键帧存回 OSS(真图,可预览/下载)。infra→domain。"""
+from __future__ import annotations
+import json
+import re
+import uuid
+
+from app.domain.models import MaterialCandidate, MaterialType
+from app.infrastructure.aliyun_oss import OssStorage
+
+_ALLOWED = {t.value for t in MaterialType}
+
+_PROMPT = (
+    "你是视频物料反解引擎。请把这段视频拆解成若干可复用的物料候选。"
+    "只返回一个 JSON 对象,形如 {\"candidates\":[{...}]},不要 markdown、不要任何解释文字。"
+    "每个候选字段:"
+    "source_timecode(数字,秒,该物料在视频中的时间码);"
+    "type(只能是 image|meme|video|style|corpus|music 之一);"
+    "description(中文,详细且可检索的描述)。"
+    "含义:image=值得截取的静态画面,meme=可做表情包的画面,video=可裁剪的连续片段,"
+    "style=画面/调色/构图风格,corpus=可复用的文案或台词语料,music=背景音乐或音效。"
+    "覆盖不同时间点,数量控制在 4~12 个。"
+)
+
+
+class QwenVLVideoParser:
+    def __init__(self, api_key: str, storage: OssStorage, model: str = "qwen3-vl-plus",
+                 fps: float = 2.0, max_frames: int = 512, url_ttl: int = 3600) -> None:
+        import dashscope  # 延迟导入
+        self._dashscope = dashscope
+        self._api_key = api_key
+        self._storage = storage
+        self._model = model
+        self._fps = fps
+        self._max_frames = max_frames
+        self._ttl = url_ttl
+
+    def parse_video(self, oss_key: str) -> list[MaterialCandidate]:
+        from dashscope import MultiModalConversation
+        url = self._storage.signed_url(oss_key)
+        resp = MultiModalConversation.call(
+            api_key=self._api_key,
+            model=self._model,
+            messages=[{"role": "user", "content": [
+                {"video": url, "fps": self._fps},
+                {"text": _PROMPT},
+            ]}],
+        )
+        if getattr(resp, "status_code", None) != 200:
+            # 交给 service 层重试/FAILED(不静默放行)
+            raise RuntimeError(f"Qwen-VL 反解失败: {getattr(resp, 'status_code', '?')} "
+                               f"{getattr(resp, 'code', '')} {getattr(resp, 'message', '')}")
+        content = resp.output.choices[0].message.content
+        text = content[0]["text"] if isinstance(content, list) else str(content)
+        cands = self._parse_json(text)
+        # 为每个候选截帧存回 OSS(真图);失败则无独立图但保留描述
+        for c in cands:
+            ms = int(max(0.0, c.source_timecode) * 1000)
+            dest = f"frames/{oss_key.rsplit('/', 1)[-1]}-{uuid.uuid4().hex[:8]}.jpg"
+            if self._storage.snapshot_frame(oss_key, ms, dest):
+                c.oss_key = dest
+                c.thumb = dest
+        return cands
+
+    @staticmethod
+    def _parse_json(text: str) -> list[MaterialCandidate]:
+        text = (text or "").strip()
+        m = re.search(r"\{.*\}", text, re.S)  # 剥离偶发 ```json 包裹
+        try:
+            data = json.loads(m.group(0) if m else text)
+        except Exception:
+            # 兜底:整段作为一条语料候选,不丢结果
+            return [MaterialCandidate(type=MaterialType.CORPUS, thumb="", source_timecode=0.0,
+                                      description=text[:500])]
+        out: list[MaterialCandidate] = []
+        for c in data.get("candidates", []):
+            t = c.get("type")
+            if t not in _ALLOWED:
+                t = "image"
+            try:
+                tc = float(c.get("source_timecode", 0.0))
+            except (TypeError, ValueError):
+                tc = 0.0
+            out.append(MaterialCandidate(
+                type=MaterialType(t), thumb="", source_timecode=tc,
+                description=(c.get("description") or "").strip(),
+            ))
+        return out

@@ -59,7 +59,9 @@ class VideoParsingService:
                     embedding=embedding,
                     audit_status=status,
                     source_job=job.id,
+                    oss_key=cand.oss_key,   # 反解截帧图(可预览/下载),假实现为空
                     owner_id=owner_id,
+                    description=cand.description,
                 )
                 self._repo.save(material)
                 materials.append(material)
