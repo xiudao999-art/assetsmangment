@@ -60,6 +60,7 @@ else:
 
 audit_log = ListAuditLog()
 jobs: dict[str, dict] = {}
+batches: dict[str, dict] = {}   # 批量上传进度(内存,轮询窗口足够)
 
 # 内容安全审核器:开通「内容安全增强版」并置 AM_ENABLE_CONTENT_SAFETY=true 才接真;否则走人工审核
 if settings.enable_content_safety:

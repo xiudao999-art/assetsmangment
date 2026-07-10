@@ -174,6 +174,48 @@ def test_audit_requires_login():
     assert client.post("/audit/submit", data={"type": "corpus", "content": "hi"}).status_code == 401
 
 
+def _wait_batch(bid, uh, n=60):
+    import time
+    for _ in range(n):
+        s = client.get(f"/audit/batch/{bid}", headers=uh).json()
+        if s["done"] >= s["total"]:
+            return s
+        time.sleep(0.05)
+    return client.get(f"/audit/batch/{bid}", headers=uh).json()
+
+
+def test_batch_upload_multiple_files():
+    uh = _user_hdr()
+    files = [("files", ("a.png", b"\x89PNG", "image/png")),
+             ("files", ("b.txt", "你好世界".encode(), "text/plain")),
+             ("files", ("junk.xyz", b"zzz", "application/octet-stream"))]
+    r = client.post("/audit/batch", files=files, data={"audit": "false"}, headers=uh)
+    assert r.status_code == 200 and r.json()["total"] == 3
+    s = _wait_batch(r.json()["batch_id"], uh)
+    assert s["done"] == 3
+    st = {it["status"] for it in s["items"]}
+    assert "imported" in st and "skipped" in st   # 图片/文本入库,未知扩展名跳过
+
+
+def test_batch_upload_zip_unpacks():
+    import io, zipfile
+    buf = io.BytesIO()
+    with zipfile.ZipFile(buf, "w") as z:
+        z.writestr("pics/a.png", b"\x89PNG")
+        z.writestr("notes/b.txt", "内容")
+        z.writestr("__MACOSX/x", b"skip")     # 应被过滤
+    uh = _user_hdr()
+    r = client.post("/audit/batch", files={"files": ("pack.zip", buf.getvalue(), "application/zip")},
+                    data={"audit": "false"}, headers=uh)
+    assert r.status_code == 200 and r.json()["total"] == 2   # zip 解包出 2 个(过滤 __MACOSX)
+    s = _wait_batch(r.json()["batch_id"], uh)
+    assert s["done"] == 2 and all(it["material_id"] for it in s["items"] if it["status"] == "imported")
+
+
+def test_batch_requires_login():
+    assert client.post("/audit/batch", files={"files": ("a.png", b"x", "image/png")}).status_code == 401
+
+
 def test_download_only_in_my_library():
     """我的物料库(自己上传/已收藏)可下载;公共库未收藏不可下载。"""
     uh, ah = _user_hdr(), _admin_hdr()

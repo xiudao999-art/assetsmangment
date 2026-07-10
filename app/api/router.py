@@ -251,6 +251,111 @@ async def audit_submit(type: str = Form("image"), content: str = Form(""),
     return {"job_id": job.id, "status": job.status, "material_id": m.id, "report": _report_out(report)}
 
 
+# ── 批量上传(ZIP 解包 / 文件夹多文件)──
+_EXT_TYPE = {
+    "jpg": "image", "jpeg": "image", "png": "image", "gif": "image", "webp": "image", "bmp": "image",
+    "mp4": "video", "mov": "video", "mkv": "video", "avi": "video", "webm": "video", "flv": "video",
+    "mp3": "audio", "wav": "audio", "m4a": "audio", "aac": "audio", "flac": "audio", "ogg": "audio",
+    "txt": "corpus", "md": "corpus",
+}
+
+
+def _infer_type(name: str):
+    ext = name.rsplit(".", 1)[-1].lower() if "." in name else ""
+    return _EXT_TYPE.get(ext)
+
+
+def _expand_zip(data: bytes) -> list[tuple]:
+    """解包 zip → [(entry名, bytes)];跳过目录、隐藏文件、__MACOSX。"""
+    import zipfile, io
+    out = []
+    try:
+        with zipfile.ZipFile(io.BytesIO(data)) as z:
+            for info in z.infolist():
+                if info.is_dir():
+                    continue
+                base = info.filename.rsplit("/", 1)[-1]
+                if info.filename.startswith("__MACOSX") or base.startswith("."):
+                    continue
+                out.append((info.filename, z.read(info)))
+    except Exception:
+        pass
+    return out
+
+
+def _run_batch_bg(batch_id: str, items: list, owner_id: str, do_audit: bool) -> None:
+    """后台线程:逐个文件建物料(可选审核),更新 deps.batches 进度。"""
+    rec = deps.batches[batch_id]
+    svc = deps.get_audit_service()
+    msvc = deps.get_material_service()
+    for i, (name, data) in enumerate(items):
+        it = rec["items"][i]
+        t = _infer_type(name)
+        if t is None:
+            it["status"] = "skipped"; it["type"] = "unknown"; rec["done"] += 1; continue
+        it["type"] = t
+        try:
+            mtype = MaterialType(t)
+            if mtype == MaterialType.CORPUS:
+                content = data.decode("utf-8", "ignore")
+                m = Material(id=uuid.uuid4().hex, type=mtype, thumb="", source_timecode=0.0, embedding=[],
+                             audit_status=AuditStatus.REVIEW, source_job="", oss_key="",
+                             description=content, owner_id=owner_id)
+                deps.material_repo.save(m)
+            else:
+                key = f"materials/{uuid.uuid4().hex}-{name.rsplit('/', 1)[-1]}"
+                m = msvc.create(mtype, key, data, owner_id)
+                deps.get_index_service().index_material(m)
+            it["material_id"] = m.id
+            if do_audit:
+                it["status"] = "auditing"
+                job = svc.submit(mtype, oss_key=m.oss_key, owner_id=owner_id, material_id=m.id)
+                report = svc.run(job, m.description if mtype == MaterialType.CORPUS else "")
+                it["verdict"] = report.verdict.value
+                it["status"] = "done"
+            else:
+                it["status"] = "imported"
+        except Exception as e:
+            it["status"] = "failed"; it["error"] = str(e)[:120]
+        rec["done"] += 1
+
+
+@router.post("/audit/batch")
+async def audit_batch(files: list[UploadFile] = File(...), audit: str = Form("false"),
+                      user: dict = Depends(_user)):
+    """批量上传:多文件(文件夹拖拽)或单个 zip(自动解包)。audit=true 则逐条审核。"""
+    _require_auth(user)
+    do_audit = audit.lower() in ("true", "1", "yes", "on")
+    raw = [(f.filename or "file", await f.read()) for f in files]
+    items: list[tuple] = []
+    for name, data in raw:
+        if name.lower().endswith(".zip"):
+            items += _expand_zip(data)
+        else:
+            items.append((name, data))
+    items = [(n, d) for n, d in items if n and d]
+    if not items:
+        raise HTTPException(400, "没有可上传的文件")
+    if len(items) > 200:
+        raise HTTPException(400, "单次批量最多 200 个文件")
+    batch_id = uuid.uuid4().hex
+    deps.batches[batch_id] = {
+        "total": len(items), "done": 0, "audit": do_audit,
+        "items": [{"name": n, "status": "pending", "material_id": "", "type": "", "verdict": ""}
+                  for n, _ in items],
+    }
+    threading.Thread(target=_run_batch_bg, args=(batch_id, items, user["id"], do_audit), daemon=True).start()
+    return {"batch_id": batch_id, "total": len(items)}
+
+
+@router.get("/audit/batch/{batch_id}")
+def audit_batch_status(batch_id: str, user: dict = Depends(_user)):
+    rec = deps.batches.get(batch_id)
+    if rec is None:
+        raise HTTPException(404, "batch not found")
+    return {"batch_id": batch_id, **rec}
+
+
 # ── 审核规则后台(管理员)——放在 /audit/{job_id} 之前,避免 rules 被当作 job_id ──
 @router.get("/audit/rules")
 def list_audit_rules(user: dict = Depends(_user)):
