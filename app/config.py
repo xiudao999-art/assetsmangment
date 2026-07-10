@@ -31,10 +31,11 @@ class Settings(BaseSettings):
     parse_fps: float = 2.0
     parse_max_frames: int = 512
 
-    # 内容安全
-    content_safety_access_key_id: str = ""
+    # 内容安全(增强版 green20220302)。需在阿里云控制台开通「内容安全(增强版)」并授权 RAM。
+    enable_content_safety: bool = False   # 开通后置 true 即接真机器审核;否则走人工审核
+    content_safety_access_key_id: str = ""      # 留空则复用 OSS 的 AccessKey
     content_safety_access_key_secret: str = ""
-    content_safety_region: str = "cn-shanghai"
+    content_safety_region: str = "cn-beijing"
 
     # 数据库(RDS PostgreSQL + pgvector)
     database_url: str = "postgresql://user:pass@localhost:5432/assets"

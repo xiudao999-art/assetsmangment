@@ -16,6 +16,7 @@ dependencies = [
     "celery>=5.4",
     "oss2>=2.19",
     "dashscope>=1.20",
+    "alibabacloud-green20220302>=3.2.4",
     "httpx>=0.28",
     "python-multipart>=0.0.12",
 ]

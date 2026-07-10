@@ -41,12 +41,27 @@ else:
     favorites = InMemoryFavoriteRepo()
     rbac = InMemoryRbac()
 
-index = InMemoryVectorIndex()
+# 向量索引:有真 embedding(DashScope)+ 真 pg 连接串 → pgvector 语义近邻;否则内存
+_placeholder_db = settings.database_url.startswith("postgresql://user:pass@localhost")
+if settings.dashscope_api_key and settings.database_url and not _placeholder_db:
+    from app.infrastructure.pgvector_index import PgVectorIndex
+    index = PgVectorIndex(settings.database_url, dim=settings.embedding_dim)
+    _vector_search = True
+else:
+    index = InMemoryVectorIndex()
+    _vector_search = False
+
 audit_log = ListAuditLog()
 jobs: dict[str, dict] = {}
 
-# 内容安全审核器:有内容安全凭据(或复用 OSS RAM key)就接真,否则放行占位(等人工审核)
-_auditor = FakePassAuditor()
+# 内容安全审核器:开通「内容安全增强版」并置 AM_ENABLE_CONTENT_SAFETY=true 才接真;否则走人工审核
+if settings.enable_content_safety:
+    from app.infrastructure.content_safety import AliyunAuditor
+    _cs_ak = settings.content_safety_access_key_id or settings.oss_access_key_id
+    _cs_sk = settings.content_safety_access_key_secret or settings.oss_access_key_secret
+    _auditor = AliyunAuditor(_cs_ak, _cs_sk, storage, region=settings.content_safety_region)
+else:
+    _auditor = FakePassAuditor()
 
 # ── 共享单例:同一密钥签发/校验 token;同一 hasher ──
 _h = FakeHasher()
@@ -87,7 +102,8 @@ def get_material_service() -> MaterialService:
 
 
 def get_search_service() -> SearchService:
-    return SearchService(_query_embedder, material_repo)
+    # 仅在真 pgvector(真向量)时启用语义近邻;否则不传 index,走关键词回退
+    return SearchService(_query_embedder, material_repo, index if _vector_search else None)
 
 
 def get_video_service() -> VideoParsingService:

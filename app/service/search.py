@@ -1,20 +1,31 @@
 """语义搜索服务(REQ-301/302/303)。只依赖 domain 端口。"""
 from __future__ import annotations
-from app.domain.models import Material
-from app.domain.ports import QueryEmbedder, MaterialRepo
+from typing import Optional
+from app.domain.models import Material, AuditStatus
+from app.domain.ports import QueryEmbedder, MaterialRepo, VectorIndex
 
 
 class SearchService:
-    def __init__(self, embedder: QueryEmbedder, repo: MaterialRepo) -> None:
+    def __init__(self, embedder: QueryEmbedder, repo: MaterialRepo,
+                 index: Optional[VectorIndex] = None) -> None:
         self._embedder = embedder
         self._repo = repo
+        self._index = index  # 传入真向量索引(pgvector)则走语义近邻;否则关键词回退
+
+    def _public_pass(self, m: Optional[Material]) -> bool:
+        return bool(m and m.is_public and m.audit_status == AuditStatus.PASS)
 
     def search(self, query_text: str) -> list[Material]:
-        """REQ-301 向量近邻+按相似度排序;REQ-302 hybrid;REQ-303 仅返回审核通过。
-        搜索范围 = 公共物料库(已发布 is_public 且审核通过 pass),不泄露非公开/他人未发布物料。"""
-        # 生成查询向量(真实现走 multimodal-embedding;假实现仅记录调用)
-        self._embedder.embed_text(query_text)
-        # only_pass=True → 违规/未通过物料不出现在结果(REQ-303)
+        """REQ-301 向量近邻+按相似度排序;REQ-303 仅公共库范围(已发布 is_public 且 pass)。
+        有真向量索引(pgvector)→ multimodal-embedding 查询向量做余弦近邻;否则关键词回退。"""
+        qvec = self._embedder.embed_text(query_text)
+        if self._index is not None and query_text.strip():
+            try:
+                if self._index.size() > 0:
+                    ids = self._index.query(qvec, k=50)
+                    mats = [self._repo.get(i) for i in ids]
+                    return [m for m in mats if self._public_pass(m)]  # 按相似度排序 + 仅公共库
+            except Exception:
+                pass  # 向量库异常 → 回退关键词,不影响可用性
         results = self._repo.search(query_text, only_pass=True)
-        # 仅公共库范围:未发布物料(含本人/他人的私有 pass 物料)不出现在搜索
         return [m for m in results if m.is_public]

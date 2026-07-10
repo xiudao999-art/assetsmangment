@@ -9,7 +9,8 @@ ENV PYTHONPATH=/app PYTHONUNBUFFERED=1
 RUN uv pip install --system --no-cache \
     "fastapi>=0.115" "uvicorn[standard]>=0.32" "pydantic>=2.9" "pydantic-settings>=2.6" \
     "sqlalchemy>=2.0" "psycopg[binary]>=3.2" "pgvector>=0.3" "alembic>=1.14" \
-    "redis>=5.2" "celery>=5.4" "oss2>=2.19" "dashscope>=1.20" "httpx>=0.28" "python-multipart>=0.0.12"
+    "redis>=5.2" "celery>=5.4" "oss2>=2.19" "dashscope>=1.20" \
+    "alibabacloud-green20220302>=3.2.4" "httpx>=0.28" "python-multipart>=0.0.12"
 
 COPY app ./app
 COPY frontend ./frontend
