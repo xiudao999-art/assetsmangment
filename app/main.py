@@ -8,6 +8,15 @@ from app.api.router import router
 app = FastAPI(title="物料管理系统", version="0.1.0")
 
 
+@app.middleware("http")
+async def _no_cache_ui(request, call_next):
+    """前端不缓存 —— 避免浏览器拿到旧版页面(部署后无需硬刷新)。"""
+    resp = await call_next(request)
+    if request.url.path == "/" or request.url.path.startswith("/ui"):
+        resp.headers["Cache-Control"] = "no-store, max-age=0, must-revalidate"
+    return resp
+
+
 @app.get("/health")
 def health() -> dict:
     """健康检查(ACK 存活探针用)。"""

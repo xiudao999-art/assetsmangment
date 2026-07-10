@@ -17,6 +17,7 @@
 2. **架构**:BMAD Architect + c4-model-skill 更新 `workspace.dsl` + ADR;`c4 inspect` + `lint-imports` 守门。
 3. **代码**:BMAD SM 切 story → Dev **先写失败测试再实现**(tdd-guard)→ `/code-review` + `/security-review`。
 4. **验证**:CI 跑 `lint-imports`+`behave`+`pytest`+Playwright+k6;**BMAD QA 之外必须 Playwright 真机验证**(防"标记完成却跑不通")。任一红按失败路由回对应闭环。
+   - **前端改动必跑 UI QC**:`tests/ui_qc.mjs`(webapp-testing 技能)——真在浏览器点一遍关键流程(登录/收藏→我的库/管理员发布/审核)。**API 测试 + 静态截图不算数**,必须真点击。
 
 ## 追溯脊柱(REQ-id)
 一个 REQ-id 贯穿 PRD → behave(`@REQ-xxx`)→ C4 元素 → story → 测试 → CI。任何测试红,顺 REQ-id 回溯到精确需求/决策。
