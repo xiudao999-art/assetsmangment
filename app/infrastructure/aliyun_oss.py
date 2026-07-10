@@ -74,10 +74,11 @@ class OssStorage:
 
     def snapshot_frame(self, video_key: str, ms: int, dest_key: str) -> bool:
         """用 OSS 视频截帧(video/snapshot,无需 ffmpeg)取某时间点的帧图,存回 OSS。
-        仅 H264/H265 有效;失败返回 False(反解仍继续,只是该帧无独立图)。"""
+        用精确模式(不加 m_fast)——取时间点 t 的真实那一帧,不同时间点得到不同画面
+        (m_fast 会吸附到最近关键帧,短视频会导致多帧相同)。仅 H264/H265;失败返回 False。"""
         try:
             data = self._bucket.get_object(
-                video_key, process=f"video/snapshot,t_{int(ms)},f_jpg,m_fast"
+                video_key, process=f"video/snapshot,t_{int(ms)},f_jpg"
             ).read()
             if not data:
                 return False
