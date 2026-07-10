@@ -61,6 +61,12 @@ class Material:
     owner_id: str = ""        # 物料归属(我的物料库按此归属)
     is_public: bool = False   # 是否已发布到公共物料库(管理员发布)
     audit_report_id: str = ""  # 指向持久化的审核报告(可回看链路)
+    # 分类与 AI 摘要
+    tags: list[str] = field(default_factory=list)  # 标签/项目分类(用户手动 + AI 建议);空=归"全部"
+    ai_summary: str = ""      # 是什么 + 包含什么内容
+    ai_scene: str = ""        # 适合的使用场景
+    ai_emotion: str = ""      # 表达的情绪(主要搜索维度)
+    ai_atmosphere: str = ""   # 营造的氛围(主要搜索维度)
 
 
 @dataclass

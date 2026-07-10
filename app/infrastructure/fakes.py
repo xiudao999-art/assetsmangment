@@ -77,8 +77,9 @@ class InMemoryMaterialRepo:
         pool = [m for m in self.items if (not only_pass or m.audit_status == AuditStatus.PASS)]
 
         def score(m: Material) -> float:
-            hit = query_text and (query_text in m.thumb or query_text in m.description)
-            return 1.0 if hit else 0.0  # hybrid:关键词命中加权(真实现再叠向量相似度)
+            hay = " ".join([m.thumb, m.description, m.ai_summary, m.ai_emotion,
+                            m.ai_atmosphere, m.ai_scene, " ".join(m.tags or [])])
+            return 1.0 if (query_text and query_text in hay) else 0.0
 
         return sorted(pool, key=score, reverse=True)
 
@@ -249,9 +250,11 @@ class FakeLlm:
         self.calls.append((system, user))
         if self._response is not None:
             return self._response
-        # 默认:挑重点时间段返回空;规则判定返回 pass
         if "时间段" in system or "moment" in system.lower():
             return {"moments_ms": []}
+        if "摘要" in system or "档案" in system:  # 物料摘要
+            return {"summary": "一条测试物料", "scene": "通用", "emotion": "平静",
+                    "atmosphere": "中性", "tags": ["测试", "素材"]}
         return {"decision": "pass", "triggered_rule_ids": [], "reason": "无问题"}
 
 

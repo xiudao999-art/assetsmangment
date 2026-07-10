@@ -39,3 +39,7 @@ class RuleIn(BaseModel):
     keywords: list[str] = []        # 关键词快筛
     condition: str = ""             # 自然语言条件(交大模型判)
     action: str = "block"           # block / review
+
+
+class TagsIn(BaseModel):
+    tags: list[str] = []            # 物料标签(项目分类)

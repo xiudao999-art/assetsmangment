@@ -125,8 +125,9 @@ class JsonMaterialRepo:
                 if (not only_pass or m.audit_status == AuditStatus.PASS)]
 
         def score(m: Material) -> float:
-            hit = query_text and (query_text in m.thumb or query_text in m.description)
-            return 1.0 if hit else 0.0
+            hay = " ".join([m.thumb, m.description, m.ai_summary, m.ai_emotion,
+                            m.ai_atmosphere, m.ai_scene, " ".join(m.tags or [])])
+            return 1.0 if (query_text and query_text in hay) else 0.0
 
         return sorted(pool, key=score, reverse=True)
 

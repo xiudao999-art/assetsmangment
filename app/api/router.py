@@ -50,6 +50,11 @@ def _mat_out(m, fav_ids: set | None = None, uid: str | None = None):
         "is_public": m.is_public,
         "is_favorited": bool(fav_ids and m.id in fav_ids),
         "is_mine": bool(uid and m.owner_id == uid),
+        "tags": list(getattr(m, "tags", []) or []),
+        "ai_summary": getattr(m, "ai_summary", ""),
+        "ai_scene": getattr(m, "ai_scene", ""),
+        "ai_emotion": getattr(m, "ai_emotion", ""),
+        "ai_atmosphere": getattr(m, "ai_atmosphere", ""),
     }
 
 
@@ -112,6 +117,33 @@ def download_material(mid: str, user: dict = Depends(_user)):
     if not (user["role"] == "admin" or in_my_library):
         raise HTTPException(403, "只能下载你物料库中的物料(公共物料请先收藏)")
     return {"download_url": deps.storage.download_url(m.oss_key)}
+
+
+@router.post("/materials/{mid}/summarize")
+def summarize_material(mid: str, user: dict = Depends(_user)):
+    """按需生成 AI 摘要(重新解析物料 → 情绪/氛围/场景/标签)。仅物主或管理员。"""
+    _require_auth(user)
+    m = deps.material_repo.get(mid)
+    if m is None:
+        raise HTTPException(404, "material not found")
+    if not (user["role"] == "admin" or m.owner_id == user["id"]):
+        raise HTTPException(403, "只能给自己的物料生成摘要")
+    deps.get_audit_service().summarize_material(m)
+    return _mat_out(m, uid=user["id"])
+
+
+@router.put("/materials/{mid}/tags")
+def set_material_tags(mid: str, body: schemas.TagsIn, user: dict = Depends(_user)):
+    """设置物料标签(项目分类)。仅物主或管理员。"""
+    _require_auth(user)
+    m = deps.material_repo.get(mid)
+    if m is None:
+        raise HTTPException(404, "material not found")
+    if not (user["role"] == "admin" or m.owner_id == user["id"]):
+        raise HTTPException(403, "只能修改自己物料的标签")
+    m.tags = list(dict.fromkeys([t.strip() for t in body.tags if t.strip()]))[:12]
+    deps.material_repo.save(m)
+    return _mat_out(m, uid=user["id"])
 
 
 @router.post("/materials/{mid}/set-audit")

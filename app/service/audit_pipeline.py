@@ -30,6 +30,15 @@ _MOMENT_SYS = (
     "请挑出最多 5 个「可能需要结合画面才能判断是否违规」的重点时间段。"
     "只返回一个合法 JSON 对象:{\"moments_ms\":[毫秒整数数组]}。"
 )
+_SUMMARY_SYS = (
+    "你是物料档案摘要引擎。根据一条物料解析出的文字内容,提炼它的可复用档案。"
+    "只返回一个合法 JSON 对象,不要 markdown、不要多余解释,字段:"
+    "summary(这个物料是什么、包含什么内容,一两句中文),"
+    "scene(适合的使用场景,如 开场/转场/结尾/产品介绍/情感渲染 等),"
+    "emotion(表达的情绪,如 温馨/欢快/紧张/悲伤/激昂/治愈 等,简短),"
+    "atmosphere(营造的氛围,如 宁静/热闹/神秘/高级感/复古/科技感 等,简短),"
+    "tags(3~6 个便于检索的中文关键词标签数组)。"
+)
 
 
 class AuditPipelineService:
@@ -73,9 +82,54 @@ class AuditPipelineService:
             if m is not None:
                 m.audit_status = report.verdict
                 m.audit_report_id = report_id
+                self._apply_summary(m, self._safe_segments(report, job, text))  # 审核时顺带生成 AI 摘要
                 self._repo.save(m)
         job.report = report
         return report
+
+    @staticmethod
+    def _safe_segments(report, job, text):
+        # 审核成功→用报告里的 segments;异常兜底→尽量再取一次(失败则空)
+        return report.segments
+
+    # ── AI 摘要(情绪/氛围/场景/标签)+ 按摘要重嵌入(情绪氛围可搜)──
+    def summarize_material(self, material) -> None:
+        """对一条物料按需生成摘要(重新解析内容)。供批量导入未审核的物料补摘要。"""
+        job = self.submit(material.type, oss_key=material.oss_key,
+                          material_id=material.id, owner_id=material.owner_id)
+        segments = self._to_segments(job, material.description)
+        self._apply_summary(material, segments)
+        self._repo.save(material)
+
+    def _generate_summary(self, mtype: MaterialType, segments: list[TextSegment]) -> dict:
+        text = "\n".join(s.text for s in segments if s.text)[:6000]
+        if not text.strip():
+            return {}
+        return self._llm.chat_json(_SUMMARY_SYS,
+                                   f"物料类型:{mtype.value}\n解析内容:\n{text}\n\n请以 json 返回档案摘要。")
+
+    def _apply_summary(self, m: Material, segments: list[TextSegment]) -> None:
+        try:
+            s = self._generate_summary(m.type, segments)
+        except Exception:
+            return
+        if not isinstance(s, dict) or not s:
+            return
+        m.ai_summary = (s.get("summary") or "").strip()
+        m.ai_scene = (s.get("scene") or "").strip()
+        m.ai_emotion = (s.get("emotion") or "").strip()
+        m.ai_atmosphere = (s.get("atmosphere") or "").strip()
+        ai_tags = [t.strip() for t in (s.get("tags") or []) if isinstance(t, str) and t.strip()]
+        m.tags = list(dict.fromkeys(list(m.tags or []) + ai_tags))[:12]  # 合并去重,保留用户已有标签
+        # 用「摘要+情绪+氛围」重嵌入 → 语义搜索能按情绪/氛围命中
+        try:
+            rich = f"{m.ai_summary} 场景:{m.ai_scene} 情绪:{m.ai_emotion} 氛围:{m.ai_atmosphere} 标签:{' '.join(m.tags)}"
+            vec = self._embedder.embed(MaterialCandidate(type=m.type, thumb=m.thumb,
+                                                         source_timecode=0.0, description=rich))
+            m.embedding = vec
+            self._index.add(m.id, vec)
+        except Exception:
+            pass
 
     # ── 各素材 → 文字段 ──
     def _to_segments(self, job: AuditJob, text: str) -> list[TextSegment]:

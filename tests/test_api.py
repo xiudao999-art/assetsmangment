@@ -216,6 +216,23 @@ def test_batch_requires_login():
     assert client.post("/audit/batch", files={"files": ("a.png", b"x", "image/png")}).status_code == 401
 
 
+def test_material_tags_owner_only():
+    uh = _user_hdr()
+    mid = client.post("/materials", json={"type": "image", "oss_key": "tg.png"}, headers=uh).json()["id"]
+    r = client.put(f"/materials/{mid}/tags", json={"tags": ["项目A", "春季", "项目A"]}, headers=uh)
+    assert r.status_code == 200 and r.json()["tags"] == ["项目A", "春季"]   # 去重
+    client.post("/users/register", json={"name": "tgother", "password": "pw123456"})
+    oh = _hdr(_token("tgother", "pw123456"))
+    assert client.put(f"/materials/{mid}/tags", json={"tags": ["x"]}, headers=oh).status_code == 403
+
+
+def test_summarize_endpoint():
+    uh = _user_hdr()
+    mid = client.post("/materials", json={"type": "image", "oss_key": "sm.png"}, headers=uh).json()["id"]
+    r = client.post(f"/materials/{mid}/summarize", headers=uh)
+    assert r.status_code == 200 and r.json()["ai_summary"] and r.json()["ai_emotion"]
+
+
 def test_download_only_in_my_library():
     """我的物料库(自己上传/已收藏)可下载;公共库未收藏不可下载。"""
     uh, ah = _user_hdr(), _admin_hdr()

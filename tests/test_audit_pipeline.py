@@ -112,6 +112,28 @@ def test_content_safety_pass_is_noop():
     assert report.verdict == AuditStatus.PASS
 
 
+def test_audit_generates_summary_and_tags():
+    repo = InMemoryMaterialRepo()
+    m = Material(id="m1", type=MaterialType.IMAGE, thumb="t", source_timecode=0.0, embedding=[],
+                 audit_status=AuditStatus.REVIEW, source_job="", oss_key="img/x.png", owner_id="u1")
+    repo.save(m)
+    svc, _, _ = _svc(repo=repo)
+    svc.run(svc.submit(MaterialType.IMAGE, oss_key="img/x.png", material_id="m1"))
+    got = repo.get("m1")
+    assert got.ai_summary and got.ai_emotion and got.ai_atmosphere and got.ai_scene
+    assert "测试" in got.tags   # FakeLlm 摘要返回的标签
+
+
+def test_summarize_material_on_demand():
+    repo = InMemoryMaterialRepo()
+    m = Material(id="m2", type=MaterialType.IMAGE, thumb="t", source_timecode=0.0, embedding=[],
+                 audit_status=AuditStatus.REVIEW, source_job="", oss_key="img/y.png", owner_id="u1")
+    repo.save(m)
+    svc, _, _ = _svc(repo=repo)
+    svc.summarize_material(m)
+    assert repo.get("m2").ai_summary and repo.get("m2").ai_emotion
+
+
 def test_rule_repo_list_for():
     rr = InMemoryAuditRuleRepo()
     rr.add(AuditRule(id="a", source_type="any", keywords=["x"]))
