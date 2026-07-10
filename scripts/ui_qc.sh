@@ -10,11 +10,15 @@ SRV=$!
 trap 'kill $SRV 2>/dev/null' EXIT
 sleep 3
 
-U='Authorization: Bearer token-user01-exp'; A='Authorization: Bearer token-admin-exp'
+# 真登录拿签名 token(token 已 HMAC 签名,不能再伪造)
+tok() { curl -s -X POST $B/users/login -H 'Content-Type: application/json' -d "$1" | python3 -c "import sys,json;print(json.load(sys.stdin)['token'])"; }
+AT=$(tok '{"name":"admin","password":"admin123"}'); UT=$(tok '{"name":"demo","password":"pw123456"}')
+U="Authorization: Bearer $UT"; A="Authorization: Bearer $AT"
 curl -s -X POST $B/materials -H "$U" -H 'Content-Type: application/json' -d '{"type":"music","oss_key":"m.mp3"}' >/dev/null
 curl -s -X POST $B/videos -H "$A" -H 'Content-Type: application/json' -d '{"oss_key":"a.mp4"}' >/dev/null
 curl -s -X POST $B/videos -H "$A" -H 'Content-Type: application/json' -d '{"oss_key":"b.mp4"}' >/dev/null
 FIRST=$(curl -s -H "$A" $B/library/all | python3 -c "import sys,json;d=json.load(sys.stdin);print([m['id'] for m in d['items'] if m['owner_id']=='admin'][0])")
+curl -s -X POST $B/materials/$FIRST/set-audit -H "$A" -H 'Content-Type: application/json' -d '{"status":"pass"}' >/dev/null
 curl -s -X POST $B/materials/$FIRST/publish -H "$A" >/dev/null
 
 .venv/bin/python tests/ui_qc.py "$B"

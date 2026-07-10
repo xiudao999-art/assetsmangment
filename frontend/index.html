@@ -196,8 +196,10 @@ function buildNav(){const items=ME.role==='admin'?NAV_ADMIN:NAV_USER;const group
   $('#nav').innerHTML=Object.entries(groups).map(([g,rows])=>`<div class="navgroup"><span>${g}</span>${rows.map(([sec,t,sub])=>`<div class="nav" data-sec="${sec}"><svg class="ico" viewBox="0 0 24 24">${ICO[sec]}</svg>${t}<span class="cnt" id="cnt-${sec}"></span></div>`).join('')}</div>`).join('');
   $$('.nav').forEach(n=>n.onclick=()=>go(n.dataset.sec));}
 const SUB={};
-function go(sec){$$('.nav').forEach(n=>n.classList.toggle('on',n.dataset.sec===sec));$$('section').forEach(s=>s.classList.toggle('on',s.id==='sec-'+sec));
-  const meta=(ME.role==='admin'?NAV_ADMIN:NAV_USER).find(x=>x[1]===sec);if(meta){$('#title').textContent=meta[2];$('#sub').textContent=meta[3]}
+function go(sec){const navset=(ME.role==='admin'?NAV_ADMIN:NAV_USER);
+  if(!navset.some(x=>x[1]===sec))sec=(ME.role==='admin'?'all':'mine');  // 角色门控:越权/无效 sec 回落(挡 hashchange 直改 URL)
+  $$('.nav').forEach(n=>n.classList.toggle('on',n.dataset.sec===sec));$$('section').forEach(s=>s.classList.toggle('on',s.id==='sec-'+sec));
+  const meta=navset.find(x=>x[1]===sec);if(meta){$('#title').textContent=meta[2];$('#sub').textContent=meta[3]}
   location.hash=sec;
   if(sec==='mine')loadMine();if(sec==='public')loadPublic();if(sec==='all')loadAll();if(sec==='review')loadQueue();if(sec==='roles')loadPerms();if(sec==='users')loadUsers()}
 
@@ -209,7 +211,8 @@ function cell(m,ctx){const g=GLYPH[m.type]||'▦';
   else if(ctx==='mine'){act=m.is_mine?`<span class="owner">我上传的</span>`:`<button class="btn sm" onclick="unfav('${m.id}')">取消收藏</button>`}
   else if(ctx==='all'){act=(m.audit_status==='pass'&&!m.is_public)?`<button class="btn sm key" onclick="publish('${m.id}')">发布到公共库</button>`:(m.is_public?`<span class="owner">已公开</span>`:`<span class="owner">待审核</span>`)}
   const owner=ctx==='all'?`<div class="owner">owner: ${m.owner_id||'—'}</div>`:'';
-  return `<div class="cell"><div class="frame" onclick="openDrawer('${m.id}')"><span class="glyph">${g}</span><span class="tc">${TCODE(m.source_timecode)}</span>${pub}</div>
+  const canDel=(m.is_mine||ME.role==='admin')?1:0;
+  return `<div class="cell"><div class="frame" onclick="openDrawer('${m.id}',${canDel})"><span class="glyph">${g}</span><span class="tc">${TCODE(m.source_timecode)}</span>${pub}</div>
     <div class="cellmeta"><div class="top"><span class="t">${LT[m.type]||m.type}</span><span class="stamp ${m.audit_status}">${ST[m.audit_status]||m.audit_status}</span></div>${owner}<div class="cellact">${act}</div></div></div>`}
 function grid(el,items,ctx,emptyTitle,emptyMsg){$(el).innerHTML=items.length?`<div class="sheet">${items.map(m=>cell(m,ctx)).join('')}</div>`:`<div class="empty"><b class="disp">${emptyTitle}</b>${emptyMsg}</div>`}
 
@@ -255,12 +258,15 @@ async function loadQueue(){const r=await api('GET','/materials?status=review');c
 async function audit(id,status){const r=await api('POST',`/materials/${id}/set-audit`,{status});if(r.ok){toast(status==='pass'?'已通过':'已拦截');loadQueue()}else toast('需要管理员权限',true)}
 
 /* ── 抽屉 ── */
-async function openDrawer(id){$('#scrim').classList.add('on');$('#drawer').classList.add('on');$('#d-body').innerHTML='<div class="empty">加载中…</div>';
-  const r=await api('GET','/materials/'+id);const url=r.data.signed_url;const isImg=url&&/\.(png|jpe?g|webp|gif)(\?|$)/i.test(url);
+async function openDrawer(id,canDel){$('#scrim').classList.add('on');$('#drawer').classList.add('on');$('#d-body').innerHTML='<div class="empty">加载中…</div>';
+  const r=await api('GET','/materials/'+id);
+  if(!r.ok){$('#d-body').innerHTML='<div class="empty"><b class="disp">无法查看</b>该物料未过审或你无权访问。</div>';return}
+  const url=r.data.signed_url;const isImg=url&&/\.(png|jpe?g|webp|gif)(\?|$)/i.test(url);
+  const delBtn=canDel?`<button class="btn sm block" onclick="delMat('${id}')">删除</button>`:'';
   $('#d-body').innerHTML=`<div class="preview">${isImg?`<img src="${url}">`:'<span class="glyph" style="font-size:44px">▦</span>'}</div>
     <div class="kv"><span class="kk">物料 ID</span><span class="vv">${id.slice(0,16)}…</span></div>
     <div class="kv"><span class="kk">签名 URL</span><span class="vv">${url?url.slice(0,42)+'…':'—'}</span></div>
-    <div style="margin-top:18px;display:flex;gap:10px">${url?`<a class="btn sm" href="${url}" target="_blank">在 OSS 打开</a>`:''}<button class="btn sm block" onclick="delMat('${id}')">删除</button></div>`}
+    <div style="margin-top:18px;display:flex;gap:10px">${url?`<a class="btn sm" href="${url}" target="_blank">在 OSS 打开</a>`:''}${delBtn}</div>`}
 function closeDrawer(){$('#scrim').classList.remove('on');$('#drawer').classList.remove('on')}
 async function delMat(id){const r=await api('DELETE','/materials/'+id);if(r.ok){toast('已删除');closeDrawer();loadMine();loadAll&&loadAll()}}
 

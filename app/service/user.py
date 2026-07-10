@@ -9,6 +9,11 @@ class InvalidCredentials(Exception):
     pass
 
 
+class DuplicateName(Exception):
+    """用户名已被占用。"""
+    pass
+
+
 class UserService:
     def __init__(self, repo: UserRepo, hasher: PasswordHasher, tokens: TokenIssuer) -> None:
         self._repo = repo
@@ -16,7 +21,13 @@ class UserService:
         self._tokens = tokens
 
     def register(self, name: str, password: str) -> User:
-        """REQ-602:密码加盐哈希存储,绝不明文。新用户默认普通用户角色。"""
+        """REQ-602:密码加盐哈希存储,绝不明文。新用户默认普通用户角色。
+        用户名唯一:重名(含保留名 admin)拒绝,避免产生登录不上的"幽灵账号"。"""
+        name = (name or "").strip()
+        if not name or not password:
+            raise InvalidCredentials()
+        if self._repo.get_by_name(name) is not None:
+            raise DuplicateName(name)
         user = User(id=uuid.uuid4().hex, name=name, pwd_hash=self._hasher.hash(password), role="user")
         self._repo.save(user)
         return user

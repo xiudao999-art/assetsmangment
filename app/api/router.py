@@ -2,10 +2,12 @@
 from __future__ import annotations
 import uuid
 from fastapi import APIRouter, HTTPException, UploadFile, File, Form, Header, Depends
+from fastapi.concurrency import run_in_threadpool
 from app.api import deps, schemas
-from app.domain.models import MaterialType, AuditStatus
+from app.domain.models import MaterialType, AuditStatus, User
 from app.service.material import MaterialNotFound
-from app.service.user import InvalidCredentials
+from app.service.user import InvalidCredentials, DuplicateName
+from app.service.authorization import PermissionDenied
 
 router = APIRouter()
 
@@ -14,9 +16,29 @@ def _user(authorization: str | None = Header(default=None)):
     return deps.current_user(authorization)
 
 
-def _require_admin(user: dict):
-    if user["role"] != "admin":
-        raise HTTPException(403, "需要管理员权限")
+def _require_auth(user: dict) -> None:
+    """必须是已登录用户(非游客)。"""
+    if user["role"] == "guest":
+        raise HTTPException(401, "请先登录")
+
+
+def _require_perm(user: dict, permission: str) -> None:
+    """RBAC 鉴权:按角色权限判定(后台 grant 即时生效)。无权限→403+审计。"""
+    _require_auth(user)
+    u = User(id=user["id"], name=user.get("name", ""), pwd_hash="", role=user["role"])
+    try:
+        deps.get_authz_service().authorize(u, permission)
+    except PermissionDenied:
+        raise HTTPException(403, "无权限执行该操作")
+
+
+def _can_view(user: dict, m) -> bool:
+    """可查看/取签名URL:管理员 / 物主 / 已发布且审核通过(公共)。"""
+    return (
+        user["role"] == "admin"
+        or m.owner_id == user["id"]
+        or (m.is_public and m.audit_status == AuditStatus.PASS)
+    )
 
 
 def _mat_out(m, fav_ids: set | None = None, uid: str | None = None):
@@ -33,53 +55,75 @@ def _mat_out(m, fav_ids: set | None = None, uid: str | None = None):
 # ── 物料管理(F1)──
 @router.post("/materials")
 def create_material(body: schemas.MaterialCreate, user: dict = Depends(_user)):
+    _require_auth(user)
     m = deps.get_material_service().create(body.type, body.oss_key, b"", user["id"])
     deps.get_index_service().index_material(m)
-    return _mat_out(m)
+    return _mat_out(m, uid=user["id"])
 
 
 @router.post("/materials/upload")
 async def upload_material(file: UploadFile = File(...), type: str = Form("image"), user: dict = Depends(_user)):
     """真文件上传:存 OSS + 落库(归属当前用户,状态 待审核)。"""
+    _require_auth(user)
+    try:
+        mtype = MaterialType(type)
+    except ValueError:
+        raise HTTPException(400, f"不支持的物料类型: {type}")
     data = await file.read()
     key = f"materials/{uuid.uuid4().hex}-{file.filename}"
-    m = deps.get_material_service().create(MaterialType(type), key, data, user["id"])
+    m = deps.get_material_service().create(mtype, key, data, user["id"])
     deps.get_index_service().index_material(m)
-    return _mat_out(m)
+    return _mat_out(m, uid=user["id"])
 
 
 @router.get("/materials")
-def list_materials(type: str | None = None, status: str | None = None):
+def list_materials(type: str | None = None, status: str | None = None, user: dict = Depends(_user)):
+    """列出全部物料(含 review/block/他人)—— 仅管理员(审核队列用)。"""
+    _require_perm(user, "materials.audit")
     items = deps.material_repo.list()
     if type:
         items = [m for m in items if m.type == type]
     if status:
         items = [m for m in items if m.audit_status == status]
-    return {"count": len(items), "items": [_mat_out(m) for m in items]}
+    return {"count": len(items), "items": [_mat_out(m, uid=user["id"]) for m in items]}
 
 
 @router.get("/materials/{mid}")
-def get_material(mid: str):
-    try:
-        return {"id": mid, "signed_url": deps.get_material_service().get_signed_url(mid)}
-    except MaterialNotFound:
+def get_material(mid: str, user: dict = Depends(_user)):
+    """取物料签名 URL。仅 管理员/物主/已发布过审(公共)可取,block/review/他人私有拒绝。"""
+    m = deps.material_repo.get(mid)
+    if m is None:
         raise HTTPException(404, "material not found")
+    if not _can_view(user, m):
+        raise HTTPException(403, "无权访问该物料")
+    return {"id": mid, "signed_url": deps.storage.signed_url(m.oss_key)}
 
 
 @router.post("/materials/{mid}/set-audit")
 def set_audit(mid: str, body: schemas.AuditSet, user: dict = Depends(_user)):
     """人工审核复核 —— 仅管理员(普通用户上传后等审核)。"""
-    _require_admin(user)
+    _require_perm(user, "materials.audit")
+    try:
+        new_status = AuditStatus(body.status)
+    except ValueError:
+        raise HTTPException(400, f"非法审核状态: {body.status}(应为 pass/review/block)")
     m = deps.material_repo.get(mid)
     if m is None:
         raise HTTPException(404, "material not found")
-    m.audit_status = AuditStatus(body.status)
+    m.audit_status = new_status
     deps.material_repo.save(m)
-    return _mat_out(m)
+    return _mat_out(m, uid=user["id"])
 
 
 @router.delete("/materials/{mid}")
-def delete_material(mid: str):
+def delete_material(mid: str, user: dict = Depends(_user)):
+    """删除物料 —— 仅物主或管理员。"""
+    _require_auth(user)
+    m = deps.material_repo.get(mid)
+    if m is None:
+        raise HTTPException(404, "material not found")
+    if not (user["role"] == "admin" or m.owner_id == user["id"]):
+        raise HTTPException(403, "只能删除自己的物料")
     deps.get_material_service().delete(mid)
     return {"deleted": mid}
 
@@ -87,6 +131,7 @@ def delete_material(mid: str):
 # ── 视频反解(F2/F5)──
 @router.post("/videos")
 def upload_video(body: schemas.VideoUpload, user: dict = Depends(_user)):
+    _require_auth(user)
     vsvc = deps.get_video_service()
     job = vsvc.accept_upload(body.oss_key, body.size_bytes)
     deps.jobs[job.id] = {"status": "running", "materials": []}
@@ -99,17 +144,20 @@ def upload_video(body: schemas.VideoUpload, user: dict = Depends(_user)):
 
 @router.post("/videos/upload")
 async def upload_video_file(file: UploadFile = File(...), user: dict = Depends(_user)):
-    """真视频上传:存 OSS → 受理(≤10s)→ 反解(归属当前用户)。"""
+    """真视频上传:存 OSS → 受理 → 反解(归属当前用户)。反解在线程池执行,不阻塞事件循环。"""
+    _require_auth(user)
     data = await file.read()
     key = f"videos/{uuid.uuid4().hex}-{file.filename}"
-    deps.storage.put(key, data)
+    await run_in_threadpool(deps.storage.put, key, data)
     vsvc = deps.get_video_service()
     job = vsvc.accept_upload(key, len(data))
-    materials = vsvc.run_job(job, owner_id=user["id"])
+    deps.jobs[job.id] = {"status": "running", "materials": []}
+    materials = await run_in_threadpool(vsvc.run_job, job, user["id"])
     for m in materials:
         deps.get_index_service().index_material(m)
+    deps.jobs[job.id] = {"status": job.status, "materials": [m.id for m in materials]}
     return {"job_id": job.id, "status": job.status,
-            "materials": [_mat_out(m) for m in materials]}
+            "materials": [_mat_out(m, uid=user["id"]) for m in materials]}
 
 
 @router.get("/videos/{jid}")
@@ -122,14 +170,16 @@ def video_status(jid: str):
 
 # ── 语义搜索(F3)——在公共库范围内搜索 ──
 @router.get("/search")
-def search(q: str = ""):
+def search(q: str = "", user: dict = Depends(_user)):
     results = deps.get_search_service().search(q)
-    return {"count": len(results), "results": [_mat_out(m) for m in results]}
+    fav = deps.favorites.material_ids(user["id"])
+    return {"count": len(results), "results": [_mat_out(m, fav, user["id"]) for m in results]}
 
 
 # ── 物料库:我的 / 公共 / 全部(管理员)──
 @router.get("/library/mine")
 def my_library(user: dict = Depends(_user)):
+    _require_auth(user)
     lib = deps.get_library_service()
     fav = deps.favorites.material_ids(user["id"])
     items = lib.mine(user["id"])
@@ -147,7 +197,7 @@ def public_library(user: dict = Depends(_user)):
 @router.get("/library/all")
 def all_library(user: dict = Depends(_user)):
     """管理员:看所有用户的物料。"""
-    _require_admin(user)
+    _require_perm(user, "library.all")
     items = deps.get_library_service().all()
     return {"count": len(items), "items": [_mat_out(m, uid=user["id"]) for m in items]}
 
@@ -155,22 +205,39 @@ def all_library(user: dict = Depends(_user)):
 @router.post("/materials/{mid}/publish")
 def publish(mid: str, user: dict = Depends(_user)):
     """管理员:把物料发布到公共物料库。"""
-    _require_admin(user)
+    _require_perm(user, "materials.publish")
     m = deps.get_library_service().publish(mid, True)
     if m is None:
         raise HTTPException(404, "material not found")
-    return _mat_out(m)
+    return _mat_out(m, uid=user["id"])
+
+
+@router.delete("/materials/{mid}/publish")
+def unpublish(mid: str, user: dict = Depends(_user)):
+    """管理员:把物料撤出公共物料库。"""
+    _require_perm(user, "materials.publish")
+    m = deps.get_library_service().publish(mid, False)
+    if m is None:
+        raise HTTPException(404, "material not found")
+    return _mat_out(m, uid=user["id"])
 
 
 @router.post("/materials/{mid}/favorite")
 def favorite(mid: str, user: dict = Depends(_user)):
-    """收藏公共物料到我的物料库。"""
+    """收藏公共物料到我的物料库。仅能收藏公共库(已发布且过审)的物料。"""
+    _require_auth(user)
+    m = deps.material_repo.get(mid)
+    if m is None:
+        raise HTTPException(404, "material not found")
+    if not (m.is_public and m.audit_status == AuditStatus.PASS):
+        raise HTTPException(403, "只能收藏公共物料库中的物料")
     deps.get_library_service().favorite(user["id"], mid)
     return {"favorited": mid}
 
 
 @router.delete("/materials/{mid}/favorite")
 def unfavorite(mid: str, user: dict = Depends(_user)):
+    _require_auth(user)
     deps.get_library_service().unfavorite(user["id"], mid)
     return {"unfavorited": mid}
 
@@ -178,7 +245,12 @@ def unfavorite(mid: str, user: dict = Depends(_user)):
 # ── 用户(F7)──
 @router.post("/users/register")
 def register(body: schemas.RegisterIn):
-    u = deps.get_user_service().register(body.name, body.password)
+    try:
+        u = deps.get_user_service().register(body.name, body.password)
+    except DuplicateName:
+        raise HTTPException(409, "用户名已被占用")
+    except InvalidCredentials:
+        raise HTTPException(400, "用户名和密码不能为空")
     return {"id": u.id, "name": u.name, "role": u.role}
 
 
@@ -195,11 +267,12 @@ def login(body: schemas.LoginIn):
 # ── 功能权限后台(F8)──
 @router.post("/admin/grant")
 def grant(body: schemas.GrantIn, user: dict = Depends(_user)):
-    _require_admin(user)
+    _require_perm(user, "admin.grant")
     deps.get_authz_service().grant(body.role, body.permission)
     return {"role": body.role, "permissions": sorted(deps.rbac.permissions_of(body.role))}
 
 
 @router.get("/admin/permissions")
-def role_permissions(role: str):
+def role_permissions(role: str, user: dict = Depends(_user)):
+    _require_perm(user, "admin.grant")
     return {"role": role, "permissions": sorted(deps.rbac.permissions_of(role))}

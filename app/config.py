@@ -12,6 +12,10 @@ class Settings(BaseSettings):
     # 数据持久化目录(设了就把物料/用户/收藏落到 JSON,容器重启不丢;空=纯内存)
     data_dir: str = ""
 
+    # 会话 token 签名密钥(HMAC)。生产必须用 AM_TOKEN_SECRET 覆盖为强随机值。
+    token_secret: str = "dev-insecure-token-secret-change-me"
+    token_ttl_seconds: int = 86400  # token 有效期(默认 1 天)
+
     # 阿里云 OSS
     oss_endpoint: str = ""
     oss_bucket: str = ""

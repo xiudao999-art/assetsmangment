@@ -68,7 +68,8 @@ class PasswordHasher(Protocol):
 
 
 class TokenIssuer(Protocol):
-    def issue(self, user_id: str) -> str: ...   # 返回含过期信息的 token
+    def issue(self, user_id: str) -> str: ...          # 签发带签名+过期的 token
+    def verify(self, token: str) -> Optional[str]: ...  # 校验签名与有效期,返回 uid;无效→None
 
 
 class RbacRepo(Protocol):

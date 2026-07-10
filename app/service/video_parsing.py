@@ -26,28 +26,44 @@ class VideoParsingService:
         """REQ-201:仅受理(建 job 立即返回),反解异步进行。这里同步很快返回。"""
         return VideoJob(id=uuid.uuid4().hex, oss_key=oss_key, size_bytes=size_bytes)
 
-    def run_job(self, job: VideoJob, owner_id: str = "") -> list[Material]:
-        """REQ-202/204:反解→embedding→审核→入库;审核超时→review(不放行);保留原视频。"""
+    def run_job(self, job: VideoJob, owner_id: str = "", max_retry: int = 3) -> list[Material]:
+        """REQ-202/204:反解→embedding→审核→入库;审核超时→review(不放行);
+        反解失败重试≤3,耗尽→FAILED(不抛异常、不 500);单帧失败跳过;原视频始终保留。"""
         job.status = JobStatus.RUNNING
         materials: list[Material] = []
-        for cand in self._parser.parse_video(job.oss_key):
-            embedding = self._embedder.embed(cand)
+
+        # REQ-204:反解失败重试(≤max_retry);全失败 → 标记 FAILED 并保留原视频
+        cands = None
+        for attempt in range(1, max_retry + 1):
             try:
-                status = AuditStatus(self._auditor.audit(cand))
-            except TimeoutError:
-                status = AuditStatus.REVIEW  # REQ-503/204:超时不默认放行
-            material = Material(
-                id=uuid.uuid4().hex,
-                type=cand.type,
-                thumb=cand.thumb,
-                source_timecode=cand.source_timecode,
-                embedding=embedding,
-                audit_status=status,
-                source_job=job.id,
-                owner_id=owner_id,
-            )
-            self._repo.save(material)
-            materials.append(material)
-        # REQ-204:原视频保留(不删除 oss_key)
+                cands = self._parser.parse_video(job.oss_key)
+                break
+            except Exception:
+                job.retry = attempt
+                if attempt >= max_retry:
+                    job.status = JobStatus.FAILED  # 不删 oss_key(原视频保留)
+                    return materials
+
+        for cand in (cands or []):
+            try:
+                embedding = self._embedder.embed(cand)
+                try:
+                    status = AuditStatus(self._auditor.audit(cand))
+                except TimeoutError:
+                    status = AuditStatus.REVIEW  # REQ-503/204:超时不默认放行
+                material = Material(
+                    id=uuid.uuid4().hex,
+                    type=cand.type,
+                    thumb=cand.thumb,
+                    source_timecode=cand.source_timecode,
+                    embedding=embedding,
+                    audit_status=status,
+                    source_job=job.id,
+                    owner_id=owner_id,
+                )
+                self._repo.save(material)
+                materials.append(material)
+            except Exception:
+                continue  # 单帧失败不拖垮整段反解
         job.status = JobStatus.DONE
         return materials

@@ -2,9 +2,9 @@
 from __future__ import annotations
 import uuid
 from typing import Optional
-from app.domain.models import Material, MaterialType, AuditStatus
+from app.domain.models import Material, MaterialCandidate, MaterialType, AuditStatus
 from app.domain.rules import is_available
-from app.domain.ports import MaterialRepo, ObjectStorage
+from app.domain.ports import MaterialRepo, ObjectStorage, Embedder
 
 
 class MaterialNotFound(Exception):
@@ -12,16 +12,21 @@ class MaterialNotFound(Exception):
 
 
 class MaterialService:
-    def __init__(self, repo: MaterialRepo, storage: ObjectStorage) -> None:
+    def __init__(self, repo: MaterialRepo, storage: ObjectStorage, embedder: Embedder) -> None:
         self._repo = repo
         self._storage = storage
+        self._embedder = embedder
 
     def create(self, type: MaterialType, oss_key: str, data: bytes, owner_id: str) -> Material:
-        """REQ-101:存 OSS + 落库元数据 + 返回物料。默认审核态 review(fail-safe)。"""
+        """REQ-101:存 OSS + 生成向量 + 落库元数据。默认审核态 review(fail-safe)。"""
         self._storage.put(oss_key, data)
+        # 生成 multimodal-embedding(F4 索引真源);假实现返回占位向量,换真模型接口不变。
+        embedding = self._embedder.embed(
+            MaterialCandidate(type=type, thumb=f"{oss_key}#thumb", source_timecode=0.0, description=oss_key)
+        )
         material = Material(
             id=uuid.uuid4().hex, type=type, thumb=f"{oss_key}#thumb",
-            source_timecode=0.0, embedding=[], audit_status=AuditStatus.REVIEW,
+            source_timecode=0.0, embedding=embedding, audit_status=AuditStatus.REVIEW,
             source_job="", oss_key=oss_key, owner_id=owner_id,
         )
         self._repo.save(material)

@@ -45,16 +45,26 @@ index = InMemoryVectorIndex()
 audit_log = ListAuditLog()
 jobs: dict[str, dict] = {}
 
-# ── 播种账号:一个管理员 + 一个普通用户(演示用)。已存在则不覆盖(持久化后只种一次)──
+# ── 共享单例:同一密钥签发/校验 token;同一 hasher/embedder ──
 _h = FakeHasher()
+token_issuer = FakeTokenIssuer()
+_embedder = FakeEmbedder()
+
+# ── 播种账号:一个管理员 + 一个普通用户(演示用)。已存在则不覆盖(持久化后只种一次)──
 if user_repo.get("admin") is None:
     user_repo.save(User(id="admin", name="admin", pwd_hash=_h.hash("admin123"), role="admin"))
 if user_repo.get("user01") is None:
     user_repo.save(User(id="user01", name="demo", pwd_hash=_h.hash("pw123456"), role="user"))
 
+# ── 播种 admin 角色权限(RBAC 真接通:管理端点按权限鉴权,后台 grant 即时生效)──
+ADMIN_PERMS = {"materials.audit", "materials.publish", "materials.delete_any", "library.all", "admin.grant"}
+if not ADMIN_PERMS.issubset(rbac.permissions_of("admin")):
+    for _p in ADMIN_PERMS:
+        rbac.grant("admin", _p)
+
 
 def get_material_service() -> MaterialService:
-    return MaterialService(material_repo, storage)
+    return MaterialService(material_repo, storage, _embedder)
 
 
 def get_search_service() -> SearchService:
@@ -70,7 +80,7 @@ def get_index_service() -> IndexService:
 
 
 def get_user_service() -> UserService:
-    return UserService(user_repo, FakeHasher(), FakeTokenIssuer())
+    return UserService(user_repo, _h, token_issuer)
 
 
 def get_authz_service() -> AuthorizationService:
@@ -82,13 +92,15 @@ def get_library_service() -> LibraryService:
 
 
 def current_user(authorization: str | None):
-    """从 Authorization: Bearer token-<uid>-exp… 解析当前用户。缺省=游客。"""
-    uid = "guest"
-    if authorization and authorization.startswith("Bearer "):
-        parts = authorization[7:].split("-")
-        if len(parts) >= 2 and parts[0] == "token":
-            uid = parts[1]
+    """校验 Authorization: Bearer <签名token> → 当前用户。
+    伪造/过期/未知用户/缺省 → 游客(role='guest',无任何写权限)。绝不信任客户端提供的 uid。"""
+    guest = {"id": "guest", "role": "guest", "name": "游客"}
+    if not authorization or not authorization.startswith("Bearer "):
+        return guest
+    uid = token_issuer.verify(authorization[7:])  # 签名不符/过期 → None
+    if uid is None:
+        return guest
     u = user_repo.get(uid)
-    role = u.role if u else "user"
-    name = u.name if u else "游客"
-    return {"id": uid, "role": role, "name": name}
+    if u is None:
+        return guest  # 未知用户不兜底成 user
+    return {"id": u.id, "role": u.role, "name": u.name}

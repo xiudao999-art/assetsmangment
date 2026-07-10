@@ -2,7 +2,10 @@
 真实现(OSS/DashScope Qwen-VL/内容安全/pgvector)后续替换,service 无需改动。"""
 from __future__ import annotations
 import hashlib
+import hmac
+import time
 from typing import Optional
+from app.config import settings
 from app.domain.models import Material, MaterialCandidate, MaterialType, AuditStatus, User
 
 
@@ -155,8 +158,34 @@ class FakeHasher:
 
 
 class FakeTokenIssuer:
+    """HMAC 签名 token:`<uid>.<exp>.<sig>`。无密钥无法伪造(修复"任意伪造 admin")。
+    真实现可换成 JWT(python-jose);接口不变。"""
+
+    def __init__(self, secret: Optional[str] = None, ttl: Optional[int] = None) -> None:
+        self._secret = (secret or settings.token_secret).encode()
+        self._ttl = ttl if ttl is not None else settings.token_ttl_seconds
+
+    def _sign(self, msg: str) -> str:
+        return hmac.new(self._secret, msg.encode(), hashlib.sha256).hexdigest()
+
     def issue(self, user_id: str) -> str:
-        return f"token-{user_id}-exp3600"  # 含过期标记
+        exp = int(time.time()) + self._ttl
+        msg = f"{user_id}.{exp}"
+        return f"{msg}.{self._sign(msg)}"
+
+    def verify(self, token: str) -> Optional[str]:
+        try:
+            uid, exp, sig = token.rsplit(".", 2)
+        except ValueError:
+            return None
+        if not hmac.compare_digest(sig, self._sign(f"{uid}.{exp}")):
+            return None  # 签名不符 → 伪造
+        try:
+            if int(exp) < int(time.time()):
+                return None  # 已过期
+        except ValueError:
+            return None
+        return uid
 
 
 # ── RBAC / 审计(F8)──

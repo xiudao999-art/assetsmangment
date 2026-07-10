@@ -7,7 +7,7 @@ from app.domain.models import MaterialType
 class MaterialCreate(BaseModel):
     type: MaterialType = MaterialType.IMAGE
     oss_key: str
-    owner_id: str = "u1"
+    # 归属由 token 里的当前用户决定,不接受客户端指定(防越权伪造归属)。
 
 
 class VideoUpload(BaseModel):

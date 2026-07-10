@@ -26,10 +26,21 @@ def test_password_hashed_not_plain():  # REQ-602
     assert u.pwd_hash != "plainpw" and "plainpw" not in u.pwd_hash
 
 
-def test_login_issues_token():  # REQ-601
+def test_login_issues_signed_verifiable_token():  # REQ-601
+    issuer = FakeTokenIssuer()
+    svc = UserService(InMemoryUserRepo(), FakeHasher(), issuer)
+    u = svc.register("alice", "pw123456")
+    token = svc.login("alice", "pw123456")
+    assert issuer.verify(token) == u.id            # 签名可验证 → 拿回正确 uid
+    assert issuer.verify(token + "tamper") is None  # 篡改签名 → 拒绝(不可伪造)
+
+
+def test_register_rejects_duplicate_name():
+    from app.service.user import DuplicateName
     svc = UserService(InMemoryUserRepo(), FakeHasher(), FakeTokenIssuer())
-    svc.register("alice", "pw123456")
-    assert "exp" in svc.login("alice", "pw123456")
+    svc.register("dave", "pw123456")
+    with pytest.raises(DuplicateName):
+        svc.register("dave", "other-pw")
 
 
 def test_login_wrong_password_rejected():

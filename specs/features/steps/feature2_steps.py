@@ -66,8 +66,9 @@ def _user_svc():
 @given("存在一个注册用户")
 def g_registered_user(context):
     context.repo = InMemoryUserRepo()
-    context.user_svc = UserService(context.repo, FakeHasher(), FakeTokenIssuer())
-    context.user_svc.register("alice", "pw123456")
+    context.issuer = FakeTokenIssuer()
+    context.user_svc = UserService(context.repo, FakeHasher(), context.issuer)
+    context.reg_user = context.user_svc.register("alice", "pw123456")
 
 
 @when("该用户用正确凭据登录")
@@ -77,7 +78,9 @@ def w_login(context):
 
 @then("应签发一个受时限的 token")
 def t_token(context):
-    assert context.token and "exp" in context.token
+    # 受时限 = 带签名且可验证回正确 uid;篡改则失效(不可伪造)
+    assert context.token and context.issuer.verify(context.token) == context.reg_user.id
+    assert context.issuer.verify(context.token + "x") is None
 
 
 @given("我用密码注册")

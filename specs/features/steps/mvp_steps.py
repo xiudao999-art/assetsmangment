@@ -7,17 +7,21 @@ from app.service.material import MaterialService, MaterialNotFound
 from app.service.audit import AuditService
 from app.service.search import SearchService
 from app.infrastructure.fakes import (
-    FakeStorage, InMemoryMaterialRepo, FakeQueryEmbedder,
+    FakeStorage, InMemoryMaterialRepo, FakeQueryEmbedder, FakeEmbedder,
     FakePassAuditor, TimeoutAuditor,
 )
 
 
-def _mat(status=AuditStatus.PASS, oss_key="k", desc=""):
+def _mat(status=AuditStatus.PASS, oss_key="k", desc="", is_public=False):
     return Material(
         id=uuid.uuid4().hex, type=MaterialType.IMAGE, thumb=f"{oss_key}#thumb",
         source_timecode=0.0, embedding=[0.1] * 8, audit_status=status,
-        source_job="", oss_key=oss_key, description=desc,
+        source_job="", oss_key=oss_key, description=desc, is_public=is_public,
     )
+
+
+def _material_svc(repo, storage):
+    return MaterialService(repo, storage, FakeEmbedder())
 
 
 # ══ F1 物料管理 ══
@@ -25,7 +29,7 @@ def _mat(status=AuditStatus.PASS, oss_key="k", desc=""):
 def g_upload(context):
     context.repo = InMemoryMaterialRepo()
     context.storage = FakeStorage()
-    context.material_svc = MaterialService(context.repo, context.storage)
+    context.material_svc = _material_svc(context.repo, context.storage)
     context.upload = (MaterialType.IMAGE, "img1.png", b"bytes", "u1")
 
 
@@ -49,7 +53,7 @@ def t_saved(context):
 def g_existing(context):
     context.repo = InMemoryMaterialRepo()
     context.storage = FakeStorage()
-    context.material_svc = MaterialService(context.repo, context.storage)
+    context.material_svc = _material_svc(context.repo, context.storage)
     context.search_svc = SearchService(FakeQueryEmbedder(), context.repo)
     context.mat = context.material_svc.create(MaterialType.IMAGE, "img2.png", b"x", "u1")
 
@@ -106,7 +110,7 @@ def g_block_material(context):
     context.storage.put("b1")
     context.block = _mat(status=AuditStatus.BLOCK, oss_key="b1")
     context.repo.save(context.block)
-    context.material_svc = MaterialService(context.repo, context.storage)
+    context.material_svc = _material_svc(context.repo, context.storage)
     context.search_svc = SearchService(FakeQueryEmbedder(), context.repo)
 
 
@@ -154,7 +158,7 @@ def t_not_available(context):
 def g_pass_materials(context):
     context.repo = InMemoryMaterialRepo()
     for i in range(3):
-        context.repo.save(_mat(status=AuditStatus.PASS, oss_key=f"p{i}", desc=f"cat photo {i}"))
+        context.repo.save(_mat(status=AuditStatus.PASS, oss_key=f"p{i}", desc=f"cat photo {i}", is_public=True))
     context.embedder = FakeQueryEmbedder()
     context.search_svc = SearchService(context.embedder, context.repo)
 
@@ -179,8 +183,8 @@ def t_sorted(context):
 def g_term_material(context):
     context.repo = InMemoryMaterialRepo()
     context.term = "量子霍尔"
-    context.repo.save(_mat(status=AuditStatus.PASS, oss_key="term1", desc=f"关于{context.term}效应的图"))
-    context.repo.save(_mat(status=AuditStatus.PASS, oss_key="other1", desc="普通图片"))
+    context.repo.save(_mat(status=AuditStatus.PASS, oss_key="term1", desc=f"关于{context.term}效应的图", is_public=True))
+    context.repo.save(_mat(status=AuditStatus.PASS, oss_key="other1", desc="普通图片", is_public=True))
     context.embedder = FakeQueryEmbedder()
     context.search_svc = SearchService(context.embedder, context.repo)
 
