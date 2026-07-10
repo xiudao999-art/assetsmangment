@@ -139,3 +139,23 @@ def test_publish_public_favorite_flow():  # 音乐类型 + 发布 + 公共库 + 
     client.delete(f"/materials/{mid}/publish", headers=ah)
     pub2 = client.get("/library/public", headers=uh).json()
     assert not any(m["id"] == mid for m in pub2["items"])
+
+
+def test_download_only_in_my_library():
+    """我的物料库(自己上传/已收藏)可下载;公共库未收藏不可下载。"""
+    uh, ah = _user_hdr(), _admin_hdr()
+    # 1) 自己上传的可下载
+    own = client.post("/materials", json={"type": "image", "oss_key": "dl_own.png"}, headers=uh).json()["id"]
+    r = client.get(f"/materials/{own}/download", headers=uh)
+    assert r.status_code == 200 and "attachment" in r.json()["download_url"]
+    # 2) 游客不可下载
+    assert client.get(f"/materials/{own}/download").status_code == 401
+    # 3) 管理员发布一条公共物料;另一个用户"未收藏"时不可下载,收藏后可下载
+    pubm = client.post("/materials", json={"type": "music", "oss_key": "dl_pub.mp3"}, headers=ah).json()["id"]
+    client.post(f"/materials/{pubm}/set-audit", json={"status": "pass"}, headers=ah)
+    client.post(f"/materials/{pubm}/publish", headers=ah)
+    client.post("/users/register", json={"name": "dluser", "password": "pw123456"})
+    dh = _hdr(_token("dluser", "pw123456"))
+    assert client.get(f"/materials/{pubm}/download", headers=dh).status_code == 403   # 公共但未收藏 → 不可下载
+    client.post(f"/materials/{pubm}/favorite", headers=dh)
+    assert client.get(f"/materials/{pubm}/download", headers=dh).status_code == 200   # 收藏进我的库 → 可下载

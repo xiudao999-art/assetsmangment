@@ -91,6 +91,9 @@ class FakeStorage:
     def signed_url(self, oss_key: str) -> str:
         return f"https://oss.fake/{oss_key}?Expires=3600&Signature=xyz"
 
+    def download_url(self, oss_key: str) -> str:
+        return f"https://oss.fake/{oss_key}?Expires=3600&Signature=xyz&response-content-disposition=attachment"
+
     def exists(self, oss_key: str) -> bool:
         return oss_key in self._keys
 

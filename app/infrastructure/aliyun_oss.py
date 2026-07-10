@@ -14,8 +14,14 @@ class OssStorage:
         self._bucket.put_object(oss_key, data)
 
     def signed_url(self, oss_key: str) -> str:
-        # 受时限签名 URL(REQ-102)
+        # 受时限签名 URL(REQ-102)—— 预览用
         return self._bucket.sign_url("GET", oss_key, settings.oss_url_expire_seconds)
+
+    def download_url(self, oss_key: str) -> str:
+        # 受时限签名 URL(强制浏览器下载:response-content-disposition=attachment)
+        fname = oss_key.split("/")[-1] or "download"
+        params = {"response-content-disposition": f'attachment; filename="{fname}"'}
+        return self._bucket.sign_url("GET", oss_key, settings.oss_url_expire_seconds, params=params)
 
     def exists(self, oss_key: str) -> bool:
         return self._bucket.object_exists(oss_key)

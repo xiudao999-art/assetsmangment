@@ -99,6 +99,20 @@ def get_material(mid: str, user: dict = Depends(_user)):
     return {"id": mid, "signed_url": deps.storage.signed_url(m.oss_key)}
 
 
+@router.get("/materials/{mid}/download")
+def download_material(mid: str, user: dict = Depends(_user)):
+    """下载物料文件 —— 仅"我的物料库"(我上传的 或 我收藏的)可下载;
+    公共库里未收藏的物料不提供下载(先收藏进自己的库再下)。"""
+    _require_auth(user)
+    m = deps.material_repo.get(mid)
+    if m is None:
+        raise HTTPException(404, "material not found")
+    in_my_library = m.owner_id == user["id"] or deps.favorites.has(user["id"], mid)
+    if not (user["role"] == "admin" or in_my_library):
+        raise HTTPException(403, "只能下载你物料库中的物料(公共物料请先收藏)")
+    return {"download_url": deps.storage.download_url(m.oss_key)}
+
+
 @router.post("/materials/{mid}/set-audit")
 def set_audit(mid: str, body: schemas.AuditSet, user: dict = Depends(_user)):
     """人工审核复核 —— 仅管理员(普通用户上传后等审核)。"""

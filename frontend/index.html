@@ -213,11 +213,13 @@ function cell(m,ctx){const g=GLYPH[m.type]||'▦';
   const pub=m.is_public?'<span class="pub">公共</span>':'';
   let act='';
   if(ctx==='public'){act=m.is_favorited?`<button class="btn sm" onclick="unfav('${m.id}')">已收藏 ✓</button>`:`<button class="btn sm key" onclick="fav('${m.id}')">收藏到我的库</button>`}
-  else if(ctx==='mine'){act=m.is_mine?`<span class="owner">我上传的</span>`:`<button class="btn sm" onclick="unfav('${m.id}')">取消收藏</button>`}
+  else if(ctx==='mine'){const dl=`<button class="btn sm key" onclick="download('${m.id}')">下载</button>`;
+    act=dl+(m.is_mine?`<span class="owner">我上传的</span>`:`<button class="btn sm" onclick="unfav('${m.id}')">取消收藏</button>`)}
   else if(ctx==='all'){act=(m.audit_status==='pass'&&!m.is_public)?`<button class="btn sm key" onclick="publish('${m.id}')">发布到公共库</button>`:(m.is_public?`<span class="owner">已公开</span>`:`<span class="owner">待审核</span>`)}
   const owner=ctx==='all'?`<div class="owner">owner: ${m.owner_id||'—'}</div>`:'';
   const canDel=(m.is_mine||ME.role==='admin')?1:0;
-  return `<div class="cell"><div class="frame" onclick="openDrawer('${m.id}',${canDel})"><span class="glyph">${g}</span><span class="tc">${TCODE(m.source_timecode)}</span>${pub}</div>
+  const canDl=(ctx==='mine'||ctx==='all')?1:0;  // 下载仅限我的物料库/管理视图;公共库只收藏不下载
+  return `<div class="cell"><div class="frame" onclick="openDrawer('${m.id}',${canDel},${canDl})"><span class="glyph">${g}</span><span class="tc">${TCODE(m.source_timecode)}</span>${pub}</div>
     <div class="cellmeta"><div class="top"><span class="t">${LT[m.type]||m.type}</span><span class="stamp ${m.audit_status}">${ST[m.audit_status]||m.audit_status}</span></div>${owner}<div class="cellact">${act}</div></div></div>`}
 function grid(el,items,ctx,emptyTitle,emptyMsg){$(el).innerHTML=items.length?`<div class="sheet">${items.map(m=>cell(m,ctx)).join('')}</div>`:`<div class="empty"><b class="disp">${emptyTitle}</b>${emptyMsg}</div>`}
 
@@ -232,6 +234,9 @@ $$('#all-status .chip').forEach(c=>c.onclick=()=>{$$('#all-status .chip').forEac
 function setCnt(sec,n){const e=$('#cnt-'+sec);if(e)e.textContent=n}
 
 /* ── 收藏 / 发布 ── */
+async function download(id){const r=await api('GET',`/materials/${id}/download`);
+  if(r.ok&&r.data.download_url){const a=document.createElement('a');a.href=r.data.download_url;a.download='';a.target='_blank';a.rel='noopener';a.style.display='none';document.body.appendChild(a);a.click();a.remove();toast('开始下载')}
+  else if(r.status!==401)toast(r.data.detail||'下载失败',true)}
 async function fav(id){const r=await api('POST',`/materials/${id}/favorite`);if(r.ok){toast('已收藏到我的物料库');loadPublic()}else if(r.status!==401)toast(r.data.detail||'收藏失败',true)}
 async function unfav(id){const r=await api('DELETE',`/materials/${id}/favorite`);if(r.ok){toast('已取消收藏');loadPublic();loadMine()}else if(r.status!==401)toast(r.data.detail||'取消收藏失败',true)}
 async function publish(id){const r=await api('POST',`/materials/${id}/publish`);if(r.ok){toast('已发布到公共物料库');loadAll()}else toast('需要管理员权限',true)}
@@ -263,15 +268,16 @@ async function loadQueue(){const r=await api('GET','/materials?status=review');c
 async function audit(id,status){const r=await api('POST',`/materials/${id}/set-audit`,{status});if(r.ok){toast(status==='pass'?'已通过':'已拦截');loadQueue()}else toast('需要管理员权限',true)}
 
 /* ── 抽屉 ── */
-async function openDrawer(id,canDel){$('#scrim').classList.add('on');$('#drawer').classList.add('on');$('#d-body').innerHTML='<div class="empty">加载中…</div>';
+async function openDrawer(id,canDel,canDl){$('#scrim').classList.add('on');$('#drawer').classList.add('on');$('#d-body').innerHTML='<div class="empty">加载中…</div>';
   const r=await api('GET','/materials/'+id);
   if(!r.ok){$('#d-body').innerHTML='<div class="empty"><b class="disp">无法查看</b>该物料未过审或你无权访问。</div>';return}
   const url=r.data.signed_url;const isImg=url&&/\.(png|jpe?g|webp|gif)(\?|$)/i.test(url);
+  const dlBtn=canDl?`<button class="btn sm key" onclick="download('${id}')">下载</button>`:'';
   const delBtn=canDel?`<button class="btn sm block" onclick="delMat('${id}')">删除</button>`:'';
   $('#d-body').innerHTML=`<div class="preview">${isImg?`<img src="${url}">`:'<span class="glyph" style="font-size:44px">▦</span>'}</div>
     <div class="kv"><span class="kk">物料 ID</span><span class="vv">${id.slice(0,16)}…</span></div>
-    <div class="kv"><span class="kk">签名 URL</span><span class="vv">${url?url.slice(0,42)+'…':'—'}</span></div>
-    <div style="margin-top:18px;display:flex;gap:10px">${url?`<a class="btn sm" href="${url}" target="_blank">在 OSS 打开</a>`:''}${delBtn}</div>`}
+    <div class="kv"><span class="kk">来源</span><span class="vv">${canDl?'我的物料库':'公共物料库(收藏后可下载)'}</span></div>
+    <div style="margin-top:18px;display:flex;gap:10px">${dlBtn}${delBtn}</div>`}
 function closeDrawer(){$('#scrim').classList.remove('on');$('#drawer').classList.remove('on')}
 async function delMat(id){const r=await api('DELETE','/materials/'+id);if(r.ok){toast('已删除');closeDrawer();loadMine();if(ME.role==='admin')loadAll()}else if(r.status!==401)toast(r.data.detail||'删除失败',true)}
 
