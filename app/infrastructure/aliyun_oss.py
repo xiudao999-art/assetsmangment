@@ -23,6 +23,11 @@ class OssStorage:
         params = {"response-content-disposition": f'attachment; filename="{fname}"'}
         return self._bucket.sign_url("GET", oss_key, settings.oss_url_expire_seconds, params=params)
 
+    def snapshot_url(self, oss_key: str, ms: int = 1000) -> str:
+        # 视频封面:签名 URL 带 video/snapshot 处理,浏览器 <img> 直接拿到某帧 JPG(H264/H265)
+        params = {"x-oss-process": f"video/snapshot,t_{int(ms)},f_jpg,w_640,m_fast"}
+        return self._bucket.sign_url("GET", oss_key, settings.oss_url_expire_seconds, params=params)
+
     def exists(self, oss_key: str) -> bool:
         return self._bucket.object_exists(oss_key)
 

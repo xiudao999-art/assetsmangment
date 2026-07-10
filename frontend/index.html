@@ -62,7 +62,9 @@
   .cell:hover{border-color:var(--line-2);transform:translateY(-2px)}
   .frame{position:relative;aspect-ratio:4/3;background:radial-gradient(120% 90% at 50% 0%,var(--raise),var(--panel));display:flex;align-items:center;justify-content:center;border-bottom:1px solid var(--line);cursor:pointer}
   .frame::before,.frame::after{content:none}
-  .frame img{width:100%;height:100%;object-fit:cover}.glyph{font:600 30px "Fraunces";color:var(--faint)}
+  .frame img{position:absolute;inset:0;width:100%;height:100%;object-fit:cover}.glyph{font:600 30px "Fraunces";color:var(--faint)}
+  .frame .play{position:absolute;left:50%;top:50%;transform:translate(-50%,-50%);width:38px;height:38px;border-radius:50%;background:color-mix(in oklab,var(--ink) 50%,transparent);color:#fff;display:flex;align-items:center;justify-content:center;font-size:13px;padding-left:2px;z-index:2;pointer-events:none}
+  .libbar{margin-bottom:14px}.libbar input{max-width:460px}
   .tc{position:absolute;left:14px;bottom:10px;font:500 11px "IBM Plex Mono";background:color-mix(in oklab,var(--bg) 65%,transparent);color:var(--mint);padding:2px 7px;border-radius:5px}
   .pub{position:absolute;right:14px;top:10px;font:600 10px "IBM Plex Mono";letter-spacing:.06em;background:color-mix(in oklab,var(--mint) 20%,var(--bg));color:var(--mint);padding:2px 7px;border-radius:5px}
   .cellmeta{padding:11px 13px}.cellmeta .top{display:flex;align-items:center;justify-content:space-between;gap:8px}.cellmeta .t{font-weight:600;font-size:12.5px}
@@ -141,8 +143,8 @@
   <main>
     <header class="topbar"><div><h1 id="title">我的物料库</h1><p id="sub">我上传的与我收藏的物料</p></div><div id="action"></div></header>
     <div class="wrap">
-      <section id="sec-mine"><div class="filterbar" id="mine-filter"></div><div id="mine-grid"></div></section>
-      <section id="sec-public"><div class="filterbar" id="pub-filter"></div><div id="pub-grid"></div></section>
+      <section id="sec-mine"><div class="libbar"><input id="mine-q" placeholder="搜我的库:内容 / 情绪 / 氛围 / 标签 …" oninput="applyMine()"></div><div class="filterbar" id="mine-filter"></div><div id="mine-grid"></div></section>
+      <section id="sec-public"><div class="libbar"><input id="pub-q" placeholder="搜公共库:内容 / 情绪 / 氛围 / 标签 …" oninput="applyPublic()"></div><div class="filterbar" id="pub-filter"></div><div id="pub-grid"></div></section>
       <section id="sec-all">
         <div class="chips" id="all-status"><div class="chip on" data-s="">全部</div><div class="chip" data-s="review">待审核</div><div class="chip" data-s="pass">已通过</div><div class="chip" data-s="block">已拦截</div></div>
         <div id="all-grid"></div>
@@ -271,8 +273,10 @@ function cell(m,ctx){const g=GLYPH[m.type]||'▦';
   const mood=[m.ai_emotion,m.ai_atmosphere].filter(Boolean);
   const moodH=mood.length?`<div class="mood">${mood.map(x=>`<span class="m">${x}</span>`).join('')}</div>`:'';
   const tgs=(m.tags||[]).slice(0,4);const tagsH=tgs.length?`<div class="taglist">${tgs.map(x=>`<span class="tg"># ${x}</span>`).join('')}</div>`:'';
-  const sumH=m.ai_summary?`<div class="sumline">${m.ai_summary}</div>`:'';
-  return `<div class="cell"><div class="frame" onclick="openDrawer('${m.id}',${canDel},${canDl})"><span class="glyph">${g}</span><span class="tc">${TCODE(m.source_timecode)}</span>${pub}</div>
+  const desc=m.ai_summary||m.description||'';const sumH=desc?`<div class="sumline">${desc}</div>`:'';
+  const pv=m.preview_url?`<img src="${m.preview_url}" loading="lazy" onerror="this.remove()">`:'';
+  const play=(m.type==='video'&&m.preview_url)?'<span class="play">▶</span>':'';
+  return `<div class="cell"><div class="frame" onclick="openDrawer('${m.id}',${canDel},${canDl})"><span class="glyph">${g}</span>${pv}${play}<span class="tc">${TCODE(m.source_timecode)}</span>${pub}</div>
     <div class="cellmeta"><div class="top"><span class="t">${LT[m.type]||m.type}</span><span class="stamp ${m.audit_status}">${ST[m.audit_status]||m.audit_status}</span></div>${owner}${sumH}${moodH}${tagsH}<div class="cellact">${act}</div></div></div>`}
 function grid(el,items,ctx,emptyTitle,emptyMsg){$(el).innerHTML=items.length?`<div class="sheet">${items.map(m=>cell(m,ctx)).join('')}</div>`:`<div class="empty"><b class="disp">${emptyTitle}</b>${emptyMsg}</div>`}
 
@@ -287,14 +291,17 @@ function buildFilter(el,items,ty,tg,onChange){
 function __f(el,t){$(el)._ty=t;$(el)._onChange&&$(el)._onChange()}
 function __g(el,t){$(el)._tg=t;$(el)._onChange&&$(el)._onChange()}
 let mineItems=[],pubItems=[];
-function applyLib(el,gridEl,items,ctx,et,em){const ty=$(el)._ty||'',tg=$(el)._tg||'';
-  buildFilter(el,items,ty,tg,()=>applyLib(el,gridEl,items,ctx,et,em));$(el)._ty=ty;$(el)._tg=tg;
-  let it=items;if(ty)it=it.filter(m=>m.type===ty);if(tg)it=it.filter(m=>(m.tags||[]).includes(tg));
+function libKw(m,q){if(!q)return true;q=q.toLowerCase();
+  const hay=[LT[m.type]||'',m.type,m.oss_key,m.description,m.ai_summary,m.ai_emotion,m.ai_atmosphere,m.ai_scene,(m.tags||[]).join(' ')].join(' ').toLowerCase();
+  return hay.includes(q)}
+function applyLib(el,gridEl,qId,items,ctx,et,em){const ty=$(el)._ty||'',tg=$(el)._tg||'',q=(($(qId)&&$(qId).value)||'').trim();
+  buildFilter(el,items,ty,tg,()=>applyLib(el,gridEl,qId,items,ctx,et,em));$(el)._ty=ty;$(el)._tg=tg;
+  let it=items;if(ty)it=it.filter(m=>m.type===ty);if(tg)it=it.filter(m=>(m.tags||[]).includes(tg));if(q)it=it.filter(m=>libKw(m,q));
   grid(gridEl,it,ctx,et,em)}
-async function loadMine(){const r=await api('GET','/library/mine');mineItems=r.data.items||[];setCnt('mine',mineItems.length);
-  applyLib('#mine-filter','#mine-grid',mineItems,'mine','库里还空着','去「内容审核」上传/审核物料,或到「公共物料库」收藏。')}
-async function loadPublic(){const r=await api('GET','/library/public');pubItems=r.data.items||[];setCnt('public',pubItems.length);
-  applyLib('#pub-filter','#pub-grid',pubItems,'public','公共库还没有物料','管理员审核通过并发布后,物料会出现在这里,所有人可收藏。')}
+function applyMine(){applyLib('#mine-filter','#mine-grid','#mine-q',mineItems,'mine','没有匹配的物料','换个关键词/筛选,或去「内容审核」上传物料。')}
+function applyPublic(){applyLib('#pub-filter','#pub-grid','#pub-q',pubItems,'public','没有匹配的物料','换个关键词或清空筛选。')}
+async function loadMine(){const r=await api('GET','/library/mine');mineItems=r.data.items||[];setCnt('mine',mineItems.length);applyMine()}
+async function loadPublic(){const r=await api('GET','/library/public');pubItems=r.data.items||[];setCnt('public',pubItems.length);applyPublic()}
 let allStatus='';
 async function loadAll(){let p='/library/all';const r=await api('GET',p);let it=r.data.items||[];if(allStatus)it=it.filter(m=>m.audit_status===allStatus);setCnt('all',(r.data.items||[]).length);
   grid('#all-grid',it,'all','还没有物料','等用户上传或反解。')}

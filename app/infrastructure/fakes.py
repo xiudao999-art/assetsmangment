@@ -108,6 +108,9 @@ class FakeStorage:
         self._keys.add(dest_key)
         return True
 
+    def snapshot_url(self, oss_key: str, ms: int = 1000) -> str:
+        return f"https://oss.fake/{oss_key}?x-oss-process=video/snapshot,t_{ms}"
+
 
 # ── 向量索引(F4)──
 class InMemoryVectorIndex:

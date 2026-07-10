@@ -42,12 +42,26 @@ def _can_view(user: dict, m) -> bool:
     )
 
 
+def _preview_url(m) -> str:
+    """卡片预览:图片→签名图;视频→OSS 截帧封面;声音/文字→无(前端显字形)。"""
+    if not m.oss_key:
+        return ""
+    try:
+        if m.type in (MaterialType.IMAGE, MaterialType.MEME, MaterialType.STYLE):
+            return deps.storage.signed_url(m.oss_key)
+        if m.type == MaterialType.VIDEO:
+            return deps.storage.snapshot_url(m.oss_key)
+    except Exception:
+        return ""
+    return ""
+
+
 def _mat_out(m, fav_ids: set | None = None, uid: str | None = None):
     return {
         "id": m.id, "type": m.type, "audit_status": m.audit_status,
         "oss_key": m.oss_key, "thumb": m.thumb, "description": m.description,
         "source_timecode": m.source_timecode, "owner_id": m.owner_id,
-        "is_public": m.is_public,
+        "is_public": m.is_public, "preview_url": _preview_url(m),
         "is_favorited": bool(fav_ids and m.id in fav_ids),
         "is_mine": bool(uid and m.owner_id == uid),
         "tags": list(getattr(m, "tags", []) or []),
