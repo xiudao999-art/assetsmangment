@@ -17,17 +17,22 @@ class MaterialService:
         self._storage = storage
         self._embedder = embedder
 
-    def create(self, type: MaterialType, oss_key: str, data: bytes, owner_id: str) -> Material:
-        """REQ-101:存 OSS + 生成向量 + 落库元数据。默认审核态 review(fail-safe)。"""
+    def create(self, type: MaterialType, oss_key: str, data: bytes, owner_id: str,
+               content_hash: str = "") -> Material:
+        """REQ-101:存 OSS + 生成向量 + 落库元数据。默认审核态 review(fail-safe)。
+        content_hash:内容 MD5(去重用);未传则按 data 计算(空 data → 空)。"""
         self._storage.put(oss_key, data)
         # 生成 multimodal-embedding(F4 索引真源);假实现返回占位向量,换真模型接口不变。
         embedding = self._embedder.embed(
             MaterialCandidate(type=type, thumb=f"{oss_key}#thumb", source_timecode=0.0, description=oss_key)
         )
+        if not content_hash and data:
+            import hashlib
+            content_hash = hashlib.md5(data).hexdigest()
         material = Material(
             id=uuid.uuid4().hex, type=type, thumb=f"{oss_key}#thumb",
             source_timecode=0.0, embedding=embedding, audit_status=AuditStatus.REVIEW,
-            source_job="", oss_key=oss_key, owner_id=owner_id,
+            source_job="", oss_key=oss_key, owner_id=owner_id, content_hash=content_hash,
         )
         self._repo.save(material)
         return material
@@ -47,8 +52,14 @@ class MaterialService:
         return self._storage.signed_url(material.oss_key)
 
     def delete(self, material_id: str) -> None:
-        """REQ-103:删除文件与元数据 → 不可访问、不可检索。"""
+        """REQ-103:删除文件与元数据 → 不可访问、不可检索。
+        文字/语料无 oss_key,跳过 OSS 删除(否则真 OSS 删空 key 报错、元数据删不掉);
+        OSS 删除失败也不阻断元数据删除(避免物料删不掉)。"""
         material = self._repo.get(material_id)
         if material is not None:
-            self._storage.delete(material.oss_key)
+            if material.oss_key:
+                try:
+                    self._storage.delete(material.oss_key)
+                except Exception:
+                    pass
             self._repo.delete(material_id)

@@ -8,8 +8,9 @@ from typing import Optional
 from app.config import settings
 from app.domain.models import (
     Material, MaterialCandidate, MaterialType, AuditStatus, User,
-    TextSegment, TextSourceType, AuditRule,
+    TextSegment, TextSourceType, AuditRule, AuditTask,
 )
+from app.domain.query import MaterialQuery, paginate
 
 
 # ── 反解 / embedding ──
@@ -73,6 +74,15 @@ class InMemoryMaterialRepo:
     def list(self) -> list[Material]:
         return list(self.items)
 
+    def query(self, spec: MaterialQuery) -> tuple[list[Material], int]:
+        return paginate(self.items, spec)
+
+    def by_content_hash(self, owner_id: str, content_hash: str) -> Optional[Material]:
+        if not content_hash:
+            return None
+        return next((m for m in self.items
+                     if m.owner_id == owner_id and m.content_hash == content_hash), None)
+
     def search(self, query_text: str, only_pass: bool = True) -> list[Material]:
         pool = [m for m in self.items if (not only_pass or m.audit_status == AuditStatus.PASS)]
 
@@ -126,6 +136,9 @@ class InMemoryVectorIndex:
     def query(self, vector: list[float], k: int = 10) -> list[str]:
         return list(self._items.keys())[:k]
 
+    def query_scored(self, vector: list[float], k: int = 10) -> list[tuple[str, float]]:
+        return [(mid, 0.0) for mid in list(self._items.keys())[:k]]  # 假实现:距离恒 0(全在阈值内)
+
     def size(self) -> int:
         return len(self._items)
 
@@ -145,6 +158,14 @@ class InMemoryUserRepo:
 
     def get(self, user_id: str) -> Optional[User]:
         return self._by_id.get(user_id)
+
+    def list(self) -> list[User]:
+        return list(self._by_id.values())
+
+    def delete(self, user_id: str) -> None:
+        u = self._by_id.pop(user_id, None)
+        if u is not None:
+            self._by_name.pop(u.name, None)
 
 
 class InMemoryFavoriteRepo:
@@ -209,6 +230,7 @@ class FakeTokenIssuer:
 class InMemoryRbac:
     def __init__(self) -> None:
         self._map: dict[str, set[str]] = {}
+        self._user_map: dict[str, set[str]] = {}
 
     def permissions_of(self, role: str) -> set[str]:
         return set(self._map.get(role, set()))
@@ -219,6 +241,12 @@ class InMemoryRbac:
     def revoke(self, role: str, permission: str) -> None:
         self._map.get(role, set()).discard(permission)
 
+    def user_permissions(self, user_id: str) -> set[str]:
+        return set(self._user_map.get(user_id, set()))
+
+    def set_user_permissions(self, user_id: str, permissions: set[str]) -> None:
+        self._user_map[user_id] = set(permissions)
+
 
 class ListAuditLog:
     def __init__(self) -> None:
@@ -226,6 +254,25 @@ class ListAuditLog:
 
     def record(self, event: str) -> None:
         self.events.append(event)
+
+
+class InMemoryWhitelistRepo:
+    def __init__(self) -> None:
+        self._w: set[str] = set()
+
+    def words(self) -> set[str]:
+        return set(self._w)
+
+    def list(self) -> list[str]:
+        return sorted(self._w)
+
+    def add(self, word: str) -> None:
+        w = (word or "").strip()
+        if w:
+            self._w.add(w)
+
+    def remove(self, word: str) -> None:
+        self._w.discard((word or "").strip())
 
 
 # ── 审核引擎假实现 ──
@@ -290,3 +337,24 @@ class InMemoryAuditReportRepo:
 
     def get(self, report_id: str):
         return self._reports.get(report_id)
+
+
+class InMemoryAuditTaskRepo:
+    def __init__(self) -> None:
+        self._tasks: dict[str, AuditTask] = {}
+
+    def save(self, task: AuditTask) -> None:
+        self._tasks[task.id] = task
+
+    def get(self, task_id: str) -> Optional[AuditTask]:
+        return self._tasks.get(task_id)
+
+    def delete(self, task_id: str) -> None:
+        self._tasks.pop(task_id, None)
+
+    def list_for(self, owner_id: str) -> list[AuditTask]:
+        return sorted((t for t in self._tasks.values() if t.owner_id == owner_id),
+                      key=lambda t: t.created_ms, reverse=True)
+
+    def list_all(self) -> list[AuditTask]:
+        return sorted(self._tasks.values(), key=lambda t: t.created_ms, reverse=True)

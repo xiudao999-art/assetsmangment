@@ -32,12 +32,17 @@ class Settings(BaseSettings):
     embedding_dim: int = 1024
     parse_fps: float = 2.0
     parse_max_frames: int = 512
+    # 搜索:向量近邻的相关度阈值(余弦距离,越小越像)。超过此距离的语义近邻视为无关、不返回,
+    # 避免"搜一个词却搜出不相关物料"。关键词命中始终优先返回。
+    search_max_distance: float = 0.35   # multimodal-embedding-v1:相关≈0.25-0.31、无关≈0.39+,0.35 干净分开
 
     # 内容安全(增强版 green20220302)。需在阿里云控制台开通「内容安全(增强版)」并授权 RAM。
     enable_content_safety: bool = False   # 开通后置 true 即接真机器审核;否则走人工审核
     content_safety_access_key_id: str = ""      # 留空则复用 OSS 的 AccessKey
     content_safety_access_key_secret: str = ""
     content_safety_region: str = "cn-beijing"
+    # 内容安全严格度:strict(严重类全硬拦)/ balanced(适中:只色情政治暴恐硬拦,其余转人工)/ loose(从不硬拦,全转人工)
+    content_safety_mode: str = "balanced"
 
     # 数据库(RDS PostgreSQL + pgvector)
     database_url: str = "postgresql://user:pass@localhost:5432/assets"

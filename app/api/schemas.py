@@ -43,3 +43,16 @@ class RuleIn(BaseModel):
 
 class TagsIn(BaseModel):
     tags: list[str] = []            # 物料标签(项目分类)
+
+
+class UserCreate(BaseModel):
+    name: str
+    password: str                   # 管理员创建的账号默认为普通用户
+
+
+class UserPermsIn(BaseModel):
+    permissions: list[str] = []     # 给某用户设置的功能权限(整套替换)
+
+
+class WhitelistIn(BaseModel):
+    words: list[str] = []           # 内容安全白名单:加入这些词(命中即便阿里云判违规也放行)

@@ -14,8 +14,9 @@ class AuthorizationService:
         self._audit = audit
 
     def authorize(self, user: User, permission: str) -> None:
-        """REQ-701:无权限 → 403 + 审计。"""
-        if permission not in self._rbac.permissions_of(user.role):
+        """REQ-701:无权限 → 403 + 审计。权限 = 角色默认权限 ∪ 该用户被单独授予的权限。"""
+        allowed = self._rbac.permissions_of(user.role) | self._rbac.user_permissions(user.id)
+        if permission not in allowed:
             self._audit.record(f"DENY user={user.id} perm={permission}")
             raise PermissionDenied(permission)
 

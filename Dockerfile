@@ -4,6 +4,8 @@ FROM python:3.11-slim
 COPY --from=ghcr.io/astral-sh/uv:latest /uv /bin/uv
 WORKDIR /app
 ENV PYTHONPATH=/app PYTHONUNBUFFERED=1
+# 走阿里云 PyPI 镜像(ECS 直连 pypi.org 会卡死);拉长超时防慢链路误判
+ENV UV_INDEX_URL=https://mirrors.aliyun.com/pypi/simple/ UV_HTTP_TIMEOUT=120
 
 # 只装依赖(不把本项目装成包),从源码运行以保证 frontend 相对路径正确
 RUN uv pip install --system --no-cache \

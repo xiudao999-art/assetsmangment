@@ -1,11 +1,13 @@
 """HTTP 路由 —— 8 大功能 + 用户物料库/公共库/收藏/发布 + 多模态内容审核。只依赖 service(+组合根 deps)。"""
 from __future__ import annotations
 import uuid
+import time
+import hashlib
 import threading
-from fastapi import APIRouter, HTTPException, UploadFile, File, Form, Header, Depends
+from fastapi import APIRouter, HTTPException, UploadFile, File, Form, Header, Depends, Query
 from fastapi.concurrency import run_in_threadpool
 from app.api import deps, schemas
-from app.domain.models import MaterialType, AuditStatus, Material, AuditRule, User
+from app.domain.models import MaterialType, AuditStatus, Material, AuditRule, User, AuditTask, JobStatus
 from app.service.material import MaterialNotFound
 from app.service.user import InvalidCredentials, DuplicateName
 from app.service.authorization import PermissionDenied
@@ -56,11 +58,59 @@ def _preview_url(m) -> str:
     return ""
 
 
+def _media_url(m) -> str:
+    """审核卡片内联播放:图片/视频/声音都给真实文件签名 URL(前端直接 <img>/<video>/<audio>)。"""
+    if not m.oss_key:
+        return ""
+    try:
+        return deps.storage.signed_url(m.oss_key)
+    except Exception:
+        return ""
+
+
+def _page_args(page: int, size: int) -> tuple[int, int]:
+    """1 基 page/size → repo 的 offset/limit。"""
+    return (page - 1) * size, size
+
+
+def _page_out(items: list, total: int, page: int, size: int, key: str = "items") -> dict:
+    """统一分页响应。count = 当页长度(向后兼容);翻页控件只认 total。"""
+    return {"total": total, "page": page, "size": size, "count": len(items), key: items}
+
+
+def _check_type(type: str | None) -> str | None:
+    """校验物料类型(非法值 400,别静默返回空页)。"""
+    if type:
+        try:
+            MaterialType(type)
+        except ValueError:
+            raise HTTPException(400, f"不支持的物料类型: {type}")
+    return type or None
+
+
+def _check_status(status: str | None) -> str | None:
+    if status:
+        try:
+            AuditStatus(status)
+        except ValueError:
+            raise HTTPException(400, f"非法审核状态: {status}(应为 pass/review/block)")
+    return status or None
+
+
+def _owner_name(owner_id: str) -> str:
+    """把 owner_id 解析成用户名(管理视图展示用);用户已删除 → 空(前端显示"已删除用户")。"""
+    if not owner_id:
+        return ""
+    u = deps.user_repo.get(owner_id)
+    return u.name if u else ""
+
+
 def _mat_out(m, fav_ids: set | None = None, uid: str | None = None):
     return {
         "id": m.id, "type": m.type, "audit_status": m.audit_status,
         "oss_key": m.oss_key, "thumb": m.thumb, "description": m.description,
         "source_timecode": m.source_timecode, "owner_id": m.owner_id,
+        "owner_name": _owner_name(m.owner_id),
         "is_public": m.is_public, "preview_url": _preview_url(m),
         "is_favorited": bool(fav_ids and m.id in fav_ids),
         "is_mine": bool(uid and m.owner_id == uid),
@@ -97,15 +147,16 @@ async def upload_material(file: UploadFile = File(...), type: str = Form("image"
 
 
 @router.get("/materials")
-def list_materials(type: str | None = None, status: str | None = None, user: dict = Depends(_user)):
-    """列出全部物料(含 review/block/他人)—— 仅管理员(审核队列用)。"""
+def list_materials(page: int = Query(1, ge=1), size: int = Query(24, ge=1, le=100),
+                   type: str | None = None, status: str | None = None, q: str | None = None,
+                   user: dict = Depends(_user)):
+    """列出全部物料(含 review/block/他人)—— 仅管理员(审核队列用)。服务端分页/筛选。"""
     _require_perm(user, "materials.audit")
-    items = deps.material_repo.list()
-    if type:
-        items = [m for m in items if m.type == type]
-    if status:
-        items = [m for m in items if m.audit_status == status]
-    return {"count": len(items), "items": [_mat_out(m, uid=user["id"]) for m in items]}
+    off, lim = _page_args(page, size)
+    items, total = deps.get_library_service().all(
+        status=_check_status(status), type=_check_type(type), keyword=q or None,
+        offset=off, limit=lim)
+    return _page_out([_mat_out(m, uid=user["id"]) for m in items], total, page, size)
 
 
 @router.get("/materials/{mid}")
@@ -116,7 +167,7 @@ def get_material(mid: str, user: dict = Depends(_user)):
         raise HTTPException(404, "material not found")
     if not _can_view(user, m):
         raise HTTPException(403, "无权访问该物料")
-    return {"id": mid, "signed_url": deps.storage.signed_url(m.oss_key)}
+    return {"id": mid, "signed_url": _media_url(m), "type": m.type, "preview_url": _preview_url(m)}
 
 
 @router.get("/materials/{mid}/download")
@@ -231,8 +282,18 @@ def video_status(jid: str):
 
 # ── 多模态内容审核 ──
 def _report_out(r) -> dict:
+    trig = []
+    for t in r.triggered:
+        d = dict(t)
+        fk = d.get("frame_oss_key")
+        if fk:                                   # 命中的帧/图 → 给个签名 URL,报告里标红显示这张图
+            try:
+                d["frame_url"] = deps.storage.signed_url(fk)
+            except Exception:
+                d["frame_url"] = ""
+        trig.append(d)
     return {
-        "verdict": r.verdict, "summary": r.summary, "triggered": r.triggered,
+        "verdict": r.verdict, "summary": r.summary, "triggered": trig,
         "segments": [{"source_type": s.source_type, "text": s.text, "begin_ms": s.begin_ms,
                       "end_ms": s.end_ms, "frame_oss_key": s.frame_oss_key} for s in r.segments],
     }
@@ -243,58 +304,209 @@ def _rule_out(r: AuditRule) -> dict:
             "condition": r.condition, "action": r.action, "enabled": r.enabled}
 
 
-def _run_audit_bg(job) -> None:
-    """后台线程跑审核(视频/音频耗时),完成后写回 deps.jobs 供轮询。"""
+def _task_out(t: AuditTask) -> dict:
+    # 任务裁定跟随物料现状:管理员在审核队列改判(pass/block)后,待审核页立即反映,
+    # 不再停留在机审时的「待人工复核」。物料被删则退回任务存的裁定。
+    verdict = t.verdict
+    if t.material_id:
+        m = deps.material_repo.get(t.material_id)
+        if m is not None:
+            verdict = getattr(m.audit_status, "value", m.audit_status)
+    return {"id": t.id, "name": t.name, "material_type": t.material_type,
+            "material_id": t.material_id, "status": t.status, "verdict": verdict,
+            "report_id": t.report_id, "created_ms": t.created_ms, "error": t.error,
+            "video_kind": getattr(t, "video_kind", "material")}
+
+
+def _new_task(owner_id: str, name: str, mtype: MaterialType, material_id: str, chash: str,
+              video_kind: str = "material") -> AuditTask:
+    task = AuditTask(id=uuid.uuid4().hex, owner_id=owner_id, name=name, material_type=mtype,
+                     material_id=material_id, content_hash=chash, status=JobStatus.PENDING,
+                     created_ms=int(time.time() * 1000), video_kind=video_kind)
+    deps.task_repo.save(task)
+    return task
+
+
+def _finish_task(task: AuditTask, job, report) -> None:
+    task.verdict = report.verdict.value
+    task.status = JobStatus.DONE if job.status == JobStatus.DONE else JobStatus.FAILED
+    m = deps.material_repo.get(task.material_id)
+    task.report_id = m.audit_report_id if m else ""
+    deps.task_repo.save(task)
+
+
+def _run_task_audit(task_id: str, text: str = "") -> None:
+    """后台:对已建物料的任务跑审核,回写任务状态/裁定/报告(单条提交用)。"""
+    task = deps.task_repo.get(task_id)
+    if task is None:
+        return
+    task.status = JobStatus.RUNNING
+    deps.task_repo.save(task)
+    svc = deps.get_audit_service()
+    m = deps.material_repo.get(task.material_id)
+    job = svc.submit(task.material_type, oss_key=(m.oss_key if m else ""),
+                     owner_id=task.owner_id, material_id=task.material_id,
+                     video_kind=getattr(task, "video_kind", "material"))
     try:
-        report = deps.get_audit_service().run(job)
-        deps.jobs[job.id] = {"status": job.status, "material_id": job.material_id,
-                             "report": _report_out(report)}
-    except Exception as e:  # 兜底,任务不悬挂
-        deps.jobs[job.id] = {"status": "failed", "material_id": job.material_id, "error": str(e)}
+        report = svc.run(job, text)
+        _finish_task(task, job, report)
+    except Exception as e:
+        task.status = JobStatus.FAILED
+        task.error = str(e)[:200]
+        deps.task_repo.save(task)
+
+
+def _run_task_recheck(task_id: str) -> None:
+    """后台:对已存报告用当前白名单/规则**只重判**(不重抽帧/转写),回写任务状态/裁定/报告。"""
+    task = deps.task_repo.get(task_id)
+    if task is None:
+        return
+    old = deps.report_repo.get(task.report_id) if task.report_id else None
+    if old is None:
+        return
+    task.status = JobStatus.RUNNING
+    task.error = ""
+    deps.task_repo.save(task)
+    svc = deps.get_audit_service()
+    m = deps.material_repo.get(task.material_id)
+    job = svc.submit(task.material_type, oss_key=(m.oss_key if m else ""),
+                     owner_id=task.owner_id, material_id=task.material_id,
+                     video_kind=getattr(task, "video_kind", "material"))
+    try:
+        report = svc.recheck(job, old)
+        _finish_task(task, job, report)
+    except Exception as e:
+        task.status = JobStatus.FAILED
+        task.error = str(e)[:200]
+        deps.task_repo.save(task)
+
+
+def _run_batch_tasks(created: list, owner_id: str) -> None:
+    """后台:批量逐个上传+建物料+审核,每个文件回写各自的任务(异步呈现在「待审核」页)。"""
+    svc = deps.get_audit_service()
+    msvc = deps.get_material_service()
+    for task_id, name, data, mtype, chash in created:
+        task = deps.task_repo.get(task_id)
+        if task is None:
+            continue
+        task.status = JobStatus.RUNNING
+        deps.task_repo.save(task)
+        kind = getattr(task, "video_kind", "material")   # 物料/作品由顶部 tab 决定(建任务时已写入),不再按时长猜
+        try:
+            if mtype == MaterialType.CORPUS:
+                text = data.decode("utf-8", "ignore")
+                m = Material(id=uuid.uuid4().hex, type=mtype, thumb="", source_timecode=0.0, embedding=[],
+                             audit_status=AuditStatus.REVIEW, source_job="", oss_key="",
+                             description=text, owner_id=owner_id, content_hash=chash)
+                deps.material_repo.save(m)
+            else:
+                text = ""
+                key = f"materials/{uuid.uuid4().hex}-{name.rsplit('/', 1)[-1]}"
+                m = msvc.create(mtype, key, data, owner_id, chash)
+                # 物料视频 ≤20s 护栏(与单个上传一致):超时长→删物料+任务失败,不入库不审核;请改选「作品」
+                if mtype == MaterialType.VIDEO and kind == "material":
+                    dur = deps.storage.video_duration_ms(m.oss_key)
+                    if dur is not None and dur > 20000:
+                        msvc.delete(m.id)
+                        task.status = JobStatus.FAILED
+                        task.error = "物料视频需 ≤20 秒;请改选「作品」或裁剪后重传。"
+                        deps.task_repo.save(task)
+                        continue
+                deps.get_index_service().index_material(m)
+            task.material_id = m.id
+            deps.task_repo.save(task)
+            job = svc.submit(mtype, oss_key=m.oss_key, owner_id=owner_id, material_id=m.id,
+                             video_kind=kind)
+            report = svc.run(job, text)
+            _finish_task(task, job, report)
+        except Exception as e:
+            task.status = JobStatus.FAILED
+            task.error = str(e)[:200]
+            deps.task_repo.save(task)
+
+
+# 去重要原子:检查「库内已有」+「同内容正在处理中」并登记,防并发/连点重复提交(检查-建库非原子的竞态)
+_dedup_lock = threading.Lock()
+_inflight_hashes: set = set()
+
+
+def _dedup_reserve(owner_id: str, chash: str):
+    """原子登记。返回 (已存在物料 or None, 是否重复)。重复=库内已有 或 同内容正在处理中。"""
+    with _dedup_lock:
+        existing = deps.material_repo.by_content_hash(owner_id, chash)
+        if existing is not None:
+            return existing, True
+        if (owner_id, chash) in _inflight_hashes:
+            return None, True
+        _inflight_hashes.add((owner_id, chash))
+        return None, False
+
+
+def _dedup_release(owner_id: str, chash: str) -> None:
+    with _dedup_lock:
+        _inflight_hashes.discard((owner_id, chash))
 
 
 @router.post("/audit/submit")
 async def audit_submit(type: str = Form("image"), content: str = Form(""),
+                       video_kind: str = Form("material"),
                        file: UploadFile = File(None), user: dict = Depends(_user)):
-    """审核入口:文字/图片同步出报告;视频/音频返回 job_id 异步轮询。"""
+    """审核入口:上传即成功、可立刻再提交;审核异步跑,统一到「待审核」页看状态。
+    同一用户库内按内容 MD5 去重,重复不再上传。视频分 物料(material,≤20s,抽帧入库)/ 作品(work,仅扫描)。"""
     _require_auth(user)
     try:
         mtype = MaterialType(type)
     except ValueError:
         raise HTTPException(400, f"不支持的类型: {type}")
-    svc = deps.get_audit_service()
+    owner = user["id"]
+    video_kind = video_kind if video_kind in ("material", "work") else "material"
 
-    # 文字:直接建语料物料 + 同步审核
+    # 文字:内容 hash 原子去重(防连点/并发)→ 建语料物料 → 异步审核
     if mtype == MaterialType.CORPUS:
-        if not content.strip():
+        text = content.strip()
+        if not text:
             raise HTTPException(400, "文字内容不能为空")
-        m = Material(id=uuid.uuid4().hex, type=mtype, thumb="", source_timecode=0.0, embedding=[],
-                     audit_status=AuditStatus.REVIEW, source_job="", oss_key="",
-                     description=content.strip(), owner_id=user["id"])
-        deps.material_repo.save(m)
-        job = svc.submit(mtype, owner_id=user["id"], material_id=m.id)
-        report = await run_in_threadpool(svc.run, job, content.strip())
-        deps.jobs[job.id] = {"status": job.status, "material_id": m.id, "report": _report_out(report)}
-        return {"job_id": job.id, "status": job.status, "material_id": m.id, "report": _report_out(report)}
+        chash = hashlib.md5(text.encode("utf-8")).hexdigest()
+        existing, is_dup = _dedup_reserve(owner, chash)
+        if is_dup:
+            return {"status": "duplicate", "material_id": existing.id if existing else "",
+                    "message": "这段文字你已提交过,未重复。"}
+        try:
+            m = Material(id=uuid.uuid4().hex, type=mtype, thumb="", source_timecode=0.0, embedding=[],
+                         audit_status=AuditStatus.REVIEW, source_job="", oss_key="",
+                         description=text, owner_id=owner, content_hash=chash)
+            deps.material_repo.save(m)
+            task = _new_task(owner, "文字审核", mtype, m.id, chash)
+            threading.Thread(target=_run_task_audit, args=(task.id, text), name="audit-worker", daemon=True).start()
+            return {"status": "submitted", "task_id": task.id, "material_id": m.id}
+        finally:
+            _dedup_release(owner, chash)
 
-    # 文件类:存 OSS + 建物料
+    # 文件:读字节 → 原子去重 → 存 OSS 建物料(此步=上传成功)→ 异步审核
     if file is None:
         raise HTTPException(400, "缺少文件")
     data = await file.read()
-    key = f"audit/{uuid.uuid4().hex}-{file.filename}"
-    m = await run_in_threadpool(deps.get_material_service().create, mtype, key, data, user["id"])
-    deps.get_index_service().index_material(m)
-    job = svc.submit(mtype, oss_key=key, owner_id=user["id"], material_id=m.id)
-
-    if mtype in (MaterialType.VIDEO, MaterialType.AUDIO, MaterialType.MUSIC):
-        deps.jobs[job.id] = {"status": "running", "material_id": m.id}
-        threading.Thread(target=_run_audit_bg, args=(job,), daemon=True).start()  # 异步跑
-        return {"job_id": job.id, "status": "running", "material_id": m.id}
-
-    # 图片/表情/风格:同步(反解较快)
-    report = await run_in_threadpool(svc.run, job)
-    deps.jobs[job.id] = {"status": job.status, "material_id": m.id, "report": _report_out(report)}
-    return {"job_id": job.id, "status": job.status, "material_id": m.id, "report": _report_out(report)}
+    chash = hashlib.md5(data).hexdigest()
+    existing, is_dup = _dedup_reserve(owner, chash)
+    if is_dup:
+        return {"status": "duplicate", "material_id": existing.id if existing else "",
+                "message": f"「{file.filename}」已在你的库中,未重复上传。"}
+    try:
+        key = f"audit/{uuid.uuid4().hex}-{file.filename}"
+        m = await run_in_threadpool(deps.get_material_service().create, mtype, key, data, owner, chash)
+        # 物料视频强制 ≤20 秒(作品不限);解析不到时长则放行,前端已预检
+        if mtype == MaterialType.VIDEO and video_kind == "material":
+            dur = await run_in_threadpool(deps.storage.video_duration_ms, m.oss_key)
+            if dur is not None and dur > 20000:
+                await run_in_threadpool(deps.get_material_service().delete, m.id)  # 删 OSS + 元数据
+                return {"status": "too_long",
+                        "message": f"物料视频需 ≤20 秒,当前约 {round(dur/1000)} 秒;请改选「作品」或裁剪后再传。"}
+        deps.get_index_service().index_material(m)
+        task = _new_task(owner, file.filename or "文件", mtype, m.id, chash, video_kind=video_kind)
+        threading.Thread(target=_run_task_audit, args=(task.id, ""), name="audit-worker", daemon=True).start()
+        return {"status": "submitted", "task_id": task.id, "material_id": m.id}
+    finally:
+        _dedup_release(owner, chash)
 
 
 # ── 批量上传(ZIP 解包 / 文件夹多文件)──
@@ -329,49 +541,15 @@ def _expand_zip(data: bytes) -> list[tuple]:
     return out
 
 
-def _run_batch_bg(batch_id: str, items: list, owner_id: str, do_audit: bool) -> None:
-    """后台线程:逐个文件建物料(可选审核),更新 deps.batches 进度。"""
-    rec = deps.batches[batch_id]
-    svc = deps.get_audit_service()
-    msvc = deps.get_material_service()
-    for i, (name, data) in enumerate(items):
-        it = rec["items"][i]
-        t = _infer_type(name)
-        if t is None:
-            it["status"] = "skipped"; it["type"] = "unknown"; rec["done"] += 1; continue
-        it["type"] = t
-        try:
-            mtype = MaterialType(t)
-            if mtype == MaterialType.CORPUS:
-                content = data.decode("utf-8", "ignore")
-                m = Material(id=uuid.uuid4().hex, type=mtype, thumb="", source_timecode=0.0, embedding=[],
-                             audit_status=AuditStatus.REVIEW, source_job="", oss_key="",
-                             description=content, owner_id=owner_id)
-                deps.material_repo.save(m)
-            else:
-                key = f"materials/{uuid.uuid4().hex}-{name.rsplit('/', 1)[-1]}"
-                m = msvc.create(mtype, key, data, owner_id)
-                deps.get_index_service().index_material(m)
-            it["material_id"] = m.id
-            if do_audit:
-                it["status"] = "auditing"
-                job = svc.submit(mtype, oss_key=m.oss_key, owner_id=owner_id, material_id=m.id)
-                report = svc.run(job, m.description if mtype == MaterialType.CORPUS else "")
-                it["verdict"] = report.verdict.value
-                it["status"] = "done"
-            else:
-                it["status"] = "imported"
-        except Exception as e:
-            it["status"] = "failed"; it["error"] = str(e)[:120]
-        rec["done"] += 1
-
-
 @router.post("/audit/batch")
-async def audit_batch(files: list[UploadFile] = File(...), audit: str = Form("false"),
-                      user: dict = Depends(_user)):
-    """批量上传:多文件(文件夹拖拽)或单个 zip(自动解包)。audit=true 则逐条审核。"""
+async def audit_batch(files: list[UploadFile] = File(...),
+                      video_kind: str = Form("material"), user: dict = Depends(_user)):
+    """批量:多文件(文件夹拖拽)或单个 zip(自动解包)。逐个上传+审核,状态在「待审核」页看。
+    视频统一按顶部 tab 的 video_kind(material/work)分类(不再按时长自动猜);物料视频仍需 ≤20s。
+    同一用户库内按内容 MD5 去重(库内已有 + 批内重复都跳过);不支持的扩展名也跳过。"""
     _require_auth(user)
-    do_audit = audit.lower() in ("true", "1", "yes", "on")
+    owner = user["id"]
+    video_kind = video_kind if video_kind in ("material", "work") else "material"
     raw = [(f.filename or "file", await f.read()) for f in files]
     items: list[tuple] = []
     for name, data in raw:
@@ -384,22 +562,27 @@ async def audit_batch(files: list[UploadFile] = File(...), audit: str = Form("fa
         raise HTTPException(400, "没有可上传的文件")
     if len(items) > 200:
         raise HTTPException(400, "单次批量最多 200 个文件")
-    batch_id = uuid.uuid4().hex
-    deps.batches[batch_id] = {
-        "total": len(items), "done": 0, "audit": do_audit,
-        "items": [{"name": n, "status": "pending", "material_id": "", "type": "", "verdict": ""}
-                  for n, _ in items],
-    }
-    threading.Thread(target=_run_batch_bg, args=(batch_id, items, user["id"], do_audit), daemon=True).start()
-    return {"batch_id": batch_id, "total": len(items)}
-
-
-@router.get("/audit/batch/{batch_id}")
-def audit_batch_status(batch_id: str, user: dict = Depends(_user)):
-    rec = deps.batches.get(batch_id)
-    if rec is None:
-        raise HTTPException(404, "batch not found")
-    return {"batch_id": batch_id, **rec}
+    created: list = []
+    skipped = 0
+    seen: set = set()
+    for name, data in items:
+        t = _infer_type(name)
+        if t is None:
+            skipped += 1
+            continue                                       # 不支持的扩展名
+        chash = hashlib.md5(data).hexdigest()
+        if chash in seen or deps.material_repo.by_content_hash(owner, chash) is not None:
+            skipped += 1
+            continue                                       # 批内重复 + 库内已有
+        seen.add(chash)
+        mtype = MaterialType(t)
+        task = _new_task(owner, name.rsplit("/", 1)[-1], mtype, "", chash, video_kind=video_kind)
+        created.append((task.id, name, data, mtype, chash))
+    if not created:
+        return {"status": "done", "created": 0, "skipped": skipped, "task_ids": []}
+    threading.Thread(target=_run_batch_tasks, args=(created, owner), name="audit-worker", daemon=True).start()
+    return {"status": "submitted", "created": len(created), "skipped": skipped,
+            "task_ids": [c[0] for c in created]}
 
 
 # ── 审核规则后台(管理员)——放在 /audit/{job_id} 之前,避免 rules 被当作 job_id ──
@@ -427,46 +610,118 @@ def delete_audit_rule(rule_id: str, user: dict = Depends(_user)):
     return {"deleted": rule_id}
 
 
-@router.get("/audit/{job_id}")
-def audit_status(job_id: str, user: dict = Depends(_user)):
-    j = deps.jobs.get(job_id)
-    if j is None:
-        raise HTTPException(404, "audit job not found")
-    return {"job_id": job_id, **j}
+# ── 待审核任务(异步审核状态,统一呈现在「待审核」页;用户看自己的,管理员看全部)──
+@router.get("/audit/tasks")
+def list_audit_tasks(user: dict = Depends(_user)):
+    _require_auth(user)
+    tasks = deps.task_repo.list_all() if user["role"] == "admin" else deps.task_repo.list_for(user["id"])
+    return {"tasks": [_task_out(t) for t in tasks]}
+
+
+@router.get("/audit/tasks/{task_id}")
+def get_audit_task(task_id: str, user: dict = Depends(_user)):
+    _require_auth(user)
+    t = deps.task_repo.get(task_id)
+    if t is None:
+        raise HTTPException(404, "task not found")
+    if not (user["role"] == "admin" or t.owner_id == user["id"]):
+        raise HTTPException(403, "无权查看该任务")
+    report = deps.report_repo.get(t.report_id) if t.report_id else None
+    return {**_task_out(t), "report": _report_out(report) if report else None}
+
+
+@router.delete("/audit/tasks/{task_id}")
+def delete_audit_task(task_id: str, user: dict = Depends(_user)):
+    _require_auth(user)
+    t = deps.task_repo.get(task_id)
+    if t is not None and not (user["role"] == "admin" or t.owner_id == user["id"]):
+        raise HTTPException(403, "无权删除该任务")
+    deps.task_repo.delete(task_id)
+    return {"deleted": task_id}
+
+
+@router.post("/audit/tasks/{task_id}/recheck")
+def recheck_audit_task(task_id: str, user: dict = Depends(_user)):
+    """加白/改规则后,用当前白名单重新判定该任务(只对已存报告重判,不重抽帧/转写)。改判需审核权限。"""
+    _require_perm(user, "materials.audit")
+    t = deps.task_repo.get(task_id)
+    if t is None:
+        raise HTTPException(404, "task not found")
+    if t.status != JobStatus.DONE or not t.report_id:
+        raise HTTPException(400, "仅可对已完成且有报告的任务重新审核")
+    t.status = JobStatus.RUNNING   # 同步置「审核中」→ 前端立刻看到并开始轮询(消除竞态)
+    t.error = ""
+    deps.task_repo.save(t)
+    threading.Thread(target=_run_task_recheck, args=(t.id,), name="audit-worker", daemon=True).start()
+    return {"status": "rechecking", "id": t.id}
+
+
+@router.get("/audit/queue")
+def audit_queue(page: int = Query(1, ge=1), size: int = Query(50, ge=1, le=100),
+                type: str | None = None, user: dict = Depends(_user)):
+    """人工审核队列(管理员):待复核物料 + 可内联播放的签名 URL + 命中原因报告,一次拉齐 → 卡片内直接看直接判。"""
+    _require_perm(user, "materials.audit")
+    off, lim = _page_args(page, size)
+    items, total = deps.get_library_service().all(
+        status=_check_status("review"), type=_check_type(type), offset=off, limit=lim)
+    out = []
+    for m in items:
+        rid = getattr(m, "audit_report_id", "")
+        rep = deps.report_repo.get(rid) if rid else None
+        rep_out = _report_out(rep) if rep else None
+        if rep_out and m.type != MaterialType.CORPUS:
+            rep_out = {**rep_out, "segments": []}  # 卡片只用 triggered 命中项;非文本无需回传整条转写(省带宽)
+        out.append({**_mat_out(m, uid=user["id"]), "media_url": _media_url(m), "report": rep_out})
+    return _page_out(out, total, page, size)
 
 
 # ── 语义搜索(F3)——在公共库范围内搜索 ──
 @router.get("/search")
-def search(q: str = "", user: dict = Depends(_user)):
-    results = deps.get_search_service().search(q)
+def search(q: str = "", page: int = Query(1, ge=1), size: int = Query(24, ge=1, le=100),
+           type: str | None = None, tag: str | None = None, user: dict = Depends(_user)):
+    off, lim = _page_args(page, size)
+    results, total = deps.get_search_service().search(
+        q, type=_check_type(type), tag=tag or None, offset=off, limit=lim)
     fav = deps.favorites.material_ids(user["id"])
-    return {"count": len(results), "results": [_mat_out(m, fav, user["id"]) for m in results]}
+    return _page_out([_mat_out(m, fav, user["id"]) for m in results], total, page, size, key="results")
 
 
 # ── 物料库:我的 / 公共 / 全部(管理员)──
 @router.get("/library/mine")
-def my_library(user: dict = Depends(_user)):
+def my_library(page: int = Query(1, ge=1), size: int = Query(24, ge=1, le=100),
+               type: str | None = None, tag: str | None = None, q: str | None = None,
+               user: dict = Depends(_user)):
     _require_auth(user)
-    lib = deps.get_library_service()
+    off, lim = _page_args(page, size)
     fav = deps.favorites.material_ids(user["id"])
-    items = lib.mine(user["id"])
-    return {"count": len(items), "items": [_mat_out(m, fav, user["id"]) for m in items]}
+    items, total = deps.get_library_service().mine(
+        user["id"], type=_check_type(type), tag=tag or None, keyword=q or None,
+        offset=off, limit=lim)
+    return _page_out([_mat_out(m, fav, user["id"]) for m in items], total, page, size)
 
 
 @router.get("/library/public")
-def public_library(user: dict = Depends(_user)):
-    lib = deps.get_library_service()
+def public_library(page: int = Query(1, ge=1), size: int = Query(24, ge=1, le=100),
+                   type: str | None = None, tag: str | None = None, q: str | None = None,
+                   user: dict = Depends(_user)):
+    off, lim = _page_args(page, size)
     fav = deps.favorites.material_ids(user["id"])
-    items = lib.public()
-    return {"count": len(items), "items": [_mat_out(m, fav, user["id"]) for m in items]}
+    items, total = deps.get_library_service().public(
+        type=_check_type(type), tag=tag or None, keyword=q or None, offset=off, limit=lim)
+    return _page_out([_mat_out(m, fav, user["id"]) for m in items], total, page, size)
 
 
 @router.get("/library/all")
-def all_library(user: dict = Depends(_user)):
-    """管理员:看所有用户的物料。"""
+def all_library(page: int = Query(1, ge=1), size: int = Query(24, ge=1, le=100),
+                status: str | None = None, type: str | None = None, tag: str | None = None,
+                q: str | None = None, user: dict = Depends(_user)):
+    """管理员:看所有用户的物料。服务端分页/筛选。"""
     _require_perm(user, "library.all")
-    items = deps.get_library_service().all()
-    return {"count": len(items), "items": [_mat_out(m, uid=user["id"]) for m in items]}
+    off, lim = _page_args(page, size)
+    items, total = deps.get_library_service().all(
+        status=_check_status(status), type=_check_type(type), tag=tag or None,
+        keyword=q or None, offset=off, limit=lim)
+    return _page_out([_mat_out(m, uid=user["id"]) for m in items], total, page, size)
 
 
 @router.post("/materials/{mid}/publish")
@@ -532,6 +787,77 @@ def login(body: schemas.LoginIn):
 
 
 # ── 功能权限后台(F8)──
+# 权限目录:每条权限写清楚是什么、什么意思(功能权限页授权弹窗用)
+PERM_CATALOG = [
+    {"key": "materials.audit", "label": "内容审核复核", "desc": "复核待定物料、操作审核队列(通过/拦截)"},
+    {"key": "materials.publish", "label": "发布物料", "desc": "把物料发布到公共库,或从公共库下架"},
+    {"key": "library.all", "label": "查看全部物料", "desc": "查看所有用户的物料(管理视图)"},
+    {"key": "audit.rules", "label": "审核规则", "desc": "新增 / 删除违规判定规则"},
+    {"key": "admin.grant", "label": "权限与账号管理", "desc": "给用户授权 / 收回权限、增删账号"},
+    {"key": "materials.delete_any", "label": "删除任意物料", "desc": "删除其他用户上传的物料"},
+]
+_PERM_KEYS = {p["key"] for p in PERM_CATALOG}
+
+
+@router.get("/admin/perm-catalog")
+def perm_catalog(user: dict = Depends(_user)):
+    """可授予的功能权限清单(带中文名+说明),给授权弹窗用。"""
+    _require_perm(user, "admin.grant")
+    return {"catalog": PERM_CATALOG}
+
+
+@router.get("/admin/users")
+def list_users(user: dict = Depends(_user)):
+    """账号列表(名字 / 角色 / 已被单独授予的权限)。"""
+    _require_perm(user, "admin.grant")
+    users = [{"id": u.id, "name": u.name, "role": u.role,
+              "permissions": sorted(deps.rbac.user_permissions(u.id))}
+             for u in deps.user_repo.list()]
+    users.sort(key=lambda x: (x["role"] != "admin", x["name"]))   # 管理员置顶
+    return {"users": users}
+
+
+@router.post("/admin/users")
+def create_user(body: schemas.UserCreate, user: dict = Depends(_user)):
+    """新增账号(默认普通用户;admin 是唯一管理员)。"""
+    _require_perm(user, "admin.grant")
+    try:
+        u = deps.get_user_service().register(body.name, body.password)
+    except DuplicateName:
+        raise HTTPException(409, "用户名已被占用")
+    except InvalidCredentials:
+        raise HTTPException(400, "用户名和密码不能为空")
+    return {"id": u.id, "name": u.name, "role": u.role}
+
+
+@router.delete("/admin/users/{uid}")
+def delete_user(uid: str, user: dict = Depends(_user)):
+    """删除账号。不能删管理员、不能删自己。"""
+    _require_perm(user, "admin.grant")
+    target = deps.user_repo.get(uid)
+    if target is None:
+        return {"deleted": uid}
+    if target.role == "admin":
+        raise HTTPException(400, "不能删除管理员账号")
+    if uid == user["id"]:
+        raise HTTPException(400, "不能删除自己")
+    deps.user_repo.delete(uid)
+    return {"deleted": uid}
+
+
+@router.post("/admin/users/{uid}/perms")
+def set_user_perms(uid: str, body: schemas.UserPermsIn, user: dict = Depends(_user)):
+    """给某用户设置功能权限(整套替换;只接受权限目录内的权限)。授权即时生效。"""
+    _require_perm(user, "admin.grant")
+    target = deps.user_repo.get(uid)
+    if target is None:
+        raise HTTPException(404, "用户不存在")
+    perms = {p for p in body.permissions if p in _PERM_KEYS}
+    deps.rbac.set_user_permissions(uid, perms)
+    return {"id": uid, "name": target.name, "permissions": sorted(perms)}
+
+
+# 旧的按角色授权端点(保留兼容,前端已改用按用户授权)
 @router.post("/admin/grant")
 def grant(body: schemas.GrantIn, user: dict = Depends(_user)):
     _require_perm(user, "admin.grant")
@@ -543,3 +869,25 @@ def grant(body: schemas.GrantIn, user: dict = Depends(_user)):
 def role_permissions(role: str, user: dict = Depends(_user)):
     _require_perm(user, "admin.grant")
     return {"role": role, "permissions": sorted(deps.rbac.permissions_of(role))}
+
+
+# ── 内容安全白名单(治误伤:命中这些词即便阿里云判违规也放行)──
+@router.get("/admin/whitelist")
+def list_whitelist(user: dict = Depends(_user)):
+    _require_perm(user, "admin.grant")
+    return {"words": deps.whitelist_repo.list()}
+
+
+@router.post("/admin/whitelist")
+def add_whitelist(body: schemas.WhitelistIn, user: dict = Depends(_user)):
+    _require_perm(user, "admin.grant")
+    for w in body.words:
+        deps.whitelist_repo.add(w)
+    return {"words": deps.whitelist_repo.list()}
+
+
+@router.delete("/admin/whitelist")
+def remove_whitelist(word: str, user: dict = Depends(_user)):
+    _require_perm(user, "admin.grant")
+    deps.whitelist_repo.remove(word)
+    return {"words": deps.whitelist_repo.list()}

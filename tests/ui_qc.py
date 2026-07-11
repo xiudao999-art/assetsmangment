@@ -23,7 +23,10 @@ def login(p, name, pw, register):
     p.goto(BASE); p.wait_for_timeout(700)
     if register:
         p.click("#tab-reg")
-    p.fill("#g-name", name); p.fill("#g-pw", pw); p.click("#g-submit"); p.wait_for_timeout(1500)
+    p.fill("#g-name", name); p.fill("#g-pw", pw)
+    if register:
+        p.fill("#g-pw2", pw)   # 注册需确认密码(register-distinct 后新增)
+    p.click("#g-submit"); p.wait_for_timeout(1500)
 
 
 def go(p, sec):

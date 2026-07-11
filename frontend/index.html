@@ -10,20 +10,36 @@
   /* 白底黑字 + 葡萄紫单一强调色(无渐变);标题 Fraunces,正文 Inter */
   :root{--bg:#ffffff;--panel:#faf9fc;--raise:#f5f2f9;--line:#eceaf1;--line-2:#ded8e8;
     --ink:#1c1526;--dim:#6b6478;--faint:#a49dae;--mint:#6c2ba0;--mint-ink:#ffffff;--grape-soft:#f4edfb;
-    --pass:#1f9d57;--review:#b8781a;--block:#c22b52;--r:12px}
+    --pass:#1f9d57;--review:#b8781a;--block:#c22b52;--r:12px;--rail-w:60px}
   *{box-sizing:border-box}
   body{margin:0;background:var(--bg);color:var(--ink);font:400 14px/1.55 Inter,system-ui,"PingFang SC",sans-serif;-webkit-font-smoothing:antialiased}
   .mono{font-family:"IBM Plex Mono",monospace} .disp{font-family:"Fraunces",sans-serif;letter-spacing:-.01em}
   ::selection{background:var(--mint);color:var(--mint-ink)}
-  .app{display:grid;grid-template-columns:238px 1fr;min-height:100vh}
-  /* 左栏 */
-  .rail{background:var(--panel);border-right:1px solid var(--line);padding:22px 14px;display:flex;flex-direction:column;gap:5px;position:sticky;top:0;height:100vh}
+  .app{display:grid;grid-template-columns:var(--rail-w) 1fr;min-height:100vh}
+  .app.nav-expanded{--rail-w:238px}
+  /* 左栏(默认收成图标窄栏,几乎不占 PC 宽;点箭头展开;手机上抽屉滑出)*/
+  .rail{background:var(--panel);border-right:1px solid var(--line);padding:22px 14px;display:flex;flex-direction:column;gap:5px;position:sticky;top:0;height:100vh;overflow:hidden;transition:padding .18s}
+  .app:not(.nav-expanded) .rail{padding:22px 9px}
+  .app:not(.nav-expanded) .nav{justify-content:center;gap:0;padding:9px 0}
+  .app:not(.nav-expanded) .nav-t,.app:not(.nav-expanded) .nav .cnt,
+  .app:not(.nav-expanded) .navgroup>span,.app:not(.nav-expanded) .brand .bx,
+  .app:not(.nav-expanded) .me .who,
+  .app:not(.nav-expanded) .live span{display:none}
+  .app:not(.nav-expanded) .brand{justify-content:center;padding:6px 0 18px}
+  .app:not(.nav-expanded) .brand .sprocket{display:none}
+  .app:not(.nav-expanded) .me{flex-direction:column;align-items:center;gap:6px;padding:8px 0}
+  .app:not(.nav-expanded) .me .logout{margin:0}
   .brand{display:flex;align-items:center;gap:11px;padding:6px 10px 18px}
+  .railtoggle{margin-left:auto;width:26px;height:26px;flex:none;border:1px solid var(--line-2);border-radius:7px;background:var(--raise);color:var(--dim);cursor:pointer;font-size:14px;line-height:1;display:flex;align-items:center;justify-content:center}
+  .railtoggle:hover{border-color:var(--faint);color:var(--ink)}
+  .app:not(.nav-expanded) .railtoggle{margin:0}
   .sprocket{width:26px;height:26px;border-radius:7px;background:var(--mint);border:1px solid var(--mint)}
   .brand b{font:600 17px/1 "Fraunces";letter-spacing:-.02em}.brand small{display:block;color:var(--faint);font-size:10.5px;letter-spacing:.14em;margin-top:3px}
   .navgroup{margin-top:12px}.navgroup>span{display:block;color:var(--faint);font-size:10px;letter-spacing:.16em;text-transform:uppercase;padding:0 10px 6px;font-weight:600}
-  .nav{display:flex;align-items:center;gap:10px;padding:9px 10px;border-radius:9px;color:var(--dim);cursor:pointer;font-weight:500;border:1px solid transparent;user-select:none}
+  .nav{position:relative;display:flex;align-items:center;gap:10px;padding:9px 10px;border-radius:9px;color:var(--dim);cursor:pointer;font-weight:500;border:1px solid transparent;user-select:none}
   .nav:hover{background:var(--raise);color:var(--ink)}.nav.on{background:var(--raise);color:var(--ink);border-color:var(--line-2)}.nav.on .ico{color:var(--mint)}
+  .nav.on::before{content:"";position:absolute;left:2px;top:8px;bottom:8px;width:3px;border-radius:2px;background:var(--mint)}
+  .nav-t{white-space:nowrap;overflow:hidden}
   .ico{width:17px;height:17px;flex:none;stroke:currentColor;fill:none;stroke-width:1.7}
   .nav .cnt{margin-left:auto;font:500 11px/1 "IBM Plex Mono";color:var(--faint)}.nav.on .cnt{color:var(--mint)}
   .rail .foot{margin-top:auto;border-top:1px solid var(--line);padding-top:12px}
@@ -59,7 +75,7 @@
   /* 样张网格 */
   .sheet{display:grid;grid-template-columns:repeat(auto-fill,minmax(190px,1fr));gap:16px}
   .cell{background:var(--panel);border:1px solid var(--line);border-radius:11px;overflow:hidden;transition:.15s}
-  .cell:hover{border-color:var(--line-2);transform:translateY(-2px)}
+  .cell:hover{border-color:color-mix(in oklab,var(--mint) 32%,var(--line-2));transform:translateY(-2px);box-shadow:0 8px 22px rgba(28,21,38,.06)}
   .frame{position:relative;aspect-ratio:4/3;background:radial-gradient(120% 90% at 50% 0%,var(--raise),var(--panel));display:flex;align-items:center;justify-content:center;border-bottom:1px solid var(--line);cursor:pointer}
   .frame::before,.frame::after{content:none}
   .frame img{position:absolute;inset:0;width:100%;height:100%;object-fit:cover}.glyph{font:600 30px "Fraunces";color:var(--faint)}
@@ -98,12 +114,32 @@
   .qrow{display:flex;align-items:center;gap:14px;background:var(--panel);border:1px solid var(--line);border-radius:11px;padding:12px 14px;margin-bottom:10px}
   .qrow .thumb{width:56px;height:44px;border-radius:7px;border:1px solid var(--line);background:radial-gradient(var(--raise),var(--panel));display:flex;align-items:center;justify-content:center;flex:none;color:var(--faint);font:600 16px "Fraunces"}
   .qrow .meta{flex:1;min-width:0}.qrow .meta .k{font:500 12px "IBM Plex Mono";color:var(--dim);word-break:break-all}
+  /* 审核决策卡(队列内直接看直接判) */
+  .qcard{background:var(--panel);border:1px solid var(--line);border-radius:14px;padding:16px;margin-bottom:14px}
+  .qcard .qhd{display:flex;align-items:center;gap:12px;margin-bottom:12px}
+  .qcard .qglyph{width:44px;height:36px;border-radius:8px;border:1px solid var(--line);background:radial-gradient(var(--raise),var(--panel));display:flex;align-items:center;justify-content:center;flex:none;color:var(--faint);font:600 16px "Fraunces"}
+  .qcard .qhi{flex:1;min-width:0}.qcard .qtt{font:600 14px Inter}.qcard .qhi .k{font:500 11.5px "IBM Plex Mono";color:var(--dim);word-break:break-all;margin-top:2px}
+  .qcard .qbd{display:grid;grid-template-columns:minmax(0,1.05fr) minmax(0,1fr);gap:16px;align-items:start}
+  @media(max-width:760px){.qcard .qbd{grid-template-columns:1fr}}
+  .qmedia{min-width:0}
+  .qm-img,.qm-vid{width:100%;max-height:300px;border-radius:10px;border:1px solid var(--line);object-fit:contain;background:#0d0b12}
+  .qm-aud{display:flex;flex-direction:column;gap:12px;align-items:center;padding:16px;border:1px solid var(--line);border-radius:10px;background:var(--raise)}
+  .qm-aud audio{width:100%}
+  .qm-text{max-height:300px;overflow:auto;padding:12px 14px;border:1px solid var(--line);border-radius:10px;background:var(--raise);font-size:13px;line-height:1.6;white-space:pre-wrap;word-break:break-word}
+  .qglyphbig{display:flex;flex-direction:column;gap:8px;align-items:center;justify-content:center;height:170px;border:1px dashed var(--line-2);border-radius:10px;color:var(--faint);font:600 42px "Fraunces"}
+  .qglyphbig span{font:600 12px Inter;color:var(--dim)}
+  .qwhy{min-width:0}.qwsum{font-size:13px;color:var(--ink);line-height:1.55;margin-bottom:8px}
+  .qwtrig .qwlbl{font:600 12px Inter;color:var(--block);margin-bottom:8px}
+  .qai .qwlbl2{font:600 12px Inter;color:var(--mint);margin-bottom:6px}
+  .qaitx{max-height:190px;overflow:auto;font-size:12.5px;line-height:1.6;color:var(--ink);white-space:pre-wrap;word-break:break-word;background:var(--raise);border:1px solid var(--line);border-radius:8px;padding:10px 12px}
+  .qcard .qact{display:flex;gap:10px;justify-content:flex-end;margin-top:14px;border-top:1px solid var(--line);padding-top:12px}
+  .qcard .qact .btn{padding:10px 26px;font-size:13.5px}
   .empty{text-align:center;color:var(--dim);padding:54px 20px;border:1px dashed var(--line-2);border-radius:12px}.empty b{display:block;color:var(--ink);font:600 15px "Fraunces";margin-bottom:6px}
   /* 抽屉 */
   .scrim{position:fixed;inset:0;background:rgba(0,0,0,.5);opacity:0;pointer-events:none;transition:.2s;z-index:40}.scrim.on{opacity:1;pointer-events:auto}
-  .drawer{position:fixed;top:0;right:0;height:100vh;width:400px;max-width:92vw;background:var(--panel);border-left:1px solid var(--line);transform:translateX(100%);transition:.25s;z-index:41;display:flex;flex-direction:column}.drawer.on{transform:none}
+  .drawer{position:fixed;top:0;right:0;height:100vh;width:800px;max-width:92vw;background:var(--panel);border-left:1px solid var(--line);transform:translateX(100%);transition:.25s;z-index:41;display:flex;flex-direction:column}.drawer.on{transform:none}
   .drawer .dh{display:flex;align-items:center;justify-content:space-between;padding:18px 20px;border-bottom:1px solid var(--line)}.drawer .db{padding:20px;overflow:auto;flex:1}
-  .preview{aspect-ratio:16/10;border-radius:10px;border:1px solid var(--line);overflow:hidden;background:radial-gradient(var(--raise),var(--panel));display:flex;align-items:center;justify-content:center;margin-bottom:16px}.preview img{width:100%;height:100%;object-fit:contain}
+  .preview{aspect-ratio:16/10;border-radius:10px;border:1px solid var(--line);overflow:hidden;background:radial-gradient(var(--raise),var(--panel));display:flex;align-items:center;justify-content:center;margin-bottom:16px}.preview img,.preview video{width:100%;height:100%;object-fit:contain}.preview video{background:#0d0b12}.preview audio{width:88%}.preview .txt{max-height:100%;overflow:auto;padding:14px;font-size:13px;line-height:1.6;white-space:pre-wrap;word-break:break-word;color:var(--ink)}
   .kv{display:flex;justify-content:space-between;gap:12px;padding:9px 0;border-bottom:1px solid var(--line)}.kv .kk{color:var(--dim)}.kv .vv{font-family:"IBM Plex Mono";font-size:12px;text-align:right;word-break:break-all}
   .toasts{position:fixed;right:20px;bottom:20px;display:flex;flex-direction:column;gap:8px;z-index:60}
   .toast{background:var(--raise);border:1px solid var(--line-2);border-left:3px solid var(--mint);padding:11px 15px;border-radius:9px;font-size:13px;min-width:200px;box-shadow:0 10px 30px rgba(0,0,0,.35);animation:slidein .2s}.toast.bad{border-left-color:var(--block)}
@@ -114,6 +150,59 @@
   .gate .box{width:380px;max-width:92vw;background:var(--panel);border:1px solid var(--line);border-radius:16px;padding:30px}
   .gate .bar{display:flex;gap:6px;margin:16px 0 20px}.tab{flex:1;text-align:center;padding:9px;border-radius:9px;border:1px solid var(--line-2);color:var(--dim);cursor:pointer;font-weight:600;font-size:13px}.tab.on{background:var(--raise);color:var(--ink)}
   .quick{display:flex;gap:8px;margin-top:14px}.quick .btn{flex:1;justify-content:center}
+  /* 授权弹窗 */
+  .gmodal{position:fixed;left:50%;top:50%;transform:translate(-50%,-47%);width:470px;max-width:92vw;max-height:86vh;background:var(--panel);border:1px solid var(--line-2);border-radius:16px;z-index:81;display:none;flex-direction:column;box-shadow:0 30px 80px rgba(0,0,0,.32)}
+  .gmodal.on{display:flex}
+  .gmhd{display:flex;justify-content:space-between;align-items:center;padding:18px 20px;border-bottom:1px solid var(--line)}
+  .gmbody{padding:16px 20px;overflow:auto}
+  .gmfoot{display:flex;justify-content:flex-end;gap:10px;padding:14px 20px;border-top:1px solid var(--line)}
+  .permrow{display:flex;gap:11px;align-items:flex-start;padding:11px 12px;border:1px solid var(--line);border-radius:10px;margin-bottom:8px;cursor:pointer}
+  .permrow:hover{border-color:var(--line-2)}.permrow input{width:auto;margin:2px 0 0;accent-color:var(--mint)}
+  .permrow .pl{font-weight:600;font-size:13px}.permrow .pd{color:var(--dim);font-size:12px;margin-top:3px;line-height:1.4}
+  #gscrim{z-index:80}
+  /* 翻页 */
+  .pager{display:flex;align-items:center;justify-content:center;gap:8px;margin:22px 0 4px;flex-wrap:wrap}
+  .pgbtn{min-height:36px;padding:7px 13px;border:1px solid var(--line-2);background:var(--raise);color:var(--ink);border-radius:9px;font:600 13px Inter;cursor:pointer}
+  .pgbtn:hover:not([disabled]){border-color:var(--faint)}
+  .pgbtn[disabled]{opacity:.4;cursor:not-allowed}
+  .pgnow{font:500 13px Inter;color:var(--dim)}.pgnow b{color:var(--mint);font-family:"IBM Plex Mono"}.pgtot{color:var(--faint)}
+  /* 骨架加载 */
+  .cell.skel{pointer-events:none}
+  .skel .frame,.skl-l{background:linear-gradient(90deg,var(--raise) 25%,var(--line) 37%,var(--raise) 63%);background-size:400% 100%;animation:shimmer 1.2s ease infinite}
+  .skl-l{height:10px;border-radius:5px;margin:8px 0}.skl-l.short{width:60%}
+  @keyframes shimmer{to{background-position:-135% 0}}
+  /* 汉堡(手机)+ 表单栅格工具类 */
+  .hamburger{display:none;width:40px;height:40px;flex:none;border:1px solid var(--line-2);border-radius:9px;background:var(--raise);color:var(--ink);font-size:17px;cursor:pointer;align-items:center;justify-content:center}
+  .f-fixed{flex:0 0 130px}.f-grow{flex:1}.f-auto{flex:0 0 auto}
+  /* 键盘可达焰圈(无障碍)*/
+  .nav:focus-visible,.fchip:focus-visible,.chip:focus-visible,.btn:focus-visible,.pgbtn:focus-visible,.railtoggle:focus-visible,.hamburger:focus-visible,.tab:focus-visible,.x:focus-visible{outline:2px solid var(--mint);outline-offset:2px}
+  /* ── 自适应:平板/手机 ── */
+  @media (max-width:900px){
+    .app{grid-template-columns:1fr}
+    .rail{position:fixed;left:0;top:0;z-index:45;width:238px;height:100vh;transform:translateX(-100%);transition:transform .25s;box-shadow:0 0 40px rgba(0,0,0,.16)}
+    .app.nav-open .rail{transform:none}
+    .rail,.app:not(.nav-expanded) .rail{--rail-w:238px;padding:22px 14px}
+    .rail .nav,.app:not(.nav-expanded) .nav{justify-content:flex-start;gap:10px;padding:9px 10px}
+    .nav-t,.nav .cnt,.navgroup>span,.brand .bx,.brand .sprocket,.me .who,.me .logout,.live span{display:inline}
+    .railtoggle{display:none}
+    .hamburger{display:inline-flex}
+    .topbar{padding:14px 18px;flex-wrap:wrap}
+    .wrap{padding:18px 18px 48px;max-width:none}
+  }
+  @media (max-width:640px){
+    .sheet{grid-template-columns:repeat(2,minmax(0,1fr));gap:12px}
+    .topbar{padding:12px 14px}.topbar h1{font-size:20px}
+    .wrap{padding:14px 14px 40px}
+    .row{flex-wrap:wrap}.row>.f-fixed,.row>.f-grow,.row>.f-auto{flex:1 1 100%}
+    .libbar input,.filterbar{max-width:none}.libbar input{max-width:none}
+    .drawer{width:100vw;max-width:100vw}
+    .btn{min-height:40px}.btn.sm{min-height:34px}.pgbtn{min-height:40px}
+    .fchip,.chip{padding:7px 13px}
+  }
+  @media (prefers-reduced-motion:reduce){
+    .skel .frame,.skl-l{animation:none;background:var(--raise)}
+    .cell,.rail,.drawer,.pgbtn{transition:none;transform:none}
+  }
 </style>
 </head>
 <body>
@@ -121,44 +210,52 @@
 <!-- 登录门 -->
 <div class="gate" id="gate">
   <div class="box">
-    <div style="display:flex;align-items:center;gap:11px"><span class="sprocket"></span><div><b class="disp" style="font-size:18px;display:block">物料中台</b><small style="display:block;color:var(--faint);letter-spacing:.14em;font-size:10.5px;margin-top:2px">ASSET · DESK</small></div></div>
+    <div style="display:flex;align-items:center;gap:11px;margin-bottom:4px"><span class="sprocket"></span><div><b class="disp" style="font-size:18px;display:block">物料中台</b><small style="display:block;color:var(--faint);letter-spacing:.14em;font-size:10.5px;margin-top:2px">ASSET · DESK</small></div></div>
     <div class="bar"><div class="tab on" id="tab-login" onclick="setTab('login')">登录</div><div class="tab" id="tab-reg" onclick="setTab('reg')">注册</div></div>
-    <div class="field"><label>用户名</label><input id="g-name" value="demo"></div>
-    <div class="field"><label>密码</label><input id="g-pw" type="password" value="pw123456"></div>
+    <div style="margin-bottom:14px"><b class="disp" id="g-title" style="font-size:17px">欢迎回来</b><div class="hint" id="g-sub" style="margin:4px 0 0">登录你的物料中台账号</div></div>
+    <div class="field"><label>用户名</label><input id="g-name" placeholder="输入用户名" autocomplete="username"></div>
+    <div class="field"><label>密码</label><input id="g-pw" type="password" placeholder="输入密码" autocomplete="current-password"></div>
+    <div class="field" id="g-pw2-wrap" style="display:none"><label>确认密码</label><input id="g-pw2" type="password" placeholder="再次输入密码" autocomplete="new-password"></div>
     <button class="btn key" style="width:100%;justify-content:center" id="g-submit" onclick="submitAuth()">登录</button>
-    <div class="quick"><button class="btn sm" onclick="quick('admin','admin123')">以管理员登录</button><button class="btn sm" onclick="quick('demo','pw123456')">以演示用户登录</button></div>
     <div id="g-msg" style="color:var(--block);font-size:12.5px;margin-top:12px;min-height:16px"></div>
   </div>
 </div>
 
 <div class="app" id="app" style="display:none">
   <aside class="rail">
-    <div class="brand"><span class="sprocket"></span><div><b>物料中台</b><small>ASSET · DESK</small></div></div>
+    <div class="brand"><span class="sprocket"></span><div class="bx"><b>物料中台</b><small>ASSET · DESK</small></div><button class="railtoggle" id="rail-toggle" aria-label="展开或收起导航" onclick="setRail(!document.getElementById('app').classList.contains('nav-expanded'))">›</button></div>
     <nav id="nav"></nav>
     <div class="foot">
-      <div class="me"><div class="ava" id="ava">D</div><div><div class="nm" id="me-name">—</div><div class="rl" id="me-role">—</div></div><button class="logout" onclick="logout()">退出</button></div>
+      <div class="me"><div class="ava" id="ava">D</div><div class="who"><div class="nm" id="me-name">—</div><div class="rl" id="me-role">—</div></div><button class="logout" onclick="logout()">退出</button></div>
       <div class="live"><span class="led" id="led"></span><span id="livetxt">检测中</span></div>
     </div>
   </aside>
   <main>
-    <header class="topbar"><div><h1 id="title">我的物料库</h1><p id="sub">我上传的与我收藏的物料</p></div><div id="action"></div></header>
+    <header class="topbar"><button class="hamburger" id="hamburger" aria-label="打开菜单" style="align-self:center" onclick="toggleNavOpen()">☰</button><div style="flex:1;min-width:0"><h1 id="title">我的物料库</h1><p id="sub">我上传的与我收藏的物料</p></div><div id="action"></div></header>
     <div class="wrap">
-      <section id="sec-mine"><div class="libbar"><input id="mine-q" placeholder="搜我的库:内容 / 情绪 / 氛围 / 标签 …" oninput="applyMine()"></div><div class="filterbar" id="mine-filter"></div><div id="mine-grid"></div></section>
-      <section id="sec-public"><div class="libbar"><input id="pub-q" placeholder="搜公共库:内容 / 情绪 / 氛围 / 标签 …" oninput="applyPublic()"></div><div class="filterbar" id="pub-filter"></div><div id="pub-grid"></div></section>
+      <section id="sec-mine"><div class="libbar"><input id="mine-q" placeholder="搜我的库:内容 / 情绪 / 氛围 / 标签 …" oninput="onMineKw()"></div><div class="filterbar" id="mine-filter"></div><div id="mine-grid"></div><div class="pager" id="mine-pager"></div></section>
+      <section id="sec-public"><div class="libbar"><input id="pub-q" placeholder="搜公共库:内容 / 情绪 / 氛围 / 标签 …" oninput="onPubKw()"></div><div class="filterbar" id="pub-filter"></div><div id="pub-grid"></div><div class="pager" id="pub-pager"></div></section>
       <section id="sec-all">
         <div class="chips" id="all-status"><div class="chip on" data-s="">全部</div><div class="chip" data-s="review">待审核</div><div class="chip" data-s="pass">已通过</div><div class="chip" data-s="block">已拦截</div></div>
-        <div id="all-grid"></div>
+        <div class="libbar"><input id="all-q" placeholder="搜全部物料:内容 / 情绪 / 氛围 / 标签 …" oninput="onAllKw()"></div>
+        <div class="filterbar" id="all-filter"></div>
+        <div id="all-grid"></div><div class="pager" id="all-pager"></div>
       </section>
       <section id="sec-ingest">
+        <div class="segbar" style="display:flex;gap:6px;max-width:300px;margin-bottom:8px">
+          <div class="tab on" id="uk-mat" onclick="setKind('material')">物料</div>
+          <div class="tab" id="uk-work" onclick="setKind('work')">作品</div>
+        </div>
+        <p class="hint" style="margin-top:0;margin-bottom:16px">物料 = 可复用素材(视频 ≤20 秒,抽帧入库);作品 = 成片(仅合规扫描,不入库)。图片 / 文字 / 声音按物料处理。</p>
         <div class="card"><h3 class="disp">内容审核</h3>
           <div id="au-form">
           <p class="hint">上传视频/图片/声音,或粘贴文字。系统按规则审核:视频先转写音轨(带时间轴)+挑重点段抽帧反解,图片反解画面,声音转写 —— 一切转成文字后按关键词+大模型规则判定。审核出的关键帧自动进你的物料库。</p>
           <div class="row" style="align-items:flex-end">
-            <div class="field" style="flex:0 0 130px;margin:0"><label>类型</label>
+            <div class="field f-fixed" style="margin:0"><label>类型</label>
               <select id="au-type" onchange="auToggle()"><option value="video">视频</option><option value="image">图片</option><option value="corpus">文字</option><option value="audio">声音</option></select></div>
-            <div class="field" id="au-file-wrap" style="margin:0;flex:1"><label>文件</label><input type="file" id="au-file"></div>
-            <div class="field" id="au-text-wrap" style="margin:0;flex:1;display:none"><label>文字内容</label><input id="au-text" placeholder="粘贴要审核的文字…"></div>
-            <button class="btn key" style="flex:0 0 auto" onclick="doAudit()">开始审核</button>
+            <div class="field f-grow" id="au-file-wrap" style="margin:0"><label>文件</label><input type="file" id="au-file"></div>
+            <div class="field f-grow" id="au-text-wrap" style="margin:0;display:none"><label>文字内容</label><input id="au-text" placeholder="粘贴要审核的文字…"></div>
+            <button class="btn key f-auto" id="au-go" onclick="doAudit()">开始审核</button>
           </div>
           </div>
           <div id="au-result" style="margin-top:18px"></div>
@@ -170,30 +267,48 @@
             <input type="file" id="bu-folder" webkitdirectory directory multiple hidden>
             <input type="file" id="bu-zip" accept=".zip" multiple hidden>
             <div class="row" style="margin-top:12px;justify-content:flex-start;gap:12px">
-              <button class="btn" style="flex:0 0 auto" onclick="$('#bu-folder').click()">选择文件夹</button>
-              <button class="btn" style="flex:0 0 auto" onclick="$('#bu-zip').click()">选择 ZIP</button>
+              <button class="btn f-auto" onclick="$('#bu-folder').click()">选择文件夹</button>
+              <button class="btn f-auto" onclick="$('#bu-zip').click()">选择 ZIP</button>
             </div>
           </div>
           <div id="bu-stage" style="display:none"></div>
           <div id="bu-run" style="display:none"></div>
         </div>
       </section>
+      <section id="sec-pending">
+        <div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:14px;gap:12px;flex-wrap:wrap">
+          <div class="owner">提交后即受理,上传+审核在后台进行;完成后这里显示裁定与报告。</div>
+          <button class="btn sm f-auto" onclick="loadPending()">刷新</button>
+        </div>
+        <div id="pending-list"></div>
+      </section>
       <section id="sec-search">
-        <div class="card" style="margin-bottom:18px"><div class="row" style="align-items:flex-end"><div class="field" style="margin:0;flex:5"><label>按含义搜公共物料(情绪 / 氛围 / 内容 / 标签)</label><input id="q" placeholder="例如:温馨治愈 / 紧张刺激的氛围 / 森林 / 某个项目标签 …" onkeydown="if(event.key==='Enter')doSearch()"></div><button class="btn key" style="flex:0 0 auto" onclick="doSearch()">搜索</button></div></div>
-        <div id="results"></div>
+        <div class="card" style="margin-bottom:18px"><div class="row" style="align-items:flex-end"><div class="field f-grow" style="margin:0"><label>按含义搜公共物料(情绪 / 氛围 / 内容 / 标签)</label><input id="q" placeholder="例如:温馨治愈 / 紧张刺激的氛围 / 森林 / 某个项目标签 …" onkeydown="if(event.key==='Enter')doSearch()"></div><button class="btn key f-auto" onclick="doSearch()">搜索</button></div></div>
+        <div id="results"></div><div class="pager" id="search-pager"></div>
       </section>
       <section id="sec-review"><div id="queue"></div></section>
-      <section id="sec-users"><div class="card" style="max-width:440px"><h3 class="disp">用户</h3><p class="hint">播种账号:管理员 admin / admin123 · 演示用户 demo / pw123456。新注册用户默认为普通用户。</p><div id="u-list" class="mono" style="color:var(--dim);font-size:12.5px"></div></div></section>
-      <section id="sec-roles"><div class="card" style="max-width:520px"><h3 class="disp">功能权限(RBAC)</h3><p class="hint">给角色授权,即时生效。仅管理员可配置。</p>
-        <div class="row" style="align-items:flex-end"><div class="field" style="margin:0"><label>角色</label><input id="r-role" value="editor"></div><div class="field" style="margin:0"><label>权限</label><input id="r-perm" value="materials.edit"></div><button class="btn key" style="flex:0 0 auto" onclick="grant()">授权</button></div>
-        <div style="margin-top:16px"><label>当前权限</label><div id="perms" class="chips"></div></div></div>
+      <section id="sec-users"><div class="card" style="max-width:660px"><h3 class="disp">账号与角色</h3>
+        <p class="hint">新增 / 删除账号。新账号默认普通用户;admin 是唯一管理员。</p>
+        <div class="row" style="align-items:flex-end"><div class="field f-grow" style="margin:0"><label>用户名</label><input id="nu-name" placeholder="新账号用户名"></div><div class="field f-grow" style="margin:0"><label>密码</label><input id="nu-pw" type="password" placeholder="至少 6 位"></div><button class="btn key f-auto" onclick="createUser()">创建账号</button></div>
+        <div style="margin-top:16px"><label>所有账号</label><div id="u-list"></div></div></div>
+      </section>
+      <section id="sec-whitelist"><div class="card" style="max-width:660px"><h3 class="disp">内容安全白名单</h3>
+        <p class="hint">加入这些词后,即便阿里云内容安全判它违规,只要命中的词都在白名单里就放行——用来治误伤(比如引用/玩笑里的"杀人犯")。即时生效。</p>
+        <div class="row" style="align-items:flex-end"><div class="field f-grow" style="margin:0"><label>添加词(多个用逗号分隔)</label><input id="wl-in" placeholder="如:杀人犯,自杀,枪" onkeydown="if(event.key==='Enter')addWhitelist()"></div><button class="btn key f-auto" onclick="addWhitelist()">加入白名单</button></div>
+        <div style="margin-top:16px"><label>当前白名单 <span id="wl-count" class="owner"></span></label>
+          <input id="wl-filter" placeholder="筛选已有词…" style="margin:6px 0" oninput="renderWhitelist()">
+          <div id="wl-list" class="chips"></div></div></div>
+      </section>
+      <section id="sec-roles"><div class="card" style="max-width:660px"><h3 class="disp">功能权限</h3>
+        <p class="hint">给某个用户授权功能权限,授权即时生效。点用户右侧「授权」,勾选权限后确认。</p>
+        <div id="perm-users"></div></div>
       </section>
       <section id="sec-rules"><div class="card" style="max-width:660px"><h3 class="disp">审核规则</h3>
         <p class="hint">配置违规判定:某来源类型的文字,出现关键词(快筛)或满足自然语言条件(大模型兜底)→ 拦截 / 待复核。</p>
         <div class="row" style="align-items:flex-end;flex-wrap:wrap;gap:12px">
-          <div class="field" style="flex:0 0 140px;margin:0"><label>来源类型</label>
+          <div class="field f-fixed" style="margin:0"><label>来源类型</label>
             <select id="ru-src"><option value="any">全部</option><option value="original_text">上传原文</option><option value="transcript">语音转写</option><option value="image_content">图像画面</option><option value="video_frame">视频帧画面</option></select></div>
-          <div class="field" style="flex:0 0 120px;margin:0"><label>动作</label><select id="ru-act"><option value="block">拦截</option><option value="review">待复核</option></select></div>
+          <div class="field f-fixed" style="margin:0"><label>动作</label><select id="ru-act"><option value="block">拦截</option><option value="review">待复核</option></select></div>
         </div>
         <div class="field" style="margin:12px 0 0"><label>关键词(逗号分隔,可空)</label><input id="ru-kw" placeholder="如:赌博,诈骗,违禁品"></div>
         <div class="field" style="margin:0"><label>自然语言条件(交大模型判,可空)</label><input id="ru-cond" placeholder="如:出现导流到站外的联系方式(微信/QQ/电话)"></div>
@@ -204,8 +319,14 @@
   </main>
 </div>
 
-<div class="scrim" id="scrim" onclick="closeDrawer()"></div>
+<div class="scrim" id="scrim" onclick="closeOverlays()"></div>
 <aside class="drawer" id="drawer"><div class="dh"><b class="disp" id="d-title">物料</b><button class="x" onclick="closeDrawer()">✕</button></div><div class="db" id="d-body"></div></aside>
+<div class="scrim" id="gscrim" onclick="closeGrant()"></div>
+<div class="gmodal" id="grant-modal">
+  <div class="gmhd"><b class="disp" id="gm-title">授权</b><button class="x" onclick="closeGrant()">✕</button></div>
+  <div class="gmbody" id="gm-body"></div>
+  <div class="gmfoot"><button class="btn" onclick="closeGrant()">取消</button><button class="btn key" onclick="confirmGrant()">确认授权</button></div>
+</div>
 <div class="toasts" id="toasts"></div>
 
 <script>
@@ -222,46 +343,71 @@ const api=async(m,p,b,isForm)=>{const o={method:m,headers:{...H()}};if(b){if(isF
 const GLYPH={image:'▦',meme:'☺',video:'►',style:'◈',corpus:'¶',music:'♫',audio:'♪'};
 const LT={image:'图片',meme:'表情包',video:'视频',style:'风格',corpus:'语料',music:'音乐',audio:'声音'};
 const VERDICT_CN={pass:'通过',review:'待人工复核',block:'拦截'};
-const SRC_CN={original_text:'上传原文',transcript:'语音转写',image_content:'图像画面',video_frame:'视频帧画面'};
+const SRC_CN={original_text:'上传原文',transcript:'语音转写',image_content:'图像画面',video_frame:'视频帧画面',text:'文本'};
+function esc(s){return (s||'').replace(/[&<>"]/g,c=>({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;'}[c]))}
 const ALLSEEN={};   // id→物料(供详情面板取摘要/标签)
 const TCODE=t=>{const s=Math.max(0,Math.floor(t||0));return `00:${String(Math.floor(s/60)).padStart(2,'0')}:${String(s%60).padStart(2,'0')}`};
 const ST={pass:'PASS',review:'REVIEW',block:'BLOCK'};
 function toast(m,bad){const t=document.createElement('div');t.className='toast'+(bad?' bad':'');t.textContent=m;$('#toasts').appendChild(t);setTimeout(()=>t.remove(),3000)}
 
-/* ── 登录门 ── */
+/* ── 登录 / 注册门 ── */
 let gtab='login';
-function setTab(t){gtab=t;$('#tab-login').classList.toggle('on',t==='login');$('#tab-reg').classList.toggle('on',t==='reg');$('#g-submit').textContent=t==='login'?'登录':'注册';$('#g-msg').textContent=''}
-function quick(n,p){$('#g-name').value=n;$('#g-pw').value=p;gtab='login';submitAuth()}
-async function submitAuth(){const name=$('#g-name').value,password=$('#g-pw').value;
-  if(gtab==='reg'){const r=await api('POST','/users/register',{name,password});if(!r.ok){$('#g-msg').textContent='注册失败(用户名可能已存在)';return}}
+function setTab(t){gtab=t;const reg=t==='reg';
+  $('#tab-login').classList.toggle('on',t==='login');$('#tab-reg').classList.toggle('on',reg);
+  $('#g-title').textContent=reg?'创建新账号':'欢迎回来';
+  $('#g-sub').textContent=reg?'注册后即为普通用户,可上传 / 收藏 / 提交审核物料':'登录你的物料中台账号';
+  $('#g-pw2-wrap').style.display=reg?'block':'none';
+  $('#g-pw').setAttribute('autocomplete',reg?'new-password':'current-password');
+  $('#g-submit').textContent=reg?'创建账号':'登录';$('#g-msg').textContent=''}
+async function submitAuth(){const name=$('#g-name').value.trim(),password=$('#g-pw').value;
+  if(!name||!password){$('#g-msg').textContent='用户名和密码不能为空';return}
+  if(gtab==='reg'){
+    if(password.length<6){$('#g-msg').textContent='密码至少 6 位';return}
+    if(password!==$('#g-pw2').value){$('#g-msg').textContent='两次输入的密码不一致';return}
+    const r=await api('POST','/users/register',{name,password});
+    if(!r.ok){$('#g-msg').textContent=r.status===409?'用户名已被占用':'注册失败,请重试';return}
+  }
   const r=await api('POST','/users/login',{name,password});
   if(!r.ok){$('#g-msg').textContent='用户名或密码错误';return}
   ME={...r.data.user,token:r.data.token};localStorage.setItem('me',JSON.stringify(ME));boot()}
 function logout(){localStorage.removeItem('me');ME=null;location.reload()}
 
 /* ── 导航(按角色)── */
-const NAV_USER=[['我的','mine','我的物料库','我上传的与我收藏的物料'],['我的','ingest','内容审核','审核视频/图片/文字/声音'],
+const NAV_USER=[['我的','mine','我的物料库','我上传的与我收藏的物料'],['我的','ingest','内容审核','审核视频/图片/文字/声音'],['我的','pending','待审核','我提交的审核任务与状态'],
   ['发现','public','公共物料库','所有人共享的物料,可收藏'],['发现','search','搜索','在公共物料里检索']];
 const NAV_ADMIN=[['管理','all','全部物料','所有用户的物料'],['管理','review','审核队列','人工复核待定物料'],
-  ['我的','mine','我的物料库','我上传的与我收藏的物料'],['我的','ingest','内容审核','审核视频/图片/文字/声音'],
+  ['我的','mine','我的物料库','我上传的与我收藏的物料'],['我的','ingest','内容审核','审核视频/图片/文字/声音'],['我的','pending','待审核','审核任务与状态'],
   ['发现','public','公共物料库','所有人共享的物料'],['发现','search','搜索','在公共物料里检索'],
-  ['治理','rules','审核规则','配置违规判定规则'],['治理','users','用户','账号与角色'],['治理','roles','功能权限','角色与权限']];
+  ['治理','rules','审核规则','配置违规判定规则'],['治理','whitelist','内容安全白名单','命中即放行,治误伤'],['治理','users','用户','账号与角色'],['治理','roles','功能权限','角色与权限']];
 const ICO={mine:'<rect x="3" y="3" width="7" height="7" rx="1"/><rect x="14" y="3" width="7" height="7" rx="1"/><rect x="3" y="14" width="7" height="7" rx="1"/><rect x="14" y="14" width="7" height="7" rx="1"/>',
-  ingest:'<path d="M9 12l2 2 4-4"/><path d="M12 3a9 9 0 100 18 9 9 0 000-18z"/>',public:'<circle cx="12" cy="12" r="9"/><path d="M3 12h18M12 3a15 15 0 010 18M12 3a15 15 0 000 18"/>',
+  ingest:'<path d="M9 12l2 2 4-4"/><path d="M12 3a9 9 0 100 18 9 9 0 000-18z"/>',pending:'<circle cx="12" cy="12" r="9"/><path d="M12 8v4l3 2"/>',public:'<circle cx="12" cy="12" r="9"/><path d="M3 12h18M12 3a15 15 0 010 18M12 3a15 15 0 000 18"/>',
   search:'<circle cx="11" cy="11" r="7"/><path d="M21 21l-4-4"/>',all:'<path d="M4 6h16M4 12h16M4 18h16"/>',review:'<path d="M9 12l2 2 4-4"/><circle cx="12" cy="12" r="9"/>',
   rules:'<path d="M4 6h16M4 12h10M4 18h7"/><circle cx="18" cy="15" r="3"/>',
+  whitelist:'<path d="M12 3l7 3v5c0 4-3 7-7 8-4-1-7-4-7-8V6z"/><path d="M9 12l2 2 4-4"/>',
   users:'<circle cx="12" cy="8" r="4"/><path d="M4 20c0-4 4-6 8-6s8 2 8 6"/>',roles:'<path d="M12 3l7 4v5c0 4-3 7-7 9-4-2-7-5-7-9V7z"/>'};
 function buildNav(){const items=ME.role==='admin'?NAV_ADMIN:NAV_USER;const groups={};items.forEach(([g,...r])=>{(groups[g]=groups[g]||[]).push(r)});
-  $('#nav').innerHTML=Object.entries(groups).map(([g,rows])=>`<div class="navgroup"><span>${g}</span>${rows.map(([sec,t,sub])=>`<div class="nav" data-sec="${sec}"><svg class="ico" viewBox="0 0 24 24">${ICO[sec]}</svg>${t}<span class="cnt" id="cnt-${sec}"></span></div>`).join('')}</div>`).join('');
-  $$('.nav').forEach(n=>n.onclick=()=>go(n.dataset.sec));}
+  $('#nav').innerHTML=Object.entries(groups).map(([g,rows])=>`<div class="navgroup"><span>${g}</span>${rows.map(([sec,t,sub])=>`<div class="nav" data-sec="${sec}" title="${t}" tabindex="0" role="button" aria-label="${t}"><svg class="ico" viewBox="0 0 24 24">${ICO[sec]}</svg><span class="nav-t">${t}</span><span class="cnt" id="cnt-${sec}"></span></div>`).join('')}</div>`).join('');
+  $$('.nav').forEach(n=>{n.onclick=()=>go(n.dataset.sec);n.onkeydown=e=>{if(e.key==='Enter'||e.key===' '){e.preventDefault();go(n.dataset.sec)}}});}
 const SUB={};
 function go(sec){const navset=(ME.role==='admin'?NAV_ADMIN:NAV_USER);
   if(!navset.some(x=>x[1]===sec))sec=(ME.role==='admin'?'all':'mine');  // 角色门控:越权/无效 sec 回落(挡 hashchange 直改 URL)
   $$('.nav').forEach(n=>n.classList.toggle('on',n.dataset.sec===sec));$$('section').forEach(s=>s.classList.toggle('on',s.id==='sec-'+sec));
   const meta=navset.find(x=>x[1]===sec);if(meta){$('#title').textContent=meta[2];$('#sub').textContent=meta[3]}
   location.hash=sec;
+  if(sec!=='pending'&&typeof pendingTimer!=='undefined')clearTimeout(pendingTimer);  // 离开待审核→停轮询
   if(sec==='ingest'){if(typeof resetAudit==='function')resetAudit();if(typeof resetBatch==='function')resetBatch()}
-  if(sec==='mine')loadMine();if(sec==='public')loadPublic();if(sec==='all')loadAll();if(sec==='review')loadQueue();if(sec==='roles')loadPerms();if(sec==='users')loadUsers();if(sec==='rules')loadRules()}
+  if(sec==='mine')loadMine();if(sec==='public')loadPublic();if(sec==='all')loadAll();if(sec==='review')loadQueue();if(sec==='roles')loadPerms();if(sec==='users')loadUsers();if(sec==='rules')loadRules();if(sec==='pending')loadPending();if(sec==='whitelist')loadWhitelist();
+  if(window.matchMedia('(max-width:900px)').matches)toggleNavOpen(false)}   // 手机上选完自动收起抽屉
+
+/* ── 折叠导航(桌面,默认收起)/ 手机抽屉 ── */
+function setRail(expanded){const app=document.getElementById('app');app.classList.toggle('nav-expanded',expanded);
+  try{localStorage.setItem('railExpanded',expanded?'1':'0')}catch(e){}
+  const t=$('#rail-toggle');if(t){t.setAttribute('aria-expanded',expanded);t.textContent=expanded?'‹':'›'}}
+function toggleNavOpen(force){const app=document.getElementById('app');
+  const open=(force===undefined)?!app.classList.contains('nav-open'):!!force;
+  app.classList.toggle('nav-open',open);const h=$('#hamburger');if(h)h.setAttribute('aria-expanded',open);
+  $('#scrim').classList.toggle('on',open)}
+function closeOverlays(){closeDrawer();toggleNavOpen(false)}
 
 /* ── 卡片(按上下文给不同操作)── */
 function cell(m,ctx){const g=GLYPH[m.type]||'▦';
@@ -271,7 +417,7 @@ function cell(m,ctx){const g=GLYPH[m.type]||'▦';
   else if(ctx==='mine'){const dl=`<button class="btn sm key" onclick="download('${m.id}')">下载</button>`;
     act=dl+(m.is_mine?`<span class="owner">我上传的</span>`:`<button class="btn sm" onclick="unfav('${m.id}')">取消收藏</button>`)}
   else if(ctx==='all'){act=(m.audit_status==='pass'&&!m.is_public)?`<button class="btn sm key" onclick="publish('${m.id}')">发布到公共库</button>`:(m.is_public?`<span class="owner">已公开</span>`:`<span class="owner">待审核</span>`)}
-  const owner=ctx==='all'?`<div class="owner">owner: ${m.owner_id||'—'}</div>`:'';
+  const owner=ctx==='all'?`<div class="owner">上传者:${esc(m.owner_name || (m.owner_id?'已删除用户':'—'))}</div>`:'';
   const canDel=(m.is_mine||ME.role==='admin')?1:0;
   const canDl=(ctx==='mine'||ctx==='all')?1:0;  // 下载仅限我的物料库/管理视图;公共库只收藏不下载
   ALLSEEN[m.id]=m;
@@ -285,33 +431,60 @@ function cell(m,ctx){const g=GLYPH[m.type]||'▦';
     <div class="cellmeta"><div class="top"><span class="t">${LT[m.type]||m.type}</span><span class="stamp ${m.audit_status}">${ST[m.audit_status]||m.audit_status}</span></div>${owner}${sumH}${moodH}${tagsH}<div class="cellact">${act}</div></div></div>`}
 function grid(el,items,ctx,emptyTitle,emptyMsg){$(el).innerHTML=items.length?`<div class="sheet">${items.map(m=>cell(m,ctx)).join('')}</div>`:`<div class="empty"><b class="disp">${emptyTitle}</b>${emptyMsg}</div>`}
 
-/* 分类筛选:类型 + 标签(无标签归"全部")*/
-function buildFilter(el,items,ty,tg,onChange){
-  const types=[...new Set(items.map(m=>m.type))];const tags=[...new Set(items.flatMap(m=>m.tags||[]))];
-  let h=`<span class="lbl">类型</span><span class="fchip ${!ty?'on':''}" onclick="__f('${el}','')">全部</span>`+
-    types.map(t=>`<span class="fchip ${ty===t?'on':''}" onclick="__f('${el}','${t}')">${LT[t]||t}</span>`).join('');
-  if(tags.length)h+=`<span class="lbl" style="margin-left:14px">标签</span><span class="fchip ${!tg?'on':''}" onclick="__g('${el}','')">全部</span>`+
-    tags.map(t=>`<span class="fchip ${tg===t?'on':''}" onclick="__g('${el}','${t}')">${t}</span>`).join('');
-  $(el).innerHTML=h;$(el)._onChange=onChange}
-function __f(el,t){$(el)._ty=t;$(el)._onChange&&$(el)._onChange()}
-function __g(el,t){$(el)._tg=t;$(el)._onChange&&$(el)._onChange()}
-let mineItems=[],pubItems=[];
-function libKw(m,q){if(!q)return true;q=q.toLowerCase();
-  const hay=[LT[m.type]||'',m.type,m.oss_key,m.description,m.ai_summary,m.ai_emotion,m.ai_atmosphere,m.ai_scene,(m.tags||[]).join(' ')].join(' ').toLowerCase();
-  return hay.includes(q)}
-function applyLib(el,gridEl,qId,items,ctx,et,em){const ty=$(el)._ty||'',tg=$(el)._tg||'',q=(($(qId)&&$(qId).value)||'').trim();
-  buildFilter(el,items,ty,tg,()=>applyLib(el,gridEl,qId,items,ctx,et,em));$(el)._ty=ty;$(el)._tg=tg;
-  let it=items;if(ty)it=it.filter(m=>m.type===ty);if(tg)it=it.filter(m=>(m.tags||[]).includes(tg));if(q)it=it.filter(m=>libKw(m,q));
-  grid(gridEl,it,ctx,et,em)}
-function applyMine(){applyLib('#mine-filter','#mine-grid','#mine-q',mineItems,'mine','没有匹配的物料','换个关键词/筛选,或去「内容审核」上传物料。')}
-function applyPublic(){applyLib('#pub-filter','#pub-grid','#pub-q',pubItems,'public','没有匹配的物料','换个关键词或清空筛选。')}
-async function loadMine(){const r=await api('GET','/library/mine');mineItems=r.data.items||[];setCnt('mine',mineItems.length);applyMine()}
-async function loadPublic(){const r=await api('GET','/library/public');pubItems=r.data.items||[];setCnt('public',pubItems.length);applyPublic()}
-let allStatus='';
-async function loadAll(){let p='/library/all';const r=await api('GET',p);let it=r.data.items||[];if(allStatus)it=it.filter(m=>m.audit_status===allStatus);setCnt('all',(r.data.items||[]).length);
-  grid('#all-grid',it,'all','还没有物料','等用户上传或反解。')}
-$$('#all-status .chip').forEach(c=>c.onclick=()=>{$$('#all-status .chip').forEach(x=>x.classList.remove('on'));c.classList.add('on');allStatus=c.dataset.s;loadAll()});
+/* ── 服务端翻页 + 筛选(每视图独立 page/size/total 状态)── */
+const PAGE_SIZE=24;
+const V={mine:{page:1,size:PAGE_SIZE,total:0,type:'',q:''},
+  public:{page:1,size:PAGE_SIZE,total:0,type:'',q:''},
+  all:{page:1,size:PAGE_SIZE,total:0,type:'',q:'',status:''},
+  search:{page:1,size:PAGE_SIZE,total:0,q:'',type:''}};
 function setCnt(sec,n){const e=$('#cnt-'+sec);if(e)e.textContent=n}
+const debounce=(fn,ms=300)=>{let t;return(...a)=>{clearTimeout(t);t=setTimeout(()=>fn(...a),ms)}};
+
+/* 固定类型 chips(过滤下沉后端后,无法再从单页派生 facet;标签折进关键词框)*/
+const TYPE_CHIPS=['','image','meme','video','style','corpus','audio','music'];
+function buildTypeChips(sel,vkey){const v=V[vkey];if(!$(sel))return;
+  $(sel).innerHTML=`<span class="lbl">类型</span>`+TYPE_CHIPS.map(t=>`<span class="fchip ${v.type===t?'on':''}" data-t="${t}" tabindex="0" role="button">${t?LT[t]:'全部'}</span>`).join('');
+  $(sel).querySelectorAll('.fchip').forEach(c=>{const act=()=>{v.type=c.dataset.t;v.page=1;LOADER[vkey]()};
+    c.onclick=act;c.onkeydown=e=>{if(e.key==='Enter'||e.key===' '){e.preventDefault();act()}}})}
+
+function showSkeleton(sel,n){if(!$(sel))return;
+  const cells=Array.from({length:Math.min(n,12)},()=>'<div class="cell skel"><div class="frame"></div><div class="cellmeta"><div class="skl-l"></div><div class="skl-l short"></div></div></div>').join('');
+  $(sel).innerHTML='<div class="sheet">'+cells+'</div>'}
+
+const pageCount=v=>Math.max(1,Math.ceil((v.total||0)/v.size));
+function renderPager(sel,vkey){const v=V[vkey],pc=pageCount(v),el=$(sel);if(!el)return;
+  if((v.total||0)<=v.size){el.innerHTML='';return}   // 单页不显示翻页
+  const dPrev=v.page<=1,dNext=v.page>=pc;
+  el.innerHTML=`<button class="pgbtn" ${dPrev?'disabled':''} data-go="first" aria-label="第一页">«</button>`+
+    `<button class="pgbtn" ${dPrev?'disabled':''} data-go="prev">上一页</button>`+
+    `<span class="pgnow" aria-live="polite">第 <b>${v.page}</b> 页 · 共 ${pc} 页<span class="pgtot"> · ${v.total} 条</span></span>`+
+    `<button class="pgbtn" ${dNext?'disabled':''} data-go="next">下一页</button>`+
+    `<button class="pgbtn" ${dNext?'disabled':''} data-go="last" aria-label="最后一页">»</button>`;
+  el.querySelectorAll('.pgbtn').forEach(b=>b.onclick=()=>{const g=b.dataset.go,cur=v.page;
+    v.page=g==='first'?1:g==='last'?pc:g==='prev'?cur-1:cur+1;if(v.page!==cur)LOADER[vkey]()})}   // 只翻页,不重置
+
+function libQS(v){const p=new URLSearchParams();p.set('page',v.page);p.set('size',v.size);
+  if(v.type)p.set('type',v.type);if(v.q)p.set('q',v.q);if(v.status)p.set('status',v.status);return p.toString()}
+
+async function loadMine(){const v=V.mine;buildTypeChips('#mine-filter','mine');showSkeleton('#mine-grid',v.size);
+  const r=await api('GET','/library/mine?'+libQS(v));v.total=r.data.total??(r.data.items||[]).length;setCnt('mine',v.total);
+  grid('#mine-grid',r.data.items||[],'mine','没有匹配的物料','换个类型或关键词,或去「内容审核」上传物料。');renderPager('#mine-pager','mine')}
+async function loadPublic(){const v=V.public;buildTypeChips('#pub-filter','public');showSkeleton('#pub-grid',v.size);
+  const r=await api('GET','/library/public?'+libQS(v));v.total=r.data.total??(r.data.items||[]).length;setCnt('public',v.total);
+  grid('#pub-grid',r.data.items||[],'public','没有匹配的物料','换个类型或清空关键词。');renderPager('#pub-pager','public')}
+async function loadAll(){const v=V.all;buildTypeChips('#all-filter','all');showSkeleton('#all-grid',v.size);
+  const r=await api('GET','/library/all?'+libQS(v));v.total=r.data.total??(r.data.items||[]).length;setCnt('all',v.total);
+  grid('#all-grid',r.data.items||[],'all','还没有物料','等用户上传或反解。');renderPager('#all-pager','all')}
+async function loadSearch(){const v=V.search;showSkeleton('#results',v.size);
+  const r=await api('GET','/search?'+new URLSearchParams({q:v.q,page:v.page,size:v.size}));
+  v.total=r.data.total??(r.data.results||[]).length;
+  grid('#results',r.data.results||[],'public','没有命中','换个词。只有审核通过并发布的物料才会被搜到。');renderPager('#search-pager','search')}
+const LOADER={mine:loadMine,public:loadPublic,all:loadAll,search:loadSearch};
+
+const onMineKw=debounce(()=>{V.mine.q=$('#mine-q').value.trim();V.mine.page=1;loadMine()});
+const onPubKw=debounce(()=>{V.public.q=$('#pub-q').value.trim();V.public.page=1;loadPublic()});
+const onAllKw=debounce(()=>{V.all.q=$('#all-q').value.trim();V.all.page=1;loadAll()});
+$$('#all-status .chip').forEach(c=>c.onclick=()=>{$$('#all-status .chip').forEach(x=>x.classList.remove('on'));c.classList.add('on');V.all.status=c.dataset.s;V.all.page=1;loadAll()});
 
 /* ── 收藏 / 发布 ── */
 async function download(id){const r=await api('GET',`/materials/${id}/download`);
@@ -324,33 +497,111 @@ async function publish(id){const r=await api('POST',`/materials/${id}/publish`);
 /* ── 内容审核 ── */
 function auToggle(){const t=$('#au-type').value,txt=(t==='corpus');
   $('#au-file-wrap').style.display=txt?'none':'block';$('#au-text-wrap').style.display=txt?'block':'none'}
-function resetAudit(){$('#au-result').innerHTML='';$('#au-form').style.display='block';const f=$('#au-file');if(f)f.value='';const t=$('#au-text');if(t)t.value=''}
-async function doAudit(){const type=$('#au-type').value;const fd=new FormData();fd.append('type',type);
-  if(type==='corpus'){const t=$('#au-text').value.trim();if(!t){toast('请输入文字',true);return}fd.append('content',t)}
-  else{const f=$('#au-file').files[0];if(!f){toast('请选择文件',true);return}fd.append('file',f)}
-  const slow=(type==='video'||type==='audio');
-  $('#au-form').style.display='none';   // 进结果屏,表单隐藏,避免重复提交
-  $('#au-result').innerHTML=`<div class="empty"><b class="disp">审核中…</b>转成文字并按规则判定${slow?'(视频/声音要转写+抽帧,约 20-60 秒)':''}</div>`;
-  const r=await api('POST','/audit/submit',fd,true);
-  if(!r.ok){if(r.status!==401)toast(r.data.detail||'提交失败',true);resetAudit();return}
-  if(r.data.report){renderReport(r.data.report)} else {pollAudit(r.data.job_id)}}
-function auBack(msg){$('#au-result').innerHTML=`<div class="empty"><b class="disp">${msg}</b></div><div style="margin-top:12px"><button class="btn sm" onclick="resetAudit()">← 返回审核</button></div>`}
-async function pollAudit(jid){for(let i=0;i<80;i++){await new Promise(s=>setTimeout(s,3000));
-    const r=await api('GET','/audit/'+jid);if(!r.ok)break;
-    if(r.data.status==='done'){renderReport(r.data.report);loadMine();return}
-    if(r.data.status==='failed'){auBack('审核失败,请返回重试');return}}
-  auBack('审核超时,请稍后在物料库查看')}
-function renderReport(rep){if(!rep){auBack('没有结果,请返回重试');return}
+function resetAudit(){$('#au-result').innerHTML='';$('#au-form').style.display='block';const f=$('#au-file');if(f)f.value='';const t=$('#au-text');if(t)t.value='';auToggle()}
+function videoDuration(file){return new Promise(res=>{
+  let done=false;const v=document.createElement('video');
+  const fin=d=>{if(done)return;done=true;try{URL.revokeObjectURL(v.src)}catch(e){}res(d)};
+  v.preload='metadata';
+  v.onloadedmetadata=()=>fin(v.duration||0);
+  v.onerror=()=>fin(0);
+  setTimeout(()=>fin(0),4000);   // 某些编码(如 H265)读不出元数据会一直挂着 → 4s 超时放行,交服务端按 mp4 时长兜底
+  try{v.src=URL.createObjectURL(file)}catch(e){fin(0)}})}
+async function doAudit(){const btn=$('#au-go');if(btn&&btn.disabled)return;  // 已在提交中 → 忽略连点(防重复提交)
+  const type=$('#au-type').value,kind=uploadKind;let file=null,content='';   // 物料/作品由顶部 tab 决定
+  if(type==='corpus'){content=$('#au-text').value.trim();if(!content){toast('请输入文字',true);return}}
+  else{file=$('#au-file').files[0];if(!file){toast('请选择文件',true);return}
+    if(type==='video'&&kind==='material'){const d=await videoDuration(file);
+      if(d>20){toast(`物料视频需 ≤20 秒,当前约 ${Math.round(d)} 秒;请改选「作品」或裁剪后再传`,true);return}}}
+  if(btn)btn.disabled=true;
+  try{
+    const fd=new FormData();fd.append('type',type);
+    if(type==='corpus')fd.append('content',content);else{fd.append('file',file);if(type==='video')fd.append('video_kind',kind)}
+    const label=type==='corpus'?'文字审核':file.name;
+    const r=await api('POST','/audit/submit',fd,true);
+    if(!r.ok){if(r.status!==401)toast(r.data.detail||'提交失败',true);return}
+    if(r.data.status==='too_long'){toast(r.data.message||'物料视频需 ≤20 秒',true);return}  // 不清空,便于改选作品重提
+    if(r.data.status==='duplicate'){toast(r.data.message||'该内容已在你的库中,未重复提交',true);return}
+    toast('已上传,审核在后台进行');auSubmitted(label);
+    const f=$('#au-file');if(f)f.value='';const tx=$('#au-text');if(tx)tx.value='';  // 清空 → 可立刻再提交
+  }finally{if(btn)btn.disabled=false}
+}
+function auSubmitted(name){$('#au-result').innerHTML=`<div class="card" style="padding:14px;border-color:color-mix(in oklab,var(--pass) 40%,var(--line-2))">
+  <b style="color:var(--pass)">✓ 已上传,提交审核</b> <span class="owner">${name||''}</span>
+  <div style="margin-top:8px;font-size:12.5px;color:var(--dim)">审核在后台进行,可继续提交下一个;去 <a onclick="go('pending')" style="color:var(--mint);cursor:pointer;text-decoration:underline">待审核</a> 看状态与结果。</div></div>`}
+/* 审核报告(供「待审核」页任务详情抽屉复用)*/
+function riskWordsHTML(rw){
+  const words=String(rw||'').split(/[，,、;；&\s]+/).map(s=>s.trim()).filter(Boolean);
+  if(!words.length)return '';
+  const admin=!!(ME&&ME.role==='admin');
+  const chips=[...new Set(words)].map(w=>admin
+    ? `<span class="chip" style="cursor:pointer;border-color:color-mix(in oklab,var(--block) 45%,transparent);color:var(--block)" onclick="wlFromReport('${encodeURIComponent(w)}')" title="加入白名单,之后同类内容自动放行">${esc(w)} <b>+白</b></span>`
+    : `<span class="chip" style="border-color:color-mix(in oklab,var(--block) 45%,transparent);color:var(--block)">${esc(w)}</span>`).join('');
+  return `<div style="margin-top:7px;font-size:12px"><span style="color:var(--block);font-weight:600">阿里云命中词:</span>
+    <span style="display:inline-flex;flex-wrap:wrap;gap:6px;vertical-align:middle;margin-left:4px">${chips}</span>
+    ${admin?'<div style="color:var(--dim);font-size:11px;margin-top:5px">点词加入白名单 → 回任务点「重新审核」即可放行</div>':''}</div>`}
+function trigItem(t){
+  const act=t.action==='block'?'拦截':'待复核';
+  const src=SRC_CN[t.source_type]||t.source_type;
+  const tc=(t.begin_ms!=null)?` · <span class="mono">${(t.begin_ms/1000).toFixed(1)}s</span>`:'';
+  const isFrame=(t.source_type==='video_frame'||t.source_type==='image_content');
+  const img=t.frame_url?`<div style="margin-top:8px"><img src="${t.frame_url}" style="max-width:220px;border-radius:8px;border:2px solid var(--block)" onerror="this.remove()"></div>${(isFrame&&t.text)?`<div style="font-size:11.5px;color:var(--dim);margin-top:4px">画面反解:${esc(t.text).slice(0,140)}</div>`:''}`:'';
+  const txt=(!isFrame&&t.text)?`<div style="margin-top:6px;color:var(--block);background:color-mix(in oklab,var(--block) 8%,transparent);border:1px solid color-mix(in oklab,var(--block) 30%,transparent);padding:7px 9px;border-radius:7px;font-size:12.5px;line-height:1.5">${esc(t.text).slice(0,400)}</div>`:'';
+  const rw=riskWordsHTML(t.risk_words);
+  return `<div style="border-left:3px solid var(--block);padding:6px 0 8px 10px;margin-bottom:10px">
+    <div style="color:var(--block);font-weight:600;font-size:12.5px">⚠ ${src}${tc} · ${act}</div>
+    <div style="color:var(--block);font-size:12px;margin-top:2px">${esc(t.reason||'')}</div>${txt}${rw}${img}</div>`}
+function reportHTML(rep){if(!rep)return '<div class="empty">该任务暂无报告</div>';
   const v=rep.verdict;const badge=`<span class="stamp ${v}" style="font-size:13px;padding:5px 12px">${VERDICT_CN[v]||v}</span>`;
-  const trig=(rep.triggered||[]).map(t=>`<li>${t.reason||''} <span class="owner">[${SRC_CN[t.source_type]||t.source_type} · ${t.action==='block'?'拦截':'待复核'}]</span></li>`).join('');
-  const segs=(rep.segments||[]).map(s=>{const tc=(s.begin_ms!=null)?`<span class="mono" style="color:var(--mint)">${(s.begin_ms/1000).toFixed(1)}s</span> `:'';
-    return `<div class="qrow"><div class="meta"><div class="owner">${SRC_CN[s.source_type]||s.source_type} ${tc}</div><div style="font-size:12.5px;margin-top:4px;color:var(--ink)">${(s.text||'').slice(0,180)}</div></div></div>`}).join('');
-  $('#au-result').innerHTML=`<div style="display:flex;align-items:center;gap:14px;flex-wrap:wrap;margin-bottom:14px"><button class="btn sm" onclick="resetAudit()">← 返回审核</button><span style="font-size:14px">审核结果:${badge}</span><span class="owner">${rep.summary||''}</span></div>
-    ${trig?`<div class="card" style="margin-bottom:12px;padding:14px"><b style="font-size:13px">命中规则</b><ul style="margin:8px 0 0;padding-left:18px;color:var(--block);font-size:12.5px">${trig}</ul></div>`:''}
+  const trig=(rep.triggered||[]).map(trigItem).join('');
+  const hitMs=new Set((rep.triggered||[]).filter(t=>t.begin_ms!=null).map(t=>t.begin_ms));
+  const segs=(rep.segments||[]).map(s=>{const hot=(s.begin_ms!=null&&hitMs.has(s.begin_ms));
+    const tc=(s.begin_ms!=null)?`<span class="mono" style="color:${hot?'var(--block)':'var(--mint)'}">${(s.begin_ms/1000).toFixed(1)}s</span> `:'';
+    return `<div class="qrow"${hot?' style="border-color:var(--block);border-left:3px solid var(--block)"':''}><div class="meta"><div class="owner">${SRC_CN[s.source_type]||s.source_type} ${tc}${hot?'<span style="color:var(--block)">· 命中</span>':''}</div><div style="font-size:12.5px;margin-top:4px;color:${hot?'var(--block)':'var(--ink)'}">${esc((s.text||'').slice(0,180))}</div></div></div>`}).join('');
+  return `<div style="margin-bottom:14px;font-size:14px">审核结果:${badge} <div class="owner" style="margin-top:6px">${esc(rep.summary||'')}</div></div>
+    ${trig?`<div class="card" style="margin-bottom:12px;padding:14px;border-color:color-mix(in oklab,var(--block) 30%,var(--line-2))"><b style="font-size:13px;color:var(--block)">命中详情(标红为被拦截/待复核的具体内容)</b><div style="margin-top:10px">${trig}</div></div>`:''}
     <div style="color:var(--dim);font-size:12px;margin-bottom:8px">文字链路(共 ${(rep.segments||[]).length} 段)</div>${segs||'<div class="empty">无文字内容</div>'}`}
+
+/* ── 待审核任务页 ── */
+let pendingTimer=null;
+const TASK_ST={pending:'排队中',running:'审核中',done:'已完成',failed:'失败'};
+function taskRow(t){
+  const st=TASK_ST[t.status]||t.status;
+  const vB=t.verdict?`<span class="stamp ${t.verdict}">${VERDICT_CN[t.verdict]||t.verdict}</span>`:'';
+  const view=(t.status==='done'&&t.report_id)?`<button class="btn sm" onclick="viewTask('${t.id}')">查看报告</button>`:'';
+  const err=t.error?`<div class="k" style="color:var(--block)">${t.error}</div>`:'';
+  const active=(t.status==='pending'||t.status==='running');
+  const kind=(t.material_type==='video')?`<span class="owner">· ${t.video_kind==='work'?'作品':'物料'}</span>`:'';
+  const recheck=(ME.role==='admin'&&t.status==='done'&&(t.verdict==='review'||t.verdict==='block'))
+    ?`<button class="btn sm" onclick="recheckTask('${t.id}')" title="用当前白名单/规则重新判定(不重新抽帧/转写)">重新审核</button>`:'';
+  return `<div class="qrow"><div class="thumb">${GLYPH[t.material_type]||'▦'}</div>
+    <div class="meta"><div>${t.name||'—'} <span class="owner">${LT[t.material_type]||t.material_type}</span>${kind}</div>
+      <div class="k">${active?'⏳ ':''}${st}</div>${err}</div>
+    ${vB}${view}${recheck}<button class="btn sm" onclick="delTask('${t.id}')" title="移除">✕</button></div>`}
+async function loadPending(){const r=await api('GET','/audit/tasks');const ts=r.data.tasks||[];
+  setCnt('pending',ts.filter(t=>t.status==='pending'||t.status==='running').length);
+  $('#pending-list').innerHTML=ts.length?ts.map(taskRow).join(''):'<div class="empty"><b class="disp">还没有审核任务</b>去「内容审核」提交视频/图片/文字/声音,或批量上传。</div>';
+  clearTimeout(pendingTimer);
+  const activ=ts.some(t=>t.status==='pending'||t.status==='running');
+  if(activ&&(location.hash||'').slice(1)==='pending')pendingTimer=setTimeout(loadPending,2500);  // 有进行中→轮询
+}
+async function viewTask(id){const r=await api('GET','/audit/tasks/'+id);if(!r.ok){if(r.status!==401)toast('无法加载报告',true);return}
+  $('#scrim').classList.add('on');$('#drawer').classList.add('on');$('#d-title').textContent='审核报告';
+  $('#d-body').innerHTML=reportHTML(r.data.report)}
+async function delTask(id){const r=await api('DELETE','/audit/tasks/'+id);if(r.ok){toast('已移除');loadPending()}}
+async function recheckTask(id){const r=await api('POST','/audit/tasks/'+id+'/recheck');
+  if(r.ok){toast('已用当前白名单重新审核…');closeDrawer&&closeDrawer();loadPending();setTimeout(loadPending,1600)}
+  else toast(r.data.detail||'重新审核失败',true)}
+async function wlFromReport(enc){const w=decodeURIComponent(enc);
+  const r=await api('POST','/admin/whitelist',{words:[w]});
+  if(r.ok)toast('已加入白名单「'+w+'」,回任务点「重新审核」放行');
+  else toast(r.data.detail||'需要管理员权限',true)}
 
 /* ── 批量上传:选择 → 列出确认(未上传) → 确认后上传 → 进度/结果(分步)── */
 let pendingBatch=[];
+let uploadKind='material';   // 顶部 tab:物料/作品,统一管单个 + 批量上传(视频才有区别)
+function setKind(k){uploadKind=(k==='work')?'work':'material';
+  const mat=$('#uk-mat'),wk=$('#uk-work');if(mat)mat.classList.toggle('on',uploadKind==='material');if(wk)wk.classList.toggle('on',uploadKind==='work');
+  if($('#bu-stage')&&$('#bu-stage').style.display!=='none'&&pendingBatch.length)stageBatch(pendingBatch)}   // 已暂存则刷新提示文案
 const BU_EXT={jpg:'image',jpeg:'image',png:'image',gif:'image',webp:'image',bmp:'image',mp4:'video',mov:'video',mkv:'video',avi:'video',webm:'video',flv:'video',mp3:'audio',wav:'audio',m4a:'audio',aac:'audio',flac:'audio',ogg:'audio',txt:'corpus',md:'corpus'};
 function buType(n){if((n||'').toLowerCase().endsWith('.zip'))return 'zip';return BU_EXT[((n||'').split('.').pop()||'').toLowerCase()]||''}
 $('#bu-folder').onchange=()=>{const fs=[...$('#bu-folder').files];if(fs.length)stageBatch(fs)};
@@ -376,26 +627,22 @@ function stageBatch(files){pendingBatch=files;$('#bu-pick').style.display='none'
   $('#bu-stage').style.display='block';
   $('#bu-stage').innerHTML=`<div style="margin-bottom:10px;font-size:13px">已选择 <b>${files.length}</b> 个,其中 <b>${okN}</b> 个可上传 · <span class="owner">尚未上传</span></div>
     <div style="max-height:300px;overflow:auto;border:1px solid var(--line);border-radius:10px;padding:6px;margin-bottom:12px">${rows}${files.length>300?'<div class="owner" style="padding:6px 12px">…以及更多</div>':''}</div>
-    <label style="display:inline-flex;align-items:center;gap:6px;font-size:12.5px;margin-bottom:12px;cursor:pointer"><input type="checkbox" id="bu-audit" style="width:auto"> 上传后同时审核(较慢、按量计费)</label>
-    <div class="row" style="justify-content:flex-start;gap:10px"><button class="btn key" style="flex:0 0 auto" onclick="confirmBatch()">确认上传 ${files.length} 个</button><button class="btn" style="flex:0 0 auto" onclick="resetBatch()">重新选择</button></div>`}
-async function confirmBatch(){const audit=$('#bu-audit')&&$('#bu-audit').checked;
+    <div class="owner" style="margin-bottom:12px">本批将作为【${uploadKind==='work'?'作品(成片,仅合规扫描)':'物料(视频 ≤20 秒,抽帧入库)'}】上传;${uploadKind==='material'?'超过 20 秒的视频会被跳过并提示改选「作品」;':''}同一库里重复的文件会自动跳过。</div>
+    <div class="row" style="justify-content:flex-start;gap:10px"><button class="btn key f-auto" onclick="confirmBatch()">确认上传 ${files.length} 个</button><button class="btn f-auto" onclick="resetBatch()">重新选择</button></div>`}
+async function confirmBatch(){
   $('#bu-stage').style.display='none';$('#bu-run').style.display='block';
-  $('#bu-run').innerHTML=`<div class="empty"><b class="disp">上传中…</b>${pendingBatch.length} 个文件${audit?',上传后逐条审核':''}</div>`;
-  const fd=new FormData();pendingBatch.forEach(f=>fd.append('files',f));fd.append('audit',audit?'true':'false');
+  $('#bu-run').innerHTML=`<div class="empty"><b class="disp">上传中…</b>${pendingBatch.length} 个文件</div>`;
+  const fd=new FormData();pendingBatch.forEach(f=>fd.append('files',f));fd.append('video_kind',uploadKind);
   const r=await api('POST','/audit/batch',fd,true);
   if(!r.ok){if(r.status!==401)toast(r.data.detail||'上传失败',true);resetBatch();return}
-  pollBatch(r.data.batch_id)}
+  const d=r.data;
+  $('#bu-run').innerHTML=`<div class="card" style="padding:16px;border-color:color-mix(in oklab,var(--pass) 40%,var(--line-2))">
+    <b style="color:var(--pass)">✓ 已受理 ${d.created} 个</b>${d.skipped?` <span class="owner">· 跳过 ${d.skipped} 个(重复/不支持)</span>`:''}
+    <div style="margin-top:8px;font-size:12.5px;color:var(--dim)">上传+审核在后台逐个进行,去 <a onclick="go('pending')" style="color:var(--mint);cursor:pointer;text-decoration:underline">待审核</a> 看进度与结果。</div>
+    <div style="margin-top:12px"><button class="btn sm" onclick="resetBatch()">← 再传一批</button></div></div>`;
+  toast(`已受理 ${d.created} 个${d.skipped?`,跳过 ${d.skipped} 个`:''}`)}
 function resetBatch(){pendingBatch=[];const f=$('#bu-folder');if(f)f.value='';const z=$('#bu-zip');if(z)z.value='';
   $('#bu-stage').style.display='none';$('#bu-run').style.display='none';$('#bu-pick').style.display='block'}
-async function pollBatch(bid){for(let i=0;i<400;i++){
-  const r=await api('GET','/audit/batch/'+bid);if(!r.ok){resetBatch();return}
-  const b=r.data;const rows=(b.items||[]).map(it=>{const st={pending:'等待',uploading:'上传中',auditing:'审核中',imported:'已入库',done:'已审核',skipped:'跳过(不支持)',failed:'失败'}[it.status]||it.status;
-    const badge=it.verdict?`<span class="stamp ${it.verdict}">${VERDICT_CN[it.verdict]||it.verdict}</span>`:'';
-    return `<div class="qrow"><div class="thumb">${GLYPH[it.type]||'▦'}</div><div class="meta"><div>${(it.name||'').split('/').pop()}</div><div class="k">${LT[it.type]||it.type||'?'} · ${st}</div></div>${badge}</div>`}).join('');
-  const done=b.done>=b.total;
-  $('#bu-run').innerHTML=`<div style="margin-bottom:10px;font-size:13px">${done?'完成':'进度'} <b>${b.done}/${b.total}</b>${b.audit?' · 同时审核':''}</div>${rows}${done?`<div style="margin-top:14px"><button class="btn" onclick="resetBatch()">← 再传一批</button></div>`:''}`;
-  if(done){toast(`批量完成:${b.total} 个`);loadMine();return}
-  await new Promise(s=>setTimeout(s,2000))}}
 
 /* ── 审核规则(管理员)── */
 async function loadRules(){const r=await api('GET','/audit/rules');const rs=r.data.rules||[];
@@ -406,25 +653,90 @@ async function addRule(){const kw=$('#ru-kw').value.split(/[，,]/).map(s=>s.tri
   const r=await api('POST','/audit/rules',body);if(r.ok){toast('已添加规则');$('#ru-kw').value='';$('#ru-cond').value='';loadRules()}else toast('需要管理员权限',true)}
 async function delRule(id){const r=await api('DELETE','/audit/rules/'+id);if(r.ok){toast('已删除');loadRules()}}
 
-/* ── 搜索 ── */
-async function doSearch(){const q=$('#q').value;$('#results').innerHTML='<div class="empty">搜索中…</div>';const r=await api('GET','/search?q='+encodeURIComponent(q));const it=r.data.results||[];
-  grid('#results',it,'public','没有命中','换个词。只有审核通过并发布的物料才会被搜到。')}
+/* ── 内容安全白名单 ── */
+let WL=[];
+async function loadWhitelist(){const r=await api('GET','/admin/whitelist');WL=r.data.words||[];renderWhitelist()}
+function renderWhitelist(){const f=($('#wl-filter')?.value||'').trim();
+  const ws=f?WL.filter(w=>w.includes(f)):WL;
+  const cnt=$('#wl-count');if(cnt)cnt.textContent=WL.length?`· 共 ${WL.length} 个词${f?` · 筛出 ${ws.length}`:''}`:'';
+  $('#wl-list').innerHTML=ws.length?ws.map(w=>`<span class="chip on" style="display:inline-flex;gap:6px;align-items:center">${esc(w)}<b style="cursor:pointer" onclick="delWhitelist('${encodeURIComponent(w)}')">×</b></span>`).join('')
+    :(WL.length?'<span class="owner">没有匹配的词。</span>':'<span class="owner">还没有白名单词。命中被误判时,把触发的词加进来即可放行。</span>')}
+async function addWhitelist(){const raw=$('#wl-in').value.trim();if(!raw){toast('请输入词',true);return}
+  const words=raw.split(/[，,、\s]+/).map(s=>s.trim()).filter(Boolean);
+  if(!words.length){toast('请输入词',true);return}
+  const r=await api('POST','/admin/whitelist',{words});if(r.ok){toast('已加入白名单');$('#wl-in').value='';loadWhitelist()}else toast(r.data.detail||'需要管理员权限',true)}
+async function delWhitelist(enc){const r=await api('DELETE','/admin/whitelist?word='+enc);if(r.ok){toast('已移除');loadWhitelist()}else toast(r.data.detail||'移除失败',true)}
 
-/* ── 审核队列(管理员)── */
-async function loadQueue(){const r=await api('GET','/materials?status=review');const it=r.data.items||[];setCnt('review',it.length);
-  $('#queue').innerHTML=it.length?it.map(m=>`<div class="qrow"><div class="thumb">${GLYPH[m.type]||'▦'}</div>
-    <div class="meta"><div>${LT[m.type]} · <span class="mono" style="color:var(--mint)">${TCODE(m.source_timecode)}</span> · <span class="owner">owner ${m.owner_id||'—'}</span></div><div class="k">${m.oss_key||m.thumb||m.id}</div></div>
-    <button class="btn sm pass" onclick="audit('${m.id}','pass')">通过</button><button class="btn sm block" onclick="audit('${m.id}','block')">拦截</button></div>`).join('')
+/* ── 搜索(服务端翻页)── */
+function doSearch(){V.search.q=$('#q').value.trim();V.search.page=1;loadSearch()}
+
+/* ── 审核队列(管理员):卡片内直接看媒体 + 系统判定原因,直接通过/拦截,不跳转 ── */
+function qGlyphBig(m){return `<div class="qglyphbig">${GLYPH[m.type]||'▦'}<span>${LT[m.type]||m.type}</span></div>`}
+function mediaEmbed(m){
+  const u=m.media_url||'';
+  if(m.type==='image'||m.type==='meme'||m.type==='style')
+    return u?`<img class="qm-img" src="${esc(u)}" loading="lazy" onerror="this.remove()">`:qGlyphBig(m);
+  if(m.type==='video')
+    return u?`<video class="qm-vid" src="${esc(u)}" controls preload="metadata"${m.preview_url?` poster="${esc(m.preview_url)}"`:''}></video>`:qGlyphBig(m);
+  if(m.type==='audio'||m.type==='music')
+    return u?`<div class="qm-aud">${qGlyphBig(m)}<audio src="${esc(u)}" controls preload="none"></audio></div>`:qGlyphBig(m);
+  if(m.type==='corpus'){
+    const txt=m.description||((m.report&&m.report.segments||[]).map(s=>s.text).filter(Boolean).join('\n'))||m.ai_summary||'(无文本内容)';
+    return `<div class="qm-text">${esc(txt)}</div>`}
+  return qGlyphBig(m)}
+function relevantTrig(m){
+  const rep=m.report;if(!rep)return [];
+  const trig=rep.triggered||[];
+  // 视频帧图片:只显示命中这张帧的问题(命不到就当此帧无问题),不牵扯整片其它帧
+  if(m.type==='image'&&(m.oss_key||'').startsWith('frames/'))
+    return trig.filter(t=>!t.frame_oss_key||t.frame_oss_key===m.oss_key);
+  return trig}
+function auditBlock(m){
+  // 只展示「哪里有问题」:有机审命中→标红定位;没命中→给 AI 反解出的内容供人工判断;都没有→提示无报告
+  const trig=relevantTrig(m);
+  if(trig.length)
+    return `<div class="qwtrig"><div class="qwlbl">⚠ AI 机审命中(标红处即问题所在)</div>${trig.map(trigItem).join('')}</div>`;
+  const ai=((m.description||'').trim().length>8?m.description.trim():'')||(m.ai_summary||'').trim();
+  if(ai)
+    return `<div class="qai"><div class="qwlbl2">AI 内容分析</div><div class="qaitx">${esc(ai)}</div>
+      <div class="owner" style="margin-top:8px">AI 未标记违规内容,请人工确认。</div></div>`;
+  return '<div class="owner" style="padding:4px 0">暂无 AI 报告,请人工判断。</div>'}
+function queueCard(m){
+  const rep=m.report;const v=(rep&&rep.verdict)||m.audit_status||'review';
+  const stamp=`<span class="stamp ${v}">${VERDICT_CN[v]||v}</span>`;
+  const tc=(m.source_timecode?`<span class="mono" style="color:var(--mint)">${TCODE(m.source_timecode)}</span> · `:'');
+  const owner='上传者 '+esc(m.owner_name || (m.owner_id?'已删除用户':'—'));
+  return `<div class="qcard">
+    <div class="qhd"><span class="qglyph">${GLYPH[m.type]||'▦'}</span>
+      <div class="qhi"><div class="qtt">${LT[m.type]||m.type} <span class="owner">· ${tc}${owner}</span></div>
+        <div class="k">${esc(m.oss_key||m.thumb||m.id)}</div></div>${stamp}</div>
+    <div class="qbd"><div class="qmedia">${mediaEmbed(m)}</div><div class="qwhy">${auditBlock(m)}</div></div>
+    <div class="qact"><button class="btn block" onclick="audit('${m.id}','block')">拦截</button>
+      <button class="btn pass" onclick="audit('${m.id}','pass')">通过</button></div></div>`}
+async function loadQueue(){const r=await api('GET','/audit/queue?size=100');const it=r.data.items||[];setCnt('review',r.data.total??it.length);
+  $('#queue').innerHTML=it.length?it.map(queueCard).join('')
     :'<div class="empty"><b class="disp">队列清空了 ✓</b>没有待审核的物料。</div>'}
 async function audit(id,status){const r=await api('POST',`/materials/${id}/set-audit`,{status});if(r.ok){toast(status==='pass'?'已通过':'已拦截');loadQueue()}else toast('需要管理员权限',true)}
 
 /* ── 抽屉 ── */
 let DMID='',DTAGS=[];
+function previewMedia(m,url){
+  // 物料详情抽屉里真预览:图片能看见、视频能播放、声音能听;拿不到文件退回字形
+  const t=(m&&m.type)||'';
+  const glyph=`<span class="glyph" style="font-size:44px">${GLYPH[t]||'▦'}</span>`;
+  if(!url)return (t==='corpus'&&m.description)?`<div class="txt">${esc(m.description)}</div>`:glyph;
+  if(t==='image'||t==='meme'||t==='style')return `<img src="${esc(url)}" onerror="this.remove()">`;
+  if(t==='video')return `<video src="${esc(url)}" controls preload="metadata"${m.preview_url?` poster="${esc(m.preview_url)}"`:''} style="width:100%;height:100%"></video>`;
+  if(t==='audio'||t==='music')return `<audio src="${esc(url)}" controls preload="metadata"></audio>`;
+  if(t==='corpus')return m.description?`<div class="txt">${esc(m.description)}</div>`:glyph;
+  return glyph}
 async function openDrawer(id,canDel,canDl){$('#scrim').classList.add('on');$('#drawer').classList.add('on');$('#d-body').innerHTML='<div class="empty">加载中…</div>';
   const m=ALLSEEN[id]||{};DMID=id;DTAGS=(m.tags||[]).slice();
   const r=await api('GET','/materials/'+id);
   if(!r.ok){$('#d-body').innerHTML='<div class="empty"><b class="disp">无法查看</b>该物料未过审或你无权访问。</div>';return}
-  const url=r.data.signed_url;const isImg=url&&/\.(png|jpe?g|webp|gif)(\?|$)/i.test(url);
+  const url=r.data.signed_url;
+  if(!m.type&&r.data.type)m.type=r.data.type;
+  if(!m.preview_url&&r.data.preview_url)m.preview_url=r.data.preview_url;
   const dlBtn=canDl?`<button class="btn sm key" onclick="download('${id}')">下载</button>`:'';
   const delBtn=canDel?`<button class="btn sm block" onclick="delMat('${id}')">删除</button>`:'';
   const hasSum=m.ai_summary||m.ai_emotion||m.ai_atmosphere||m.ai_scene;
@@ -435,7 +747,7 @@ async function openDrawer(id,canDel,canDl){$('#scrim').classList.add('on');$('#d
     ${m.ai_atmosphere?`<div class="arcrow"><span class="k">氛围</span><span class="v">${m.ai_atmosphere}</span></div>`:''}</div>`
     :`<div style="margin-bottom:14px"><button class="btn sm key" onclick="genSummary('${id}',${canDel},${canDl})">生成 AI 摘要</button> <span class="owner">解析出 情绪 / 氛围 / 场景</span></div>`;
   const tagIn=canDel?`<input id="d-tagin" placeholder="加标签(如项目名),回车确认" onkeydown="if(event.key==='Enter')addTag()" style="margin-top:8px">`:'';
-  $('#d-body').innerHTML=`<div class="preview">${isImg?`<img src="${url}">`:`<span class="glyph" style="font-size:44px">${GLYPH[m.type]||'▦'}</span>`}</div>
+  $('#d-body').innerHTML=`<div class="preview">${previewMedia(m,url)}</div>
     ${arc}
     <div class="kvsum"><span class="k">类型</span><span class="v">${LT[m.type]||m.type||'—'}</span></div>
     <div style="margin-top:14px"><label>标签</label><div class="tagedit" id="d-tags"></div>${tagIn}</div>
@@ -457,17 +769,56 @@ function closeDrawer(){$('#scrim').classList.remove('on');$('#drawer').classList
 async function delMat(id){const r=await api('DELETE','/materials/'+id);if(r.ok){toast('已删除');closeDrawer();loadMine();if(ME.role==='admin')loadAll()}else if(r.status!==401)toast(r.data.detail||'删除失败',true)}
 
 /* ── 用户 / 权限 ── */
-async function loadUsers(){$('#u-list').innerHTML='admin(管理员) · demo(普通用户) · 及所有注册用户'}
-async function grant(){const role=$('#r-role').value,perm=$('#r-perm').value;const r=await api('POST','/admin/grant',{role,permission:perm});if(r.ok){toast('已授权');loadPerms()}else toast('需要管理员权限',true)}
-async function loadPerms(){const role=$('#r-role').value;const r=await api('GET','/admin/permissions?role='+encodeURIComponent(role));const ps=r.data.permissions||[];
-  $('#perms').innerHTML=ps.length?ps.map(p=>`<span class="chip on">${p}</span>`).join(''):'<span style="color:var(--faint);font-size:12.5px">该角色暂无权限</span>'}
+/* ── 账号与角色(增删查)── */
+function _ava(name){return (name||'?')[0].toUpperCase()}
+async function loadUsers(){const r=await api('GET','/admin/users');const us=r.data.users||[];
+  $('#u-list').innerHTML=us.length?us.map(u=>{
+    const rl=u.role==='admin'?'<span class="stamp review">管理员</span>':'<span class="owner">普通用户</span>';
+    const del=u.role==='admin'?'':`<button class="btn sm block" onclick="delUser('${u.id}','${u.name}')">删除</button>`;
+    const extra=(u.permissions&&u.permissions.length)?('额外权限:'+u.permissions.map(labelOf).join('、')):('账号 id '+u.id);
+    return `<div class="qrow"><div class="thumb">${_ava(u.name)}</div><div class="meta"><div>${u.name} ${rl}</div><div class="k">${extra}</div></div>${del}</div>`;
+  }).join(''):'<div class="empty">还没有账号</div>'}
+async function createUser(){const name=$('#nu-name').value.trim(),password=$('#nu-pw').value;
+  if(!name||!password){toast('用户名和密码不能为空',true);return}
+  if(password.length<6){toast('密码至少 6 位',true);return}
+  const r=await api('POST','/admin/users',{name,password});
+  if(r.ok){toast('已创建账号');$('#nu-name').value='';$('#nu-pw').value='';loadUsers()}
+  else toast(r.status===409?'用户名已被占用':(r.data.detail||'创建失败'),true)}
+async function delUser(id,name){const r=await api('DELETE','/admin/users/'+id);
+  if(r.ok){toast('已删除账号 '+name);loadUsers()}else toast(r.data.detail||'删除失败',true)}
+
+/* ── 功能权限(按用户授权,弹窗勾选)── */
+let PERM_CAT=[],grantUid='';
+function labelOf(k){const c=PERM_CAT.find(x=>x.key===k);return c?c.label:k}
+async function loadPerms(){
+  const [uc,cc]=await Promise.all([api('GET','/admin/users'),api('GET','/admin/perm-catalog')]);
+  PERM_CAT=cc.data.catalog||[];const us=uc.data.users||[];
+  $('#perm-users').innerHTML=us.length?us.map(u=>{
+    const isAdmin=u.role==='admin';
+    const chips=isAdmin?'<span class="owner">管理员拥有全部权限</span>'
+      :((u.permissions&&u.permissions.length)?u.permissions.map(k=>`<span class="tg" style="border:1px solid var(--line-2);color:var(--mint);padding:2px 8px;border-radius:6px;font-size:11px">${labelOf(k)}</span>`).join(' '):'<span class="owner">暂无额外权限</span>');
+    const btn=isAdmin?'':`<button class="btn sm key" onclick="openGrant('${u.id}','${u.name}')">授权</button>`;
+    return `<div class="qrow"><div class="thumb">${_ava(u.name)}</div><div class="meta"><div>${u.name} ${isAdmin?'<span class="stamp review">管理员</span>':'<span class="owner">普通用户</span>'}</div><div class="k" style="display:flex;flex-wrap:wrap;gap:5px;margin-top:5px">${chips}</div></div>${btn}</div>`;
+  }).join(''):'<div class="empty">还没有账号</div>'}
+async function openGrant(id,name){grantUid=id;
+  const r=await api('GET','/admin/users');const u=(r.data.users||[]).find(x=>x.id===id);
+  const cur=new Set((u&&u.permissions)||[]);
+  $('#gm-title').textContent='授权给 '+name;
+  $('#gm-body').innerHTML=`<div class="hint" style="margin-bottom:12px">勾选要授予「${name}」的功能权限,确认后立即生效。</div>`+
+    PERM_CAT.map(c=>`<label class="permrow"><input type="checkbox" value="${c.key}" ${cur.has(c.key)?'checked':''}><div><div class="pl">${c.label}</div><div class="pd">${c.desc}</div></div></label>`).join('');
+  $('#gscrim').classList.add('on');$('#grant-modal').classList.add('on')}
+function closeGrant(){$('#gscrim').classList.remove('on');$('#grant-modal').classList.remove('on')}
+async function confirmGrant(){
+  const perms=[...document.querySelectorAll('#gm-body input:checked')].map(i=>i.value);
+  const r=await api('POST','/admin/users/'+grantUid+'/perms',{permissions:perms});
+  if(r.ok){toast('授权已更新');closeGrant();loadPerms()}else toast(r.data.detail||'授权失败',true)}
 
 async function health(){const r=await api('GET','/health');const ok=r.ok&&r.data.status==='ok';$('#led').className='led'+(ok?' ok':'');$('#livetxt').textContent=ok?'后端在线':'后端离线'}
 
 function boot(){$('#gate').style.display='none';$('#app').style.display='grid';
   $('#ava').textContent=(ME.name||'?')[0].toUpperCase();$('#me-name').textContent=ME.name;
   $('#me-role').textContent=ME.role==='admin'?'管理员':'普通用户';$('#me-role').className='rl'+(ME.role==='admin'?' admin':'');
-  buildNav();health();
+  buildNav();health();setRail(localStorage.getItem('railExpanded')==='1');   // 默认收起
   const start=(location.hash||'').slice(1);const valid=(ME.role==='admin'?NAV_ADMIN:NAV_USER).some(x=>x[1]===start);
   go(valid?start:(ME.role==='admin'?'all':'mine'))}
 

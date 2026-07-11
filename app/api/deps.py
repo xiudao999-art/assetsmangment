@@ -17,6 +17,7 @@ from app.infrastructure.fakes import (
     FakeVideoParser, FakeEmbedder, InMemoryVectorIndex, InMemoryUserRepo,
     FakeHasher, FakeTokenIssuer, InMemoryRbac, ListAuditLog, InMemoryFavoriteRepo,
     FakeTranscriber, FakeVisionDescriber, FakeLlm, InMemoryAuditRuleRepo, InMemoryAuditReportRepo,
+    InMemoryAuditTaskRepo, InMemoryWhitelistRepo,
 )
 
 # ── 进程内单例 ──
@@ -31,7 +32,7 @@ else:
 if settings.data_dir:
     from app.infrastructure.jsonstore import (
         Store, JsonMaterialRepo, JsonUserRepo, JsonFavoriteRepo, JsonRbac,
-        JsonAuditRuleRepo, JsonAuditReportRepo,
+        JsonAuditRuleRepo, JsonAuditReportRepo, JsonAuditTaskRepo, JsonWhitelistRepo,
     )
     _store = Store(f"{settings.data_dir.rstrip('/')}/state.json")
     material_repo = JsonMaterialRepo(_store)
@@ -40,6 +41,8 @@ if settings.data_dir:
     rbac = JsonRbac(_store)
     rule_repo = JsonAuditRuleRepo(_store)
     report_repo = JsonAuditReportRepo(_store)
+    task_repo = JsonAuditTaskRepo(_store)
+    whitelist_repo = JsonWhitelistRepo(_store)
 else:
     material_repo = InMemoryMaterialRepo()
     user_repo = InMemoryUserRepo()
@@ -47,6 +50,8 @@ else:
     rbac = InMemoryRbac()
     rule_repo = InMemoryAuditRuleRepo()
     report_repo = InMemoryAuditReportRepo()
+    task_repo = InMemoryAuditTaskRepo()
+    whitelist_repo = InMemoryWhitelistRepo()
 
 # 向量索引:有真 embedding(DashScope)+ 真 pg 连接串 → pgvector 语义近邻;否则内存
 _placeholder_db = settings.database_url.startswith("postgresql://user:pass@localhost")
@@ -67,7 +72,9 @@ if settings.enable_content_safety:
     from app.infrastructure.content_safety import AliyunAuditor
     _cs_ak = settings.content_safety_access_key_id or settings.oss_access_key_id
     _cs_sk = settings.content_safety_access_key_secret or settings.oss_access_key_secret
-    _auditor = AliyunAuditor(_cs_ak, _cs_sk, storage, region=settings.content_safety_region)
+    _auditor = AliyunAuditor(_cs_ak, _cs_sk, storage, region=settings.content_safety_region,
+                             mode=settings.content_safety_mode,
+                             whitelist=lambda: whitelist_repo.words())   # 白名单实时读
 else:
     _auditor = FakePassAuditor()
 
@@ -119,8 +126,9 @@ def get_material_service() -> MaterialService:
 
 
 def get_search_service() -> SearchService:
-    # 仅在真 pgvector(真向量)时启用语义近邻;否则不传 index,走关键词回退
-    return SearchService(_query_embedder, material_repo, index if _vector_search else None)
+    # 仅在真 pgvector(真向量)时启用语义近邻;否则不传 index,走纯关键词
+    return SearchService(_query_embedder, material_repo, index if _vector_search else None,
+                         max_distance=settings.search_max_distance)
 
 
 def get_video_service() -> VideoParsingService:

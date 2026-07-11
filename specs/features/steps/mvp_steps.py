@@ -81,7 +81,7 @@ def t_gone(context):
     except MaterialNotFound:
         accessible = False
     assert accessible is False
-    assert all(m.id != context.mat.id for m in context.search_svc.search(""))
+    assert all(m.id != context.mat.id for m in context.search_svc.search("")[0])
 
 
 # ══ F6 自动审核 ══
@@ -121,7 +121,7 @@ def w_try_download(context):
         context.rejected = False
     except PermissionError:
         context.rejected = True
-    context.results = context.search_svc.search("")
+    context.results, _ = context.search_svc.search("")
 
 
 @then("系统应拒绝且该物料不出现在结果中")
@@ -165,7 +165,7 @@ def g_pass_materials(context):
 
 @when("我用文本查询")
 def w_text_query(context):
-    context.results = context.search_svc.search("cat")
+    context.results, _ = context.search_svc.search("cat")
 
 
 @then("应生成 embedding 做向量近邻检索")
@@ -191,7 +191,7 @@ def g_term_material(context):
 
 @when("我用该专有名词查询")
 def w_term_query(context):
-    context.results = context.search_svc.search(context.term)
+    context.results, _ = context.search_svc.search(context.term)
 
 
 @then("应使用 hybrid 向量加BM25 检索")
@@ -206,7 +206,7 @@ def t_term_hit(context):
 
 @when("任意用户搜索")
 def w_any_search(context):
-    context.results = context.search_svc.search("")
+    context.results, _ = context.search_svc.search("")
 
 
 @then("该物料不得出现在结果中")

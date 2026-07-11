@@ -61,6 +61,7 @@ class Material:
     owner_id: str = ""        # 物料归属(我的物料库按此归属)
     is_public: bool = False   # 是否已发布到公共物料库(管理员发布)
     audit_report_id: str = ""  # 指向持久化的审核报告(可回看链路)
+    content_hash: str = ""    # 内容 MD5(同一 owner 库内去重,防重复上传)
     # 分类与 AI 摘要
     tags: list[str] = field(default_factory=list)  # 标签/项目分类(用户手动 + AI 建议);空=归"全部"
     ai_summary: str = ""      # 是什么 + 包含什么内容
@@ -124,6 +125,25 @@ class AuditJob:
     owner_id: str = ""
     status: JobStatus = JobStatus.PENDING
     report: Optional[AuditReport] = None
+    video_kind: str = "material"    # 视频:material(物料,≤20s,存素材)| work(作品,仅扫描)
+
+
+@dataclass
+class AuditTask:
+    """用户可见的「待审核任务」(持久化):一次提交 = 一条,单条/批量都汇聚到「待审核」页。
+    上传与审核解耦——提交即受理(pending),后台上传+审核,页面轮询状态。"""
+    id: str
+    owner_id: str
+    name: str                       # 文件名 / "文字审核"
+    material_type: MaterialType
+    material_id: str = ""           # 审核前可能还没建物料(批量后台建)
+    content_hash: str = ""
+    status: JobStatus = JobStatus.PENDING   # pending/running/done/failed
+    verdict: str = ""               # pass/review/block(done 后)
+    report_id: str = ""             # 指向 audit_reports
+    created_ms: int = 0
+    error: str = ""
+    video_kind: str = "material"    # 视频:material(物料)| work(作品)
 
 
 @dataclass

@@ -42,14 +42,19 @@ class PgVectorIndex:
             )
 
     def query(self, vector: list[float], k: int = 10) -> list[str]:
+        return [mid for mid, _ in self.query_scored(vector, k)]
+
+    def query_scored(self, vector: list[float], k: int = 10) -> list[tuple[str, float]]:
+        """返回 (material_id, 余弦距离);距离越小越相关(0=同向)。供按相关度阈值过滤,避免搜出无关物料。"""
         if not vector or len(vector) != self._dim:
             return []
         with self._conn() as c:
             rows = c.execute(
-                "SELECT material_id FROM material_vectors ORDER BY embedding <=> %s::vector LIMIT %s",
+                "SELECT material_id, embedding <=> %s::vector AS dist FROM material_vectors "
+                "ORDER BY dist LIMIT %s",
                 (self._vec(vector), k),
             ).fetchall()
-        return [r[0] for r in rows]
+        return [(r[0], float(r[1])) for r in rows]
 
     def size(self) -> int:
         with self._conn() as c:

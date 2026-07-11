@@ -1,7 +1,8 @@
 """领域端口(Protocol 接口)。infra 实现它们,service 依赖它们 —— 依赖倒置。"""
 from __future__ import annotations
 from typing import Protocol, Optional
-from app.domain.models import MaterialCandidate, Material, User, TextSegment, AuditRule
+from app.domain.models import MaterialCandidate, Material, User, TextSegment, AuditRule, AuditTask
+from app.domain.query import MaterialQuery
 
 
 class VideoParser(Protocol):
@@ -32,6 +33,15 @@ class AuditRuleRepo(Protocol):
     def list_for(self, source_type: str) -> list[AuditRule]: ...
 
 
+class AuditTaskRepo(Protocol):
+    """待审核任务仓储(持久化,支撑「待审核」页)。"""
+    def save(self, task: AuditTask) -> None: ...        # 新增或更新(状态回写)
+    def get(self, task_id: str) -> Optional[AuditTask]: ...
+    def delete(self, task_id: str) -> None: ...
+    def list_for(self, owner_id: str) -> list[AuditTask]: ...   # 某用户的任务
+    def list_all(self) -> list[AuditTask]: ...                  # 管理员看全部
+
+
 class Embedder(Protocol):
     """物料 multimodal-embedding 端口。"""
     def embed(self, candidate: MaterialCandidate) -> list[float]: ...
@@ -43,7 +53,9 @@ class QueryEmbedder(Protocol):
 
 
 class Auditor(Protocol):
-    """内容安全审核端口。返回 'pass'/'review'/'block';可抛 TimeoutError。content 可为候选或物料。"""
+    """内容安全审核端口。返回 'pass'/'review'/'block';可抛 TimeoutError。content 可为候选或物料。
+    可选实现 audit_detail(content) -> (verdict, risk_words):额外交出阿里云命中的具体风险词
+    (供报告标红 + 一键加白);未实现时调用方用 getattr 兜底为 (audit(content), '')。"""
     def audit(self, content) -> str: ...
 
 
@@ -54,6 +66,8 @@ class MaterialRepo(Protocol):
     def delete(self, material_id: str) -> None: ...
     def list(self) -> list[Material]: ...
     def search(self, query_text: str, only_pass: bool = True) -> list[Material]: ...
+    def query(self, spec: MaterialQuery) -> tuple[list[Material], int]: ...  # 服务端翻页/筛选 →(当页, 总数)
+    def by_content_hash(self, owner_id: str, content_hash: str) -> Optional[Material]: ...  # 同 owner 库内去重
 
 
 class ObjectStorage(Protocol):
@@ -71,6 +85,7 @@ class VectorIndex(Protocol):
     """向量索引端口(pgvector HNSW 的抽象)。"""
     def add(self, material_id: str, vector: list[float]) -> None: ...
     def query(self, vector: list[float], k: int = 10) -> list[str]: ...
+    def query_scored(self, vector: list[float], k: int = 10) -> list[tuple[str, float]]: ...  # (id, 余弦距离);用于按相关度阈值过滤
     def size(self) -> int: ...
 
 
@@ -78,6 +93,8 @@ class UserRepo(Protocol):
     def save(self, user: User) -> None: ...
     def get_by_name(self, name: str) -> Optional[User]: ...
     def get(self, user_id: str) -> Optional[User]: ...
+    def list(self) -> list[User]: ...               # 账号管理:列全部用户
+    def delete(self, user_id: str) -> None: ...      # 账号管理:删用户
 
 
 class FavoriteRepo(Protocol):
@@ -102,7 +119,18 @@ class RbacRepo(Protocol):
     def permissions_of(self, role: str) -> set[str]: ...
     def grant(self, role: str, permission: str) -> None: ...
     def revoke(self, role: str, permission: str) -> None: ...
+    # 按用户授权(在角色默认权限之上叠加):功能权限页给具体用户授权
+    def user_permissions(self, user_id: str) -> set[str]: ...
+    def set_user_permissions(self, user_id: str, permissions: set[str]) -> None: ...
 
 
 class AuditLog(Protocol):
     def record(self, event: str) -> None: ...
+
+
+class WhitelistRepo(Protocol):
+    """内容安全白名单:命中这些词时,即便阿里云判违规也放行(管理员后台维护,治误伤)。"""
+    def words(self) -> set[str]: ...
+    def list(self) -> list[str]: ...
+    def add(self, word: str) -> None: ...
+    def remove(self, word: str) -> None: ...

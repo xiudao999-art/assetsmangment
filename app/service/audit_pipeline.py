@@ -18,6 +18,10 @@ _SRC_CN = {
     TextSourceType.VIDEO_FRAME: "视频关键帧画面",
 }
 
+
+def _act_cn(v: str) -> str:
+    return "拦截" if v == "block" else "待复核"
+
 _JUDGE_SYS = (
     "你是内容审核引擎。根据管理员定义的规则,逐条判断给定文本是否违规。"
     "只返回一个合法 JSON 对象,不要 markdown、不要多余解释。"
@@ -30,6 +34,15 @@ _MOMENT_SYS = (
     "请挑出最多 5 个「可能需要结合画面才能判断是否违规」的重点时间段。"
     "只返回一个合法 JSON 对象:{\"moments_ms\":[毫秒整数数组]}。"
 )
+_MOMENT_RULE_SYS = (
+    "你是视频内容审核助理。下面给你【管理员配置的画面审核规则】和一段【带毫秒时间轴的语音转写】。"
+    "请结合语义反推:视频画面在哪些重点时间段/时间点最可能出现与这些规则相关的内容"
+    "(例如规则涉及的物品、场景、行为、人物或画面文字),需要抽取该处画面来核验。"
+    "只围绕规则涉及的风险方向选择,不要泛泛而选;拿不准就不选。最多返回 8 个时间点。"
+    "只返回一个合法 JSON 对象:{\"moments_ms\":[毫秒整数数组]},不要 markdown、不要解释。"
+)
+_WORK_MAX_FRAMES = 12          # 作品单条抽帧上限(Qwen-VL + 内容安全逐帧成本封顶)
+_WORK_NET_INTERVAL_MS = 20000  # 作品安全网:每 ~20s 均匀补一帧(覆盖静音段 + 常开黄暴政硬拦)
 _SUMMARY_SYS = (
     "你是物料档案摘要引擎。根据一条物料解析出的文字内容,提炼它的可复用档案。"
     "只返回一个合法 JSON 对象,不要 markdown、不要多余解释,字段:"
@@ -56,25 +69,46 @@ class AuditPipelineService:
         self._auditor = auditor  # 阿里云内容安全硬拦兜底(可选);假实现时恒 pass 无影响
 
     def submit(self, material_type: MaterialType, oss_key: str = "",
-               owner_id: str = "", material_id: str = "") -> AuditJob:
+               owner_id: str = "", material_id: str = "",
+               video_kind: str = "material") -> AuditJob:
         return AuditJob(id=uuid.uuid4().hex, material_type=material_type, oss_key=oss_key,
-                        owner_id=owner_id, material_id=material_id, status=JobStatus.RUNNING)
+                        owner_id=owner_id, material_id=material_id,
+                        video_kind=video_kind, status=JobStatus.RUNNING)
 
     # ── 主流程 ──
     def run(self, job: AuditJob, text: str = "") -> AuditReport:
         try:
             segments = self._to_segments(job, text)
-            triggered = (self._prefilter(segments) + self._llm_judge(segments)
-                         + self._content_safety(job, segments))
-            verdict = self._combine(triggered)
-            summary = self._summary(verdict, triggered)
-            report = AuditReport(verdict=verdict, segments=segments, triggered=triggered, summary=summary)
+            report = self._evaluate(job, segments)
             job.status = JobStatus.DONE
         except Exception as e:  # 审核异常不放行,转人工
             report = AuditReport(verdict=AuditStatus.REVIEW, segments=[], triggered=[],
                                  summary=f"审核过程异常,转人工复核:{e}")
             job.status = JobStatus.FAILED
+        return self._persist(job, report, summary_segments=report.segments)  # 首审顺带生成 AI 摘要
 
+    def recheck(self, job: AuditJob, old_report: AuditReport) -> AuditReport:
+        """只重判:用**当前**白名单/规则对已存报告的 segments 重新评估。
+        不调 _to_segments → 不重转写、不重抽帧、不重复生成帧素材、不重跑摘要(已有)。"""
+        try:
+            report = self._evaluate(job, old_report.segments)
+            job.status = JobStatus.DONE
+        except Exception as e:
+            report = AuditReport(verdict=AuditStatus.REVIEW, segments=old_report.segments, triggered=[],
+                                 summary=f"重新审核异常,转人工复核:{e}")
+            job.status = JobStatus.FAILED
+        return self._persist(job, report)   # summary_segments=None → 不重跑摘要
+
+    def _evaluate(self, job: AuditJob, segments: list[TextSegment]) -> AuditReport:
+        """纯评估(不抽帧/不转写):关键词快筛 + 大模型判 + 内容安全 → 取最严 → 报告。"""
+        triggered = (self._prefilter(segments) + self._llm_judge(segments)
+                     + self._content_safety(job, segments))
+        verdict = self._combine(triggered)
+        summary = self._summary(verdict, triggered)
+        return AuditReport(verdict=verdict, segments=segments, triggered=triggered, summary=summary)
+
+    def _persist(self, job: AuditJob, report: AuditReport, summary_segments=None) -> AuditReport:
+        """存报告 + 回写物料 audit_status/audit_report_id;summary_segments 非 None 时顺带生成 AI 摘要。"""
         report_id = uuid.uuid4().hex
         self._reports.save(report_id, report)
         if job.material_id:
@@ -82,15 +116,11 @@ class AuditPipelineService:
             if m is not None:
                 m.audit_status = report.verdict
                 m.audit_report_id = report_id
-                self._apply_summary(m, self._safe_segments(report, job, text))  # 审核时顺带生成 AI 摘要
+                if summary_segments is not None:
+                    self._apply_summary(m, summary_segments)
                 self._repo.save(m)
         job.report = report
         return report
-
-    @staticmethod
-    def _safe_segments(report, job, text):
-        # 审核成功→用报告里的 segments;异常兜底→尽量再取一次(失败则空)
-        return report.segments
 
     # ── AI 摘要(情绪/氛围/场景/标签)+ 按摘要重嵌入(情绪氛围可搜)──
     def summarize_material(self, material) -> None:
@@ -147,27 +177,87 @@ class AuditPipelineService:
         return [TextSegment(TextSourceType.ORIGINAL_TEXT, (text or "").strip())]
 
     @staticmethod
-    def _sample_moments(dur_ms) -> list[int]:
-        """按视频时长在其范围内均匀取抽帧时间点(避开首尾),避免超时长截到重复的最后一帧。"""
+    def _material_moments(dur_ms) -> list[int]:
+        """物料(≤20s 短片)分级抽帧:
+        ≤5s → 1 帧(中间);≤10s → 2 帧(~33%/66%);≤20s → 3 帧(~25/50/75%)。
+        拿不到时长 → 保守取前中 1 帧(短片安全)。天然封顶 3 帧。"""
         if not dur_ms or dur_ms <= 0:
-            return [500, 1000, 1500]        # 拿不到时长 → 只取前几秒(短视频安全)
-        n = min(5, max(1, round(dur_ms / 2000)))
-        lo, hi = dur_ms * 0.08, dur_ms * 0.92
+            return [500]
+        if dur_ms <= 5000:
+            return [int(dur_ms * 0.50)]
+        if dur_ms <= 10000:
+            return [int(dur_ms * 0.33), int(dur_ms * 0.66)]
+        return [int(dur_ms * 0.25), int(dur_ms * 0.50), int(dur_ms * 0.75)]
+
+    @staticmethod
+    def _safety_net(dur_ms) -> list[int]:
+        """作品均匀安全网:每 ~20s 一帧(封顶 _WORK_MAX_FRAMES,避开首尾),
+        覆盖无语音提示的静音段 + 常开的内容安全黄暴政硬拦。"""
+        if not dur_ms or dur_ms <= 0:
+            return [1000]
+        n = max(1, min(_WORK_MAX_FRAMES, round(dur_ms / _WORK_NET_INTERVAL_MS)))
         if n == 1:
-            return [int((lo + hi) / 2)]
-        step = (hi - lo) / (n - 1)
-        return [int(lo + i * step) for i in range(n)]
+            return [int(dur_ms * 0.5)]
+        step = dur_ms / (n + 1)
+        return [int(step * (i + 1)) for i in range(n)]
+
+    def _frame_rules_digest(self) -> str:
+        """把「适用于视频关键帧」的审核规则(含 any)整理成清单,给 LLM 反推相关画面时刻。"""
+        lines: list[str] = []
+        for i, r in enumerate(self._rules.list_for(TextSourceType.VIDEO_FRAME.value), 1):
+            parts = []
+            if r.keywords:
+                parts.append("关键词:" + "、".join(k for k in r.keywords if k))
+            if r.condition.strip():
+                parts.append("条件:" + r.condition.strip())
+            if parts:
+                lines.append(f"{i}. " + ";".join(parts))
+        return "\n".join(lines)
+
+    def _pick_visual_moments(self, transcript: list[TextSegment]) -> list[int]:
+        """规则反推抽帧点(作品用)。有画面规则 → 让 LLM 依据规则在时间轴定位相关画面时刻;
+        无画面规则 → 退回通用「可能需结合画面判定」的重点时刻。无转写/异常 → [](交安全网兜底)。"""
+        if not transcript:
+            return []
+        tl = "\n".join(f"[{(s.begin_ms or 0)}ms] {s.text}" for s in transcript if s.text)
+        digest = self._frame_rules_digest()
+        try:
+            if digest:
+                out = self._llm.chat_json(
+                    _MOMENT_RULE_SYS,
+                    f"审核规则(画面):\n{digest}\n\n带毫秒时间轴的语音转写:\n{tl}\n\n请以 json 返回。")
+            else:
+                out = self._llm.chat_json(_MOMENT_SYS, f"语音转写(请返回 json):\n{tl}")
+            ms = [int(x) for x in (out.get("moments_ms") or []) if str(x).strip() != ""]
+            return ms[:_WORK_MAX_FRAMES]
+        except Exception:
+            return []
+
+    def _work_moments(self, transcript: list[TextSegment], dur_ms) -> list[int]:
+        """作品抽帧点 = 规则反推点 ∪ 均匀安全网,去重排序;超上限时优先保留规则命中点。"""
+        net = self._safety_net(dur_ms)
+        rule_pts = self._pick_visual_moments(transcript)   # 无转写→[];无规则→通用挑取;异常→[]
+        merged = sorted(set(net) | set(rule_pts))
+        if len(merged) <= _WORK_MAX_FRAMES:
+            return merged
+        keep = sorted(set(rule_pts))[:_WORK_MAX_FRAMES]
+        for m in sorted(net):
+            if len(keep) >= _WORK_MAX_FRAMES:
+                break
+            if m not in keep:
+                keep.append(m)
+        return sorted(keep)
 
     def _video_segments(self, job: AuditJob) -> list[TextSegment]:
         url = self._storage.signed_url(job.oss_key)
-        transcript = self._transcriber.transcribe(url)
+        transcript = self._transcriber.transcribe(url)          # 两条链路都转写音轨审核
         dur = self._storage.video_duration_ms(job.oss_key)
-        if transcript:
-            moments = self._pick_visual_moments(transcript)
-        else:
-            moments = self._sample_moments(dur)  # 无语音→按真实时长均匀抽帧
+        is_work = (job.video_kind == "work")
+        moments = self._work_moments(transcript, dur) if is_work else self._material_moments(dur)
         if dur:  # 钳制在时长内并去重,避免超时长截到同一最后帧
             moments = sorted({min(m, max(0, dur - 100)) for m in moments if m is not None})
+        else:
+            moments = sorted({m for m in moments if m is not None})
         frame_segs: list[TextSegment] = []
         for ms in moments:
             dest = f"frames/{job.oss_key.rsplit('/', 1)[-1]}-{uuid.uuid4().hex[:8]}.jpg"
@@ -177,30 +267,13 @@ class AuditPipelineService:
                 fdesc = self._vision.describe_image(self._storage.signed_url(dest))
                 frame_segs.append(TextSegment(TextSourceType.VIDEO_FRAME, fdesc,
                                               begin_ms=ms, frame_oss_key=dest))
-                self._save_frame_material(dest, fdesc, ms / 1000.0, job)  # 顺带自动入库
+                if not is_work:                              # 仅物料把帧存为可复用素材;作品只核验不入库
+                    self._save_frame_material(dest, fdesc, ms / 1000.0, job)
             except Exception:
                 continue
         merged = transcript + frame_segs
         merged.sort(key=lambda s: (s.begin_ms if s.begin_ms is not None else 0))
         return merged
-
-    def _pick_visual_moments(self, transcript: list[TextSegment]) -> list[int]:
-        if not transcript:
-            return []
-        lines = "\n".join(
-            f"[{(s.begin_ms or 0)}ms] {s.text}" for s in transcript if s.text
-        )
-        try:
-            out = self._llm.chat_json(_MOMENT_SYS, f"语音转写(请返回 json):\n{lines}")
-            ms_list = [int(x) for x in (out.get("moments_ms") or []) if str(x).strip() != ""]
-            return ms_list[:5]
-        except Exception:
-            # 兜底:均匀取最多 3 个时间点
-            times = [s.begin_ms for s in transcript if s.begin_ms is not None]
-            if not times:
-                return []
-            step = max(1, len(times) // 3)
-            return times[::step][:3]
 
     def _save_frame_material(self, oss_key: str, desc: str, timecode: float, job: AuditJob) -> None:
         try:
@@ -215,7 +288,7 @@ class AuditPipelineService:
         except Exception:
             pass  # 入库是副产物,失败不影响审核
 
-    # ── 关键词快筛(纯逻辑)──
+    # ── 关键词快筛(纯逻辑)——命中项带上具体片段(文本/帧),供报告标红定位 ──
     def _prefilter(self, segments: list[TextSegment]) -> list[dict]:
         triggered: list[dict] = []
         for seg in segments:
@@ -223,36 +296,62 @@ class AuditPipelineService:
                 for kw in rule.keywords:
                     if kw and kw in seg.text:
                         triggered.append({"rule_id": rule.id, "source_type": seg.source_type.value,
-                                          "action": rule.action, "reason": f"关键词命中「{kw}」"})
+                                          "action": rule.action, "reason": f"命中关键词「{kw}」",
+                                          "text": seg.text, "begin_ms": seg.begin_ms,
+                                          "frame_oss_key": seg.frame_oss_key})
                         break
         return triggered
 
-    # ── 阿里云内容安全硬拦兜底(黄暴政治等,与规则引擎并存取最严)──
+    # ── 阿里云内容安全硬拦兜底(黄暴政治等,与规则引擎并存取最严)——命中项定位到具体片段/帧 ──
     def _content_safety(self, job: AuditJob, segments: list[TextSegment]) -> list[dict]:
         if self._auditor is None:
             return []
         import types
-        targets: list[tuple] = []
+
+        def _run(oss_key: str, description: str) -> tuple[str, str]:
+            """返回 (verdict, risk_words)。审核器可选实现 audit_detail 交出命中词;否则退回 audit()。"""
+            try:
+                obj = types.SimpleNamespace(oss_key=oss_key, description=description)
+                fn = getattr(self._auditor, "audit_detail", None)
+                return fn(obj) if fn is not None else (self._auditor.audit(obj), "")
+            except Exception:
+                return "review", ""  # 内容安全异常/超时 → 不放行
+
+        triggered: list[dict] = []
+        # 原图(图片物料):审像素 → 命中标出这张图(图片接口不返回具体词)
         if job.material_type in (MaterialType.IMAGE, MaterialType.MEME, MaterialType.STYLE) and job.oss_key:
-            targets.append(("原图", types.SimpleNamespace(oss_key=job.oss_key, description="")))
+            v, _ = _run(job.oss_key, "")
+            if v in ("block", "review"):
+                triggered.append({"rule_id": "content-safety", "source_type": TextSourceType.IMAGE_CONTENT.value,
+                                  "action": v, "reason": f"图片画面被阿里云内容安全判为{_act_cn(v)}",
+                                  "frame_oss_key": job.oss_key, "begin_ms": None, "text": ""})
+        # 每个视频帧:逐帧审像素 → 命中定位到该帧(报告里显示这张帧图)
         for s in segments:
             if s.frame_oss_key:
-                targets.append((f"帧{s.begin_ms}ms", types.SimpleNamespace(oss_key=s.frame_oss_key, description="")))
-        # 文本审核只审「真实内容」(原文/转写);AI 反解出的画面描述会点名"暴力/色情"等风险词,
-        # 交给图片审核(直接审像素)即可,不能拿描述去过文本审核(否则正常图也被误判)。
-        real_text = "\n".join(s.text for s in segments
-                              if s.text and s.source_type in (TextSourceType.ORIGINAL_TEXT, TextSourceType.TRANSCRIPT))[:9000]
-        if real_text.strip():
-            targets.append(("文本", types.SimpleNamespace(oss_key="", description=real_text)))
-        triggered: list[dict] = []
-        for label, obj in targets:
-            try:
-                v = self._auditor.audit(obj)  # 'pass'/'review'/'block';FakePassAuditor 恒 pass
-            except Exception:
-                v = "review"  # 内容安全异常/超时 → 不放行
-            if v in ("block", "review"):
-                triggered.append({"rule_id": "content-safety", "source_type": label,
-                                  "action": v, "reason": f"阿里云内容安全:{label}判为{v}"})
+                v, _ = _run(s.frame_oss_key, "")
+                if v in ("block", "review"):
+                    triggered.append({"rule_id": "content-safety", "source_type": TextSourceType.VIDEO_FRAME.value,
+                                      "action": v, "reason": f"该视频帧画面被阿里云内容安全判为{_act_cn(v)}",
+                                      "frame_oss_key": s.frame_oss_key, "begin_ms": s.begin_ms, "text": s.text})
+        # 真实文本(原文/转写):先合并审一次;命中了再逐段定位到具体的那段文字 + 命中词(供标红/加白)
+        text_segs = [s for s in segments if s.text and s.source_type in
+                     (TextSourceType.ORIGINAL_TEXT, TextSourceType.TRANSCRIPT)]
+        merged = "\n".join(s.text for s in text_segs)[:9000]
+        if merged.strip():
+            mv, mwords = _run("", merged)
+            if mv in ("block", "review"):
+                hit = False
+                for s in text_segs:
+                    vs, words = _run("", s.text[:6000])
+                    if vs in ("block", "review"):
+                        hit = True
+                        triggered.append({"rule_id": "content-safety", "source_type": s.source_type.value,
+                                          "action": vs, "reason": f"该{_SRC_CN.get(s.source_type, '文本')}片段被阿里云内容安全判为{_act_cn(vs)}",
+                                          "text": s.text, "begin_ms": s.begin_ms, "risk_words": words})
+                if not hit:  # 合并命中但逐段都不单独命中(上下文叠加)→ 记一条整体
+                    triggered.append({"rule_id": "content-safety", "source_type": "text", "action": "review",
+                                      "reason": "文本整体被阿里云内容安全判为待复核", "text": merged[:300],
+                                      "begin_ms": None, "risk_words": mwords})
         return triggered
 
     # ── 大模型按自然语言规则兜底 ──
