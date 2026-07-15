@@ -291,3 +291,13 @@ def test_recheck_reevaluates_without_reextraction():
     assert tx.n == tx_calls and vi.n == vi_calls          # 未重新转写/反解
     assert len(repo.list()) == n_mats                     # 未新增帧素材(不重复入库)
     assert rep2.segments == rep.segments                  # 复用已存 segments
+
+
+def test_vision_prompt_avoids_negative_safety_conclusions():
+    from app.infrastructure.qwen_vl import QwenVLVisionDescriber
+
+    prompt = QwenVLVisionDescriber._PROMPT
+    assert "请详细描述这张图片的画面内容" in prompt
+    assert "任何可能涉及违规的风险点" in prompt
+    assert "不要输出否定句" in prompt
+    assert "未见" in prompt

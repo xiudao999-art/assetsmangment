@@ -113,6 +113,8 @@
   /* 审核队列 */
   .qrow{display:flex;align-items:center;gap:14px;background:var(--panel);border:1px solid var(--line);border-radius:11px;padding:12px 14px;margin-bottom:10px}
   .qrow .thumb{width:56px;height:44px;border-radius:7px;border:1px solid var(--line);background:radial-gradient(var(--raise),var(--panel));display:flex;align-items:center;justify-content:center;flex:none;color:var(--faint);font:600 16px "Fraunces"}
+  .qrow button.thumb{cursor:pointer;transition:.15s}
+  .qrow button.thumb:hover{border-color:color-mix(in oklab,var(--mint) 32%,var(--line-2));color:var(--mint);transform:translateY(-1px)}
   .qrow .meta{flex:1;min-width:0}.qrow .meta .k{font:500 12px "IBM Plex Mono";color:var(--dim);word-break:break-all}
   /* 审核决策卡(队列内直接看直接判) */
   .qcard{background:var(--panel);border:1px solid var(--line);border-radius:14px;padding:16px;margin-bottom:14px}
@@ -132,6 +134,10 @@
   .qwtrig .qwlbl{font:600 12px Inter;color:var(--block);margin-bottom:8px}
   .qai .qwlbl2{font:600 12px Inter;color:var(--mint);margin-bottom:6px}
   .qaitx{max-height:190px;overflow:auto;font-size:12.5px;line-height:1.6;color:var(--ink);white-space:pre-wrap;word-break:break-word;background:var(--raise);border:1px solid var(--line);border-radius:8px;padding:10px 12px}
+  .hovertip{position:relative;display:block;padding-bottom:6px}
+  .hovertip .tipbox{display:none;position:absolute;left:0;top:100%;z-index:30;min-width:260px;max-width:min(520px,calc(100vw - 80px));max-height:240px;overflow:auto;padding:10px 12px;border-radius:10px;border:1px solid var(--line-2);background:#fff;color:var(--ink);box-shadow:0 10px 30px rgba(28,21,38,.14);white-space:pre-wrap;word-break:break-word;line-height:1.55}
+  .hovertip .tipbox::before{content:"";position:absolute;left:0;right:0;top:-6px;height:6px}
+  .hovertip:hover .tipbox{display:block}
   .qcard .qact{display:flex;gap:10px;justify-content:flex-end;margin-top:14px;border-top:1px solid var(--line);padding-top:12px}
   .qcard .qact .btn{padding:10px 26px;font-size:13.5px}
   .empty{text-align:center;color:var(--dim);padding:54px 20px;border:1px dashed var(--line-2);border-radius:12px}.empty b{display:block;color:var(--ink);font:600 15px "Fraunces";margin-bottom:6px}
@@ -544,7 +550,11 @@ function trigItem(t){
   const src=SRC_CN[t.source_type]||t.source_type;
   const tc=(t.begin_ms!=null)?` · <span class="mono">${(t.begin_ms/1000).toFixed(1)}s</span>`:'';
   const isFrame=(t.source_type==='video_frame'||t.source_type==='image_content');
-  const img=t.frame_url?`<div style="margin-top:8px"><img src="${t.frame_url}" style="max-width:220px;border-radius:8px;border:2px solid var(--block)" onerror="this.remove()"></div>${(isFrame&&t.text)?`<div style="font-size:11.5px;color:var(--dim);margin-top:4px">画面反解:${esc(t.text).slice(0,140)}</div>`:''}`:'';
+  const shortText=esc(t.text||'').slice(0,140);
+  const fullText=esc(t.text||'');
+  const truncated=fullText.length>140;
+  const frameDesc=(isFrame&&t.text)?`<div class="hovertip" style="font-size:11.5px;color:var(--dim);margin-top:4px;cursor:help">画面反解:${shortText}${truncated?'…':''}${truncated?'<span style="display:inline-block;margin-left:6px;padding:1px 6px;border-radius:999px;border:1px solid var(--line-2);color:var(--faint);font-size:10px;vertical-align:1px">已省略</span>':''}<div class="tipbox">${fullText}</div></div>`:'';
+  const img=t.frame_url?`<div style="margin-top:8px"><img src="${t.frame_url}" style="max-width:220px;border-radius:8px;border:2px solid var(--block)" onerror="this.remove()"></div>${frameDesc}`:'';
   const txt=(!isFrame&&t.text)?`<div style="margin-top:6px;color:var(--block);background:color-mix(in oklab,var(--block) 8%,transparent);border:1px solid color-mix(in oklab,var(--block) 30%,transparent);padding:7px 9px;border-radius:7px;font-size:12.5px;line-height:1.5">${esc(t.text).slice(0,400)}</div>`:'';
   const rw=riskWordsHTML(t.risk_words);
   return `<div style="border-left:3px solid var(--block);padding:6px 0 8px 10px;margin-bottom:10px">
@@ -571,9 +581,13 @@ function taskRow(t){
   const err=t.error?`<div class="k" style="color:var(--block)">${t.error}</div>`:'';
   const active=(t.status==='pending'||t.status==='running');
   const kind=(t.material_type==='video')?`<span class="owner">· ${t.video_kind==='work'?'作品':'物料'}</span>`:'';
+  const previewable=!!t.material_id;
+  const thumb=previewable
+    ? `<button class="thumb" onclick="previewTaskMaterial('${t.material_id}')" title="预览${t.material_type==='video'?'并播放':''}">${GLYPH[t.material_type]||'▦'}</button>`
+    : `<div class="thumb">${GLYPH[t.material_type]||'▦'}</div>`;
   const recheck=(ME.role==='admin'&&t.status==='done'&&(t.verdict==='review'||t.verdict==='block'))
     ?`<button class="btn sm" onclick="recheckTask('${t.id}')" title="用当前白名单/规则重新判定(不重新抽帧/转写)">重新审核</button>`:'';
-  return `<div class="qrow"><div class="thumb">${GLYPH[t.material_type]||'▦'}</div>
+  return `<div class="qrow">${thumb}
     <div class="meta"><div>${t.name||'—'} <span class="owner">${LT[t.material_type]||t.material_type}</span>${kind}</div>
       <div class="k">${active?'⏳ ':''}${st}</div>${err}</div>
     ${vB}${view}${recheck}<button class="btn sm" onclick="delTask('${t.id}')" title="移除">✕</button></div>`}
@@ -587,6 +601,10 @@ async function loadPending(){const r=await api('GET','/audit/tasks');const ts=r.
 async function viewTask(id){const r=await api('GET','/audit/tasks/'+id);if(!r.ok){if(r.status!==401)toast('无法加载报告',true);return}
   $('#scrim').classList.add('on');$('#drawer').classList.add('on');$('#d-title').textContent='审核报告';
   $('#d-body').innerHTML=reportHTML(r.data.report)}
+function previewTaskMaterial(materialId){
+  if(!materialId){toast('该任务暂无可预览文件',true);return}
+  $('#d-title').textContent='媒体预览';
+  openDrawer(materialId,false,true)}
 async function delTask(id){const r=await api('DELETE','/audit/tasks/'+id);if(r.ok){toast('已移除');loadPending()}}
 async function recheckTask(id){const r=await api('POST','/audit/tasks/'+id+'/recheck');
   if(r.ok){toast('已用当前白名单重新审核…');closeDrawer&&closeDrawer();loadPending();setTimeout(loadPending,1600)}
@@ -753,6 +771,12 @@ async function openDrawer(id,canDel,canDl){$('#scrim').classList.add('on');$('#d
     <div style="margin-top:14px"><label>标签</label><div class="tagedit" id="d-tags"></div>${tagIn}</div>
     <div style="margin-top:18px;display:flex;gap:10px">${dlBtn}${delBtn}</div>`;
   renderDTags(canDel)}
+function stopDrawerMedia(){
+  const body=$('#d-body');if(!body)return;
+  body.querySelectorAll('video,audio').forEach(el=>{
+    try{el.pause()}catch(_){}
+    try{el.currentTime=0}catch(_){}
+  })}
 function renderDTags(editable){const el=$('#d-tags');if(!el)return;
   el.innerHTML=DTAGS.length?DTAGS.map(t=>`<span class="tg">${t}${editable?` <b onclick="rmTag('${t}')">×</b>`:''}</span>`).join(''):'<span class="owner">暂无标签</span>'}
 async function addTag(){const inp=$('#d-tagin');if(!inp)return;const t=(inp.value||'').trim();if(!t)return;if(!DTAGS.includes(t))DTAGS.push(t);inp.value='';await saveTags()}
@@ -765,7 +789,7 @@ async function genSummary(id,canDel,canDl){toast('生成中…解析物料(视�
   if(r.ok){if(ALLSEEN[id])Object.assign(ALLSEEN[id],r.data);openDrawer(id,canDel,canDl);toast('AI 摘要已生成');refreshLib()}
   else if(r.status!==401)toast(r.data.detail||'生成失败',true)}
 function refreshLib(){const s=(location.hash||'').slice(1);if(s==='mine')loadMine();else if(s==='public')loadPublic();else if(s==='all'&&typeof loadAll==='function')loadAll()}
-function closeDrawer(){$('#scrim').classList.remove('on');$('#drawer').classList.remove('on')}
+function closeDrawer(){stopDrawerMedia();$('#scrim').classList.remove('on');$('#drawer').classList.remove('on')}
 async function delMat(id){const r=await api('DELETE','/materials/'+id);if(r.ok){toast('已删除');closeDrawer();loadMine();if(ME.role==='admin')loadAll()}else if(r.status!==401)toast(r.data.detail||'删除失败',true)}
 
 /* ── 用户 / 权限 ── */
