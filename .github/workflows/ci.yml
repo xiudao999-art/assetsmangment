@@ -1,4 +1,4 @@
-name: CI  # 闭环④:测试/验证驱动上游 → build → ACR → ECS(docker)
+name: CI  # 闭环④:测试/验证 → 构建镜像推 ACR(仅推仓库,不自动部署;ECS 由人工热更部署)
 
 on:
   push:
@@ -29,8 +29,8 @@ jobs:
       - name: 验收测试 behave(闭环①)
         run: .venv/bin/behave specs/features
 
-  # ── 构建 + 推 ACR + 部署到 ECS(docker)──
-  deploy:
+  # ── 构建 + 推镜像到 ACR(仅推仓库;不部署 —— 部署由人工热更到 ECS)──
+  build-push:
     needs: sensors
     if: github.ref == 'refs/heads/main'
     runs-on: ubuntu-latest
@@ -55,23 +55,4 @@ jobs:
           docker buildx build --platform linux/arm64 \
             -t "$IMAGE:${{ github.sha }}" -t "$IMAGE:latest" \
             --push .
-
-      - name: Deploy to ECS via SSH
-        uses: appleboy/ssh-action@v1.0.3
-        with:
-          host: ${{ secrets.ECS_HOST }}                 # ECS 公网 IP
-          username: ${{ secrets.ECS_USER }}             # 如 root
-          password: ${{ secrets.ECS_SSH_PASSWORD }}     # ECS 登录密码
-          port: 22
-          script: |
-            set -e
-            echo '${{ secrets.ACR_PASSWORD }}' | docker login -u '${{ secrets.ACR_USERNAME }}' --password-stdin registry.cn-hangzhou.aliyuncs.com
-            docker pull ${{ env.IMAGE }}:latest
-            docker rm -f assets-api 2>/dev/null || true
-            ENVOPT=""; [ -f /opt/assets/.env ] && ENVOPT="--env-file /opt/assets/.env"
-            mkdir -p /opt/assets/data   # 持久化卷:物料/用户/收藏落盘,重部署不丢
-            docker run -d --name assets-api --restart always -p 8088:8000 \
-              -e AM_DATA_DIR=/data -v /opt/assets/data:/data \
-              $ENVOPT ${{ env.IMAGE }}:latest
-            docker image prune -f || true
-            echo "已部署,容器状态:"; docker ps --filter name=assets-api
+      # 到此为止:镜像已推到 ACR。部署到 ECS 由人工热更(docker cp + restart)完成,CI 不自动碰生产容器/pgvector 网络。
