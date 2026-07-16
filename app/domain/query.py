@@ -23,6 +23,7 @@ class MaterialQuery:
     type: Optional[str] = None                # MaterialType 值(image…)
     tag: Optional[str] = None                 # 精确命中 m.tags
     keyword: Optional[str] = None             # haystack 子串(含 tags)
+    project_id: Optional[str] = None          # None=不筛;""=无项目(物料);具体 id=该项目(作品)
     # ── 窗口 ──
     offset: int = 0
     limit: Optional[int] = None               # None = 不限(取全/向后兼容)
@@ -30,8 +31,8 @@ class MaterialQuery:
 
 def haystack(m: Material) -> str:
     """关键词子串语料的唯一来源。"""
-    return " ".join([m.thumb, m.description, m.ai_summary, m.ai_emotion,
-                     m.ai_atmosphere, m.ai_scene, " ".join(m.tags or [])])
+    return " ".join([m.thumb, m.description, m.ai_summary, " ".join(m.ai_emotions or []),
+                     m.ai_atmosphere, " ".join(m.ai_scenarios or []), " ".join(m.tags or [])])
 
 
 def matches_keyword(m: Material, keyword: str) -> bool:
@@ -60,6 +61,8 @@ def matches(m: Material, q: MaterialQuery) -> bool:
     if q.type is not None and m.type.value != q.type:
         return False
     if q.tag is not None and q.tag not in (m.tags or []):
+        return False
+    if q.project_id is not None and (getattr(m, "project_id", "") or "") != q.project_id:
         return False
     if q.keyword and not matches_keyword(m, q.keyword):
         return False

@@ -20,6 +20,7 @@ def _hermetic_storage(monkeypatch):
         FakeStorage, InMemoryMaterialRepo, FakeVideoParser, FakeEmbedder,
         FakeQueryEmbedder, FakePassAuditor, FakeTranscriber, FakeVisionDescriber,
         FakeLlm, InMemoryAuditRuleRepo, InMemoryAuditReportRepo, InMemoryAuditTaskRepo,
+        InMemoryProjectRepo, InMemoryBlockwordRepo, FakeArchiver, FakeTavily,
     )
     _drain_audit_threads()   # 起点:上一个测试的后台线程先跑完,别沾本测试的 deps
     monkeypatch.setattr(deps, "storage", FakeStorage())
@@ -33,8 +34,12 @@ def _hermetic_storage(monkeypatch):
     monkeypatch.setattr(deps, "_llm", FakeLlm())
     monkeypatch.setattr(deps, "_vision", FakeVisionDescriber())
     monkeypatch.setattr(deps, "_transcriber", FakeTranscriber())
+    monkeypatch.setattr(deps, "_archiver", FakeArchiver())   # 物料档案器:强制假实现,不打真 ARK
+    monkeypatch.setattr(deps, "_tavily", FakeTavily())       # 联网搜索:强制假实现,不打真 Tavily
     monkeypatch.setattr(deps, "rule_repo", InMemoryAuditRuleRepo())
     monkeypatch.setattr(deps, "report_repo", InMemoryAuditReportRepo())
+    monkeypatch.setattr(deps, "project_repo", InMemoryProjectRepo())
+    monkeypatch.setattr(deps, "blockword_repo", InMemoryBlockwordRepo())
     yield
     # 收尾:本测试的后台线程跑完再让 monkeypatch 还原(此 teardown 先于 monkeypatch 还原,
     # 线程仍读到本测试的 fakes)→ 既不泄漏到下一个测试,也不会读到被还原的 deps。

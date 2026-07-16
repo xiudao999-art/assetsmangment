@@ -13,28 +13,29 @@ class LibraryService:
 
     # ── 各物料库视图(服务端翻页/筛选,返回 (当页, 总数)) ──
     def mine(self, user_id: str, *, type: Optional[str] = None, tag: Optional[str] = None,
-             keyword: Optional[str] = None, offset: int = 0,
+             keyword: Optional[str] = None, project_id: Optional[str] = None, offset: int = 0,
              limit: Optional[int] = None) -> tuple[list[Material], int]:
         """我的物料库 = 我上传的 + 我收藏的(公共物料)。"""
         favs = frozenset(self._fav.material_ids(user_id))
         return self._repo.query(MaterialQuery(
             owner_id=user_id, include_ids=favs, owner_or_include=True,
-            type=type, tag=tag, keyword=keyword, offset=offset, limit=limit))
+            type=type, tag=tag, keyword=keyword, project_id=project_id, offset=offset, limit=limit))
 
     def public(self, *, type: Optional[str] = None, tag: Optional[str] = None,
-               keyword: Optional[str] = None, offset: int = 0,
+               keyword: Optional[str] = None, project_id: Optional[str] = None, offset: int = 0,
                limit: Optional[int] = None) -> tuple[list[Material], int]:
         """公共物料库 = 已发布且审核通过的物料(所有人可见)。"""
         return self._repo.query(MaterialQuery(
             public_only=True, pass_only=True,
-            type=type, tag=tag, keyword=keyword, offset=offset, limit=limit))
+            type=type, tag=tag, keyword=keyword, project_id=project_id, offset=offset, limit=limit))
 
     def all(self, *, status: Optional[str] = None, type: Optional[str] = None,
-            tag: Optional[str] = None, keyword: Optional[str] = None, offset: int = 0,
+            tag: Optional[str] = None, keyword: Optional[str] = None,
+            project_id: Optional[str] = None, offset: int = 0,
             limit: Optional[int] = None) -> tuple[list[Material], int]:
-        """管理员:全部用户的物料(可按状态/类型/关键词筛)。"""
+        """管理员:全部用户的物料(可按状态/类型/关键词/项目筛)。"""
         return self._repo.query(MaterialQuery(
-            status=status, type=type, tag=tag, keyword=keyword,
+            status=status, type=type, tag=tag, keyword=keyword, project_id=project_id,
             offset=offset, limit=limit))
 
     # ── 管理员发布 ──

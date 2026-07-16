@@ -32,6 +32,16 @@ class Settings(BaseSettings):
     embedding_dim: int = 1024
     parse_fps: float = 2.0
     parse_max_frames: int = 512
+    # 火山方舟 ARK(豆包 pro 2.1):物料档案「情绪/场景标签」解析(图片/视频直接看;审核仍用 Qwen-VL)
+    ark_api_key: str = ""                                        # .env: AM_ARK_API_KEY
+    ark_base_url: str = "https://ark.cn-beijing.volces.com/api/v3"
+    doubao_vl_model: str = ""                                    # .env: AM_DOUBAO_VL_MODEL(豆包视觉模型 id/endpoint)
+    # Tavily 联网搜索:音乐物料按歌名联网搜「情绪/场景」,合成检索档案(只 music 用)
+    tavily_api_key: str = ""                                     # .env: AM_TAVILY_API_KEY
+    # 审核并发/健壮性:有界工作池上限(单条+批量都提交到它,超出排队=背压);AI 调用超时+重试
+    audit_concurrency: int = 6      # 同时在审的最大条数(总线程≈本值×帧池5,别调太高)
+    ai_timeout_s: int = 60          # 单次 AI 调用(Qwen-VL/LLM/ASR轮询)超时秒数,到点降级
+    ai_retries: int = 2             # 偶发失败的重试次数(不含首次)
     # 搜索:向量近邻的相关度阈值(余弦距离,越小越像)。超过此距离的语义近邻视为无关、不返回,
     # 避免"搜一个词却搜出不相关物料"。关键词命中始终优先返回。
     search_max_distance: float = 0.35   # multimodal-embedding-v1:相关≈0.25-0.31、无关≈0.39+,0.35 干净分开

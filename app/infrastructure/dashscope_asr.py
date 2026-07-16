@@ -16,16 +16,22 @@ class DashScopeTranscriber:
         from dashscope.audio.asr import Transcription
         from http import HTTPStatus
         import httpx
+        from app.config import settings
+        from app.infrastructure.retry import call_ai
 
-        task = Transcription.async_call(
-            api_key=self._api_key, model=self._model, file_urls=[url],
-            language_hints=["zh", "en"],           # paraformer-v2 专有
-            timestamp_alignment_enabled=True,      # 句/词级时间轴
-        )
-        resp = Transcription.wait(task=task.output.task_id, api_key=self._api_key)
-        if getattr(resp, "status_code", None) != HTTPStatus.OK:
-            raise RuntimeError(f"ASR 失败: {getattr(resp, 'status_code', '?')} "
-                               f"{getattr(resp, 'code', '')} {getattr(resp, 'message', '')}")
+        def _submit_and_wait():
+            task = Transcription.async_call(
+                api_key=self._api_key, model=self._model, file_urls=[url],
+                language_hints=["zh", "en"],           # paraformer-v2 专有
+                timestamp_alignment_enabled=True,      # 句/词级时间轴
+            )
+            resp = Transcription.wait(task=task.output.task_id, api_key=self._api_key)
+            if getattr(resp, "status_code", None) != HTTPStatus.OK:
+                raise RuntimeError(f"ASR 失败: {getattr(resp, 'status_code', '?')} "
+                                   f"{getattr(resp, 'code', '')} {getattr(resp, 'message', '')}")
+            return resp
+        # 文件转写可能比一般调用久 → 给更宽的上限(≥5分钟);仍封顶,避免 wait() 无限阻塞
+        resp = call_ai(_submit_and_wait, timeout_s=max(settings.ai_timeout_s, 300), retries=settings.ai_retries)
 
         segs: list[TextSegment] = []
         results = resp.output["results"] if isinstance(resp.output, dict) else resp.output.get("results", [])

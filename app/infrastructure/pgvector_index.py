@@ -32,8 +32,8 @@ class PgVectorIndex:
             )
 
     def add(self, material_id: str, vector: list[float]) -> None:
-        if not vector or len(vector) != self._dim:
-            return  # 维度不符(如假向量)不入库,避免污染
+        if not vector or len(vector) != self._dim or not any(vector):
+            return  # 维度不符/空/全零(无内容)不入库:零向量余弦距离=NaN,会污染语义近邻
         with self._conn() as c:
             c.execute(
                 "INSERT INTO material_vectors (material_id, embedding) VALUES (%s, %s::vector) "

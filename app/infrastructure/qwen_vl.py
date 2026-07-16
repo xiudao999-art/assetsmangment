@@ -15,10 +15,11 @@ _ALLOWED = {t.value for t in MaterialType}
 class QwenVLVisionDescriber:
     """图像反解成画面内容文字(实现 domain.ports.VisionDescriber)。用于图片/视频帧审核。"""
     _PROMPT = (
-        "请用中文直接写出这张图片的画面内容描述,用于内容审核。"
+        "请详细描述这张图片的画面内容(中文),用于内容审核。"
         "只输出纯文本,不要使用 Markdown,不要标题,不要分隔线,不要项目符号,不要编号。"
-        "按自然语序连续描述主体、场景、动作、画面中的文字、服饰、姿态、道具、环境和风格。"
-        "如果画面里存在可能影响审核判断的元素,只客观描述实际看到的内容,不要额外做风险总结或抽象归类。"
+        "按自然语序连续描述主体、场景、动作、画面中的文字、服饰、姿态、道具、环境和风格,"
+        "以及任何可能涉及违规的风险点(如暴力、色情、政治敏感、违禁品等)。"
+        "只客观描述实际看到的内容,不要额外做风险总结或抽象归类;"
         "不要输出否定句,例如“未见”“没有”“无”“不涉及”这类表述。"
     )
 
@@ -30,14 +31,19 @@ class QwenVLVisionDescriber:
 
     def describe_image(self, url: str) -> str:
         from dashscope import MultiModalConversation
-        resp = MultiModalConversation.call(
-            api_key=self._api_key, model=self._model,
-            messages=[{"role": "user", "content": [{"image": url}, {"text": self._PROMPT}]}])
-        if getattr(resp, "status_code", None) != 200:
-            raise RuntimeError(f"图像反解失败: {getattr(resp, 'status_code', '?')} "
-                               f"{getattr(resp, 'message', '')}")
-        content = resp.output.choices[0].message.content
-        return content[0]["text"] if isinstance(content, list) else str(content)
+        from app.config import settings
+        from app.infrastructure.retry import call_ai
+
+        def _call():
+            resp = MultiModalConversation.call(
+                api_key=self._api_key, model=self._model,
+                messages=[{"role": "user", "content": [{"image": url}, {"text": self._PROMPT}]}])
+            if getattr(resp, "status_code", None) != 200:
+                raise RuntimeError(f"图像反解失败: {getattr(resp, 'status_code', '?')} "
+                                   f"{getattr(resp, 'message', '')}")
+            content = resp.output.choices[0].message.content
+            return content[0]["text"] if isinstance(content, list) else str(content)
+        return call_ai(_call, timeout_s=settings.ai_timeout_s, retries=settings.ai_retries)
 
 _PROMPT = (
     "你是视频物料反解引擎。请把这段视频拆解成若干可复用的物料候选。"

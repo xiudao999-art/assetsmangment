@@ -49,6 +49,8 @@ class VideoParsingService:
                 embedding = self._embedder.embed(cand)
                 try:
                     status = AuditStatus(self._auditor.audit(cand))
+                    if status == AuditStatus.BLOCK:   # 机器不直接拦截 → 统一转人工复核
+                        status = AuditStatus.REVIEW
                 except TimeoutError:
                     status = AuditStatus.REVIEW  # REQ-503/204:超时不默认放行
                 material = Material(

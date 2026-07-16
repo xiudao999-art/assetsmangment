@@ -14,21 +14,26 @@ class DashScopeLlm:
     def chat_json(self, system: str, user: str) -> dict:
         from dashscope import Generation
         from http import HTTPStatus
-        resp = Generation.call(
-            api_key=self._api_key,
-            model=self._model,
-            messages=[{"role": "system", "content": system},
-                      {"role": "user", "content": user}],
-            result_format="message",
-            response_format={"type": "json_object"},  # 提示词里已含「json」字样
-        )
-        if getattr(resp, "status_code", None) != HTTPStatus.OK:
-            raise RuntimeError(f"qwen 判定失败: {getattr(resp, 'status_code', '?')} "
-                               f"{getattr(resp, 'code', '')} {getattr(resp, 'message', '')}")
-        text = resp.output.choices[0].message.content
-        if isinstance(text, list):  # 兼容多模态返回结构
-            text = text[0].get("text", "") if text else ""
-        return self._parse(text)
+        from app.config import settings
+        from app.infrastructure.retry import call_ai
+
+        def _call():
+            resp = Generation.call(
+                api_key=self._api_key,
+                model=self._model,
+                messages=[{"role": "system", "content": system},
+                          {"role": "user", "content": user}],
+                result_format="message",
+                response_format={"type": "json_object"},  # 提示词里已含「json」字样
+            )
+            if getattr(resp, "status_code", None) != HTTPStatus.OK:
+                raise RuntimeError(f"qwen 判定失败: {getattr(resp, 'status_code', '?')} "
+                                   f"{getattr(resp, 'code', '')} {getattr(resp, 'message', '')}")
+            text = resp.output.choices[0].message.content
+            if isinstance(text, list):  # 兼容多模态返回结构
+                text = text[0].get("text", "") if text else ""
+            return text
+        return self._parse(call_ai(_call, timeout_s=settings.ai_timeout_s, retries=settings.ai_retries))
 
     @staticmethod
     def _parse(text: str) -> dict:

@@ -36,3 +36,9 @@ build/
 
 # OS
 .DS_Store
+
+# Playwright MCP 截图缓存(QC 运行产物,不入库)
+.playwright-mcp/
+
+# 本地生成的物料索引数据(reindex_vectors.py 产物,不入库)
+索引/

@@ -143,7 +143,7 @@ def test_aliyun_auditor_audit_detail_surfaces_words():
     a._storage = types.SimpleNamespace(signed_url=lambda k: "http://x")
     a._models = types.SimpleNamespace(TextModerationRequest=lambda **kw: None,
                                       ImageModerationRequest=lambda **kw: None)
-    a._util = types.SimpleNamespace(RuntimeOptions=lambda: None)
+    a._util = types.SimpleNamespace(RuntimeOptions=lambda: types.SimpleNamespace())  # _ropts 要设超时属性
 
     def _text_resp(req, opts):
         data = types.SimpleNamespace(labels="violence", reason=json.dumps({"riskWords": "杀人犯"}))

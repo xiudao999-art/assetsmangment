@@ -103,11 +103,21 @@ class AliyunAuditor:
         except Exception as e:  # 网络/权限/超时 → 不放行,转人工
             raise TimeoutError(str(e))
 
+    def _ropts(self):
+        """RuntimeOptions:超时 + SDK 自带重试(内容安全默认关,开启时才走真调用)。"""
+        from app.config import settings
+        r = self._util.RuntimeOptions()
+        r.read_timeout = max(1000, int(settings.ai_timeout_s) * 1000)
+        r.connect_timeout = 10000
+        r.autoretry = True
+        r.max_attempts = max(1, int(settings.ai_retries))
+        return r
+
     def _moderate_image(self, url: str) -> str:
         req = self._models.ImageModerationRequest(
             service=self._image_service,
             service_parameters=json.dumps({"imageUrl": url, "dataId": uuid.uuid4().hex}))
-        resp = self._client.image_moderation_with_options(req, self._util.RuntimeOptions())
+        resp = self._client.image_moderation_with_options(req, self._ropts())
         if resp.status_code != 200 or resp.body.code != 200:
             raise RuntimeError(f"image moderation {resp.body.code} {getattr(resp.body, 'msg', '')}")
         return _image_verdict(getattr(resp.body.data, "risk_level", ""), self._mode)
@@ -117,7 +127,7 @@ class AliyunAuditor:
         req = self._models.TextModerationRequest(
             service="comment_detection",
             service_parameters=json.dumps({"content": text[:9000], "dataId": uuid.uuid4().hex}))
-        resp = self._client.text_moderation_with_options(req, self._util.RuntimeOptions())
+        resp = self._client.text_moderation_with_options(req, self._ropts())
         if resp.status_code != 200 or resp.body.code != 200:
             raise RuntimeError(f"text moderation {resp.body.code} {getattr(resp.body, 'msg', '')}")
         verdict = _text_verdict(getattr(resp.body.data, "labels", ""), self._mode)

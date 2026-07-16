@@ -13,7 +13,7 @@ from typing import Optional
 from app.domain.models import (
     Material, MaterialType, AuditStatus, User,
     AuditRule, AuditReport, TextSegment, TextSourceType,
-    AuditTask, JobStatus,
+    AuditTask, JobStatus, Project,
 )
 from app.domain.query import MaterialQuery, paginate
 
@@ -30,7 +30,9 @@ class Store:
         self.roles: dict[str, set[str]] = {}
         self.user_perms: dict[str, set[str]] = {}   # 用户级授权(叠加在角色默认权限之上)
         self.content_whitelist: set[str] = set()     # 内容安全白名单(命中词即便阿里云判违规也放行)
+        self.blockwords: set[str] = set()            # 绝对禁词(审核第一波,命中即拦)
         self.rules: dict[str, AuditRule] = {}
+        self.projects: dict[str, Project] = {}       # 作品项目(每个项目一组审核规则)
         self.audit_reports: dict[str, AuditReport] = {}
         self.audit_tasks: dict[str, AuditTask] = {}
         self._load()
@@ -48,6 +50,13 @@ class Store:
         d = dict(d)
         d["type"] = MaterialType(d["type"])
         d["audit_status"] = AuditStatus(d["audit_status"])
+        # 迁移:老单值 ai_scene/ai_emotion(字符串)→ 新多值 ai_scenarios/ai_emotions
+        if "ai_scene" in d:
+            sc = d.pop("ai_scene")
+            d.setdefault("ai_scenarios", [sc] if sc else [])
+        if "ai_emotion" in d:
+            em = d.pop("ai_emotion")
+            d.setdefault("ai_emotions", [em] if em else [])
         return Material(**d)
 
     @staticmethod
@@ -103,10 +112,17 @@ class Store:
         self.roles = {k: set(v) for k, v in d.get("roles", {}).items()}
         self.user_perms = {k: set(v) for k, v in d.get("user_perms", {}).items()}
         self.content_whitelist = set(d.get("content_whitelist", []))
+        self.blockwords = set(d.get("blockwords", []))
         for r in d.get("rules", []):
             rule = AuditRule(**r)
             self.rules[rule.id] = rule
-        for rid, rep in d.get("audit_reports", {}).items():
+        for p in d.get("projects", []):
+            proj = Project(**p)
+            self.projects[proj.id] = proj
+        ar = d.get("audit_reports", {})
+        if isinstance(ar, list):   # 兼容早期把 audit_reports 存成列表的老数据(防加载崩溃→静默清库)
+            ar = {(r.get("id") or str(i)): r for i, r in enumerate(ar) if isinstance(r, dict)}
+        for rid, rep in ar.items():
             self.audit_reports[rid] = self._report_from_dict(rep)
         for t in d.get("audit_tasks", []):
             task = self._task_from_dict(t)
@@ -121,7 +137,9 @@ class Store:
                 "roles": {k: sorted(v) for k, v in self.roles.items()},
                 "user_perms": {k: sorted(v) for k, v in self.user_perms.items() if v},
                 "content_whitelist": sorted(self.content_whitelist),
+                "blockwords": sorted(self.blockwords),
                 "rules": [asdict(r) for r in self.rules.values()],
+                "projects": [asdict(p) for p in self.projects.values()],
                 "audit_reports": {rid: self._report_to_dict(rep)
                                   for rid, rep in self.audit_reports.items()},
                 "audit_tasks": [self._task_to_dict(t) for t in self.audit_tasks.values()],
@@ -167,8 +185,8 @@ class JsonMaterialRepo:
                 if (not only_pass or m.audit_status == AuditStatus.PASS)]
 
         def score(m: Material) -> float:
-            hay = " ".join([m.thumb, m.description, m.ai_summary, m.ai_emotion,
-                            m.ai_atmosphere, m.ai_scene, " ".join(m.tags or [])])
+            hay = " ".join([m.thumb, m.description, m.ai_summary, " ".join(m.ai_emotions or []),
+                            m.ai_atmosphere, " ".join(m.ai_scenarios or []), " ".join(m.tags or [])])
             return 1.0 if (query_text and query_text in hay) else 0.0
 
         return sorted(pool, key=score, reverse=True)
@@ -258,8 +276,32 @@ class JsonAuditRuleRepo:
     def list(self) -> list[AuditRule]:
         return list(self._s.rules.values())
 
-    def list_for(self, source_type: str) -> list[AuditRule]:
-        return [r for r in self._s.rules.values() if r.applies_to(source_type)]
+    def list_for(self, source_type: str, project_id: str = "") -> list[AuditRule]:
+        return [r for r in self._s.rules.values() if r.applies_to(source_type, project_id)]
+
+
+# ── 作品项目 ──
+class JsonProjectRepo:
+    def __init__(self, store: Store) -> None:
+        self._s = store
+
+    def add(self, project: Project) -> None:
+        self._s.projects[project.id] = project
+        self._s.save()
+
+    def get(self, project_id: str) -> Optional[Project]:
+        return self._s.projects.get(project_id)
+
+    def get_by_name(self, name: str) -> Optional[Project]:
+        n = (name or "").strip()
+        return next((p for p in self._s.projects.values() if p.name == n), None)
+
+    def delete(self, project_id: str) -> None:
+        self._s.projects.pop(project_id, None)
+        self._s.save()
+
+    def list(self) -> list[Project]:
+        return sorted(self._s.projects.values(), key=lambda p: p.created_ms)
 
 
 # ── 审核报告 ──
@@ -318,4 +360,26 @@ class JsonWhitelistRepo:
 
     def remove(self, word: str) -> None:
         self._s.content_whitelist.discard((word or "").strip())
+        self._s.save()
+
+
+# ── 绝对禁词(审核第一波,命中即拦)──
+class JsonBlockwordRepo:
+    def __init__(self, store: Store) -> None:
+        self._s = store
+
+    def words(self) -> set[str]:
+        return set(self._s.blockwords)
+
+    def list(self) -> list[str]:
+        return sorted(self._s.blockwords)
+
+    def add(self, word: str) -> None:
+        w = (word or "").strip()
+        if w:
+            self._s.blockwords.add(w)
+            self._s.save()
+
+    def remove(self, word: str) -> None:
+        self._s.blockwords.discard((word or "").strip())
         self._s.save()

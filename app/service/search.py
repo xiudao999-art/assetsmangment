@@ -52,8 +52,8 @@ class SearchService:
                 if self._index.size() > 0:
                     scored = self._index.query_scored(qvec, k=_CANDIDATE_CAP)
                     for mid, dist in scored:
-                        if dist > self._max_dist:
-                            continue  # 太远 → 无关,丢弃
+                        if not (dist <= self._max_dist):
+                            continue  # 太远、或 NaN(历史零向量)→ 无关,丢弃(修 fail-open)
                         m = self._repo.get(mid)
                         if self._passes(m, type, tag):
                             ranked.append(m)

@@ -8,8 +8,10 @@
 ## 0. 30 秒速览（当前状态）
 
 - 项目：多模态**物料管理系统**（图/表情/视频/风格/语料 + 视频反解 + 语义搜索 + 自动审核 + RBAC 后台）。FastAPI 分层架构。
-- 线上：**共享生产 ECS `http://8.149.247.100:8088`**，容器 `assets-api`，**已部署最新代码**（本会话所有改动都已上线并真机验证）。
-- 传感器全绿：`lint-imports` 3/3 · `pytest` **129 passed** · `behave` 17 · `make ui-qc` 6/6。
+- 线上：**共享生产 ECS `http://8.149.247.100:8088`**，容器 `assets-api`，**已部署最新代码**（所有改动都已上线并真机验证）。
+- 传感器全绿：`lint-imports` 3/3 · `pytest` **182 passed** · `behave` 17 · `make ui-qc` 6/6。
+- ⚠️ 2026-07-13 曾因热更 jsonstore 触发线上 state.json 清库,已从备份完整恢复并硬化;**动 state 结构/jsonstore 前务必先 test-load 备份**(见 `ecs-deploy-and-persistence.md`)。
+- 最新已上线（详见记忆）：**作品项目维度**（`work-project-dimension.md`）+ **粘贴卡审文案自动拆成规则**（`rule-doc-parsing.md`）+ **审核三波级联 + 裁定模型**（`audit-three-stage-cascade.md`,判定=绝对禁词→阿里云→语义整篇判、取消关键词硬匹配;**机器只出 pass/review 永不 block、新增 processing「审核中」态、block 只由人工拒绝**;线上真模型验过)。
 - ⚠️ **工作区未提交 git**：本会话改动都在工作树里（`git status` 一堆 M/??），**没 commit**。最新代码 = 工作树 + 线上容器，不是 git HEAD。
 - 真源文档：本文件只是索引，**权威细节在** `CLAUDE.md`（工作规程）+ 用户记忆 `~/.claude/projects/-Users-sunyuexuan-Documents-assets-management/memory/`（下面列了）。
 

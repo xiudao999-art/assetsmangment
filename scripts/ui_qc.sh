@@ -20,5 +20,12 @@ curl -s -X POST $B/videos -H "$A" -H 'Content-Type: application/json' -d '{"oss_
 FIRST=$(curl -s -H "$A" $B/library/all | python3 -c "import sys,json;d=json.load(sys.stdin);print([m['id'] for m in d['items'] if m['owner_id']=='admin'][0])")
 curl -s -X POST $B/materials/$FIRST/set-audit -H "$A" -H 'Content-Type: application/json' -d '{"status":"pass"}' >/dev/null
 curl -s -X POST $B/materials/$FIRST/publish -H "$A" >/dev/null
+# 造一条待人工复核物料(新模型下 /materials 建成 processing、不自动进队列)供「审核队列可操作」QC
+MUS=$(curl -s -H "$A" $B/library/all | python3 -c "import sys,json;d=json.load(sys.stdin);print([m['id'] for m in d['items'] if m['type']=='music'][0])")
+curl -s -X POST $B/materials/$MUS/set-audit -H "$A" -H 'Content-Type: application/json' -d '{"status":"review"}' >/dev/null
+# 造一条「带报告的待审核物料」供「重新审核」QC:加绝对禁词 → 提交含该词的文字 → 命中→review+报告
+curl -s -X POST $B/admin/blockwords -H "$A" -H 'Content-Type: application/json' -d '{"words":["某违禁QC词"]}' >/dev/null
+curl -s -X POST $B/audit/submit -H "$A" -F 'type=corpus' -F 'content=这段文字里含某违禁QC词请拦下' >/dev/null
+sleep 2   # 等异步审核跑完(禁词第一波命中 → review + 报告)
 
 .venv/bin/python tests/ui_qc.py "$B"
