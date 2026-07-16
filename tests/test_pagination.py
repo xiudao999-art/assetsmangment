@@ -3,12 +3,13 @@
 import pytest
 from fastapi.testclient import TestClient
 from app.main import app
-from app.domain.models import Material, MaterialType, AuditStatus
+from app.domain.models import Material, MaterialType, AuditStatus, MaterialCandidate
 from app.domain.query import MaterialQuery
 from app.service.library import LibraryService
 from app.service.search import SearchService
+from app.service.material import MaterialService
 from app.infrastructure.fakes import (
-    InMemoryMaterialRepo, InMemoryFavoriteRepo, FakeQueryEmbedder,
+    InMemoryMaterialRepo, InMemoryFavoriteRepo, FakeQueryEmbedder, InMemoryVectorIndex,
 )
 from app.infrastructure.jsonstore import Store, JsonMaterialRepo
 
@@ -18,7 +19,7 @@ def _m(mid, *, type=MaterialType.IMAGE, status=AuditStatus.PASS, owner="",
     return Material(id=mid, type=type, thumb=f"{mid}#t", source_timecode=0.0,
                     embedding=[0.1] * 8, audit_status=status, source_job="",
                     oss_key=f"{mid}.png", description=desc, owner_id=owner,
-                    is_public=public, tags=tags or [], ai_emotion=emotion)
+                    is_public=public, tags=tags or [], ai_emotions=[emotion] if emotion else [])
 
 
 @pytest.fixture(params=["mem", "json"])
@@ -196,6 +197,65 @@ def test_service_search_type_narrows():
     svc = SearchService(FakeQueryEmbedder(), repo)
     items, total = svc.search("海边", type="video")
     assert total == 1 and items[0].id == "vid"
+
+
+# ── 搜索相关性修复:向量兜底只留真正相近的,非内容向量不进索引 ──
+def test_service_search_vector_fallback_drops_far_and_nan():
+    # 关键词零命中 → 向量兜底:阈值内保留、太远丢弃、NaN(历史零向量)也丢弃(修 fail-open)
+    repo = InMemoryMaterialRepo()
+    for mid in ("near", "far", "nanv"):
+        repo.save(_m(mid, public=True, status=AuditStatus.PASS, desc="与查询无关键词交集"))
+
+    class _StubIndex:
+        def size(self): return 3
+        def query_scored(self, vec, k=10):
+            return [("near", 0.2), ("far", 2.0), ("nanv", float("nan"))]
+
+    svc = SearchService(FakeQueryEmbedder(), repo, index=_StubIndex(), max_distance=0.35)
+    items, total = svc.search("语义查询词xyz")   # 不含子串 → 走向量兜底
+    assert total == 1 and items[0].id == "near"   # far 太远、nanv NaN 都被丢弃
+
+
+def test_create_does_not_embed_filename():
+    # 直传物料此刻无内容:不能拿 OSS 文件名充数做向量(否则语义搜索全是噪声)
+    seen = {}
+
+    class _SpyEmbedder:
+        def embed(self, candidate):
+            seen["desc"], seen["thumb"] = candidate.description, candidate.thumb
+            return [0.0] * 8
+
+    class _Storage:
+        def put(self, key, data): pass
+
+    svc = MaterialService(InMemoryMaterialRepo(), _Storage(), _SpyEmbedder())
+    svc.create(MaterialType.IMAGE, "materials/xyz-photo.jpg", b"data", "u1")
+    assert seen["desc"] == "" and "materials/" not in (seen.get("thumb") or "")
+
+
+def test_index_skips_zero_vector():
+    idx = InMemoryVectorIndex()
+    idx.add("z", [0.0] * 8)
+    assert idx.size() == 0            # 全零(无内容)不入库,避免 NaN 污染
+    idx.add("ok", [0.1] * 8)
+    assert idx.size() == 1
+
+
+def test_embedder_embeds_content_not_filename(monkeypatch):
+    # 嵌入器只嵌内容 description;无内容 → 零向量,绝不拿 thumb/文件名去调 API
+    pytest.importorskip("dashscope")
+    import app.infrastructure.dashscope_embed as de
+    calls = {}
+    monkeypatch.setattr(de, "_embed_input",
+                        lambda k, m, item: calls.setdefault("text", item.get("text")) or [0.2] * de._DIM)
+    emb = de.DashScopeEmbedder("k")
+    emb.embed(MaterialCandidate(type=MaterialType.IMAGE, thumb="materials/x.jpg",
+                                source_timecode=0.0, description="一只猫"))
+    assert calls["text"] == "一只猫"
+    calls.clear()
+    v = emb.embed(MaterialCandidate(type=MaterialType.IMAGE, thumb="materials/x.jpg",
+                                    source_timecode=0.0, description=""))
+    assert v == [0.0] * de._DIM and "text" not in calls   # 没调 API、没嵌文件名
 
 
 # ── API 层(TestClient;deps.material_repo 已换 fake、_vector_search=False)──

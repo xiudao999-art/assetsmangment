@@ -25,9 +25,9 @@ class DashScopeEmbedder:
         self._model = model
 
     def embed(self, candidate: MaterialCandidate) -> list[float]:
-        text = (candidate.description or candidate.thumb or "").strip()
+        text = (candidate.description or "").strip()   # 只嵌内容描述,绝不用 thumb/文件名充数
         if not text:
-            return [0.0] * _DIM
+            return [0.0] * _DIM                          # 无内容 → 零向量(调用方 add 守卫会跳过入索引)
         return _embed_input(self._api_key, self._model, {"text": text[:2000]})
 
 

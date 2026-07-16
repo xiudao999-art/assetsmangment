@@ -22,16 +22,18 @@ class MaterialService:
         """REQ-101:存 OSS + 生成向量 + 落库元数据。默认审核态 review(fail-safe)。
         content_hash:内容 MD5(去重用);未传则按 data 计算(空 data → 空)。"""
         self._storage.put(oss_key, data)
-        # 生成 multimodal-embedding(F4 索引真源);假实现返回占位向量,换真模型接口不变。
+        # 直传物料此刻无内容文本(描述/摘要要到 AI 反解/摘要后才有)→ 不拿 OSS 文件名充数做向量,
+        # 否则语义搜索会拿文件名当内容返回无关物料。无内容 → 零向量(索引 add 守卫会跳过);
+        # 待 AI 摘要(audit_pipeline._apply_summary)用真内容重嵌入并入语义索引。
         embedding = self._embedder.embed(
-            MaterialCandidate(type=type, thumb=f"{oss_key}#thumb", source_timecode=0.0, description=oss_key)
+            MaterialCandidate(type=type, thumb="", source_timecode=0.0, description="")
         )
         if not content_hash and data:
             import hashlib
             content_hash = hashlib.md5(data).hexdigest()
         material = Material(
             id=uuid.uuid4().hex, type=type, thumb=f"{oss_key}#thumb",
-            source_timecode=0.0, embedding=embedding, audit_status=AuditStatus.REVIEW,
+            source_timecode=0.0, embedding=embedding, audit_status=AuditStatus.PROCESSING,
             source_job="", oss_key=oss_key, owner_id=owner_id, content_hash=content_hash,
         )
         self._repo.save(material)

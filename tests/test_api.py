@@ -146,6 +146,40 @@ def test_audit_rules_require_admin():
     assert client.post("/audit/rules", json={"keywords": ["x"]}, headers=_user_hdr()).status_code == 403
 
 
+def test_rule_exception_append_remove_and_perm():
+    ah, uh = _admin_hdr(), _user_hdr()
+    rid = client.post("/audit/rules", json={"source_type": "any", "condition": "宣传赌博",
+                                            "action": "review", "guidance": "仅明确诱导才算"}, headers=ah).json()["id"]
+    # 权限:游客 401 / 普通用户 403
+    assert client.post(f"/audit/rules/{rid}/exceptions", json={"text": "x"}).status_code == 401
+    assert client.post(f"/audit/rules/{rid}/exceptions", json={"text": "x"}, headers=uh).status_code == 403
+    # 追加例外 → 规则的 exceptions +1,guidance 仍在
+    r = client.post(f"/audit/rules/{rid}/exceptions",
+                    json={"text": "只是提到扑克牌桌游", "note": "AI 说疑似赌博"}, headers=ah)
+    assert r.status_code == 200 and len(r.json()["exceptions"]) == 1
+    assert r.json()["exceptions"][0]["text"] == "只是提到扑克牌桌游" and r.json()["guidance"] == "仅明确诱导才算"
+    # 合成命中(禁词)不能记为规则例外 → 400;不存在规则 → 404
+    assert client.post("/audit/rules/blockword/exceptions", json={"text": "x"}, headers=ah).status_code == 400
+    assert client.post("/audit/rules/nope/exceptions", json={"text": "x"}, headers=ah).status_code == 404
+    # 删除第 0 条例外
+    r2 = client.request("DELETE", f"/audit/rules/{rid}/exceptions", params={"index": 0}, headers=ah)
+    assert r2.status_code == 200 and r2.json()["exceptions"] == []
+    client.delete(f"/audit/rules/{rid}", headers=ah)
+
+
+def test_update_rule_preserves_guidance_and_exceptions():
+    ah = _admin_hdr()
+    rid = client.post("/audit/rules", json={"source_type": "any", "condition": "老条件",
+                                            "action": "review", "guidance": "尺度说明A"}, headers=ah).json()["id"]
+    client.post(f"/audit/rules/{rid}/exceptions", json={"text": "例外甲"}, headers=ah)
+    # 编辑规则(改 condition,不传 exceptions)→ exceptions 不能丢;guidance 按请求更新
+    up = client.put(f"/audit/rules/{rid}", json={"source_type": "any", "condition": "新条件",
+                                                 "action": "review", "guidance": "尺度说明B"}, headers=ah).json()
+    assert up["condition"] == "新条件" and up["guidance"] == "尺度说明B"
+    assert len(up["exceptions"]) == 1 and up["exceptions"][0]["text"] == "例外甲"   # 例外不随编辑丢失
+    client.delete(f"/audit/rules/{rid}", headers=ah)
+
+
 def _wait_task(task_id, uh, n=150):
     import time
     for _ in range(n):
@@ -156,14 +190,17 @@ def _wait_task(task_id, uh, n=150):
     return client.get(f"/audit/tasks/{task_id}", headers=uh).json()
 
 
-def test_audit_text_keyword_block():  # 提交异步受理 → 「待审核」任务出裁定
+def test_audit_text_blockword_flags_review_and_enters_queue():  # 第一波禁词命中 → 机器转「待审核」进人工队列
     ah, uh = _admin_hdr(), _user_hdr()
-    client.post("/audit/rules", json={"source_type": "any", "keywords": ["赌博"], "action": "block"}, headers=ah)
+    client.post("/admin/blockwords", json={"words": ["赌博"]}, headers=ah)
     r = client.post("/audit/submit", data={"type": "corpus", "content": "这是赌博广告要审一下"}, headers=uh)
     assert r.status_code == 200 and r.json()["status"] == "submitted"
     t = _wait_task(r.json()["task_id"], uh)
-    assert t["verdict"] == "block"
+    assert t["verdict"] == "review"                 # 机器命中禁词 → 待人工复核(不直接拦截)
     assert any("赌博" in x["reason"] for x in t["report"]["triggered"])
+    # 该物料进入人工审核队列(机审已完成、被标记为 review)
+    ids = [m["id"] for m in client.get("/audit/queue?size=100", headers=ah).json()["items"]]
+    assert t["material_id"] in ids
 
 
 def test_audit_text_pass_when_clean():
@@ -259,7 +296,7 @@ def test_summarize_endpoint():
     uh = _user_hdr()
     mid = client.post("/materials", json={"type": "image", "oss_key": "sm.png"}, headers=uh).json()["id"]
     r = client.post(f"/materials/{mid}/summarize", headers=uh)
-    assert r.status_code == 200 and r.json()["ai_summary"] and r.json()["ai_emotion"]
+    assert r.status_code == 200 and r.json()["ai_summary"] and r.json()["ai_emotions"]
 
 
 def test_download_only_in_my_library():
@@ -350,7 +387,8 @@ def test_submit_video_work_not_length_checked(monkeypatch):
     from app.api import deps
     monkeypatch.setattr(deps.storage, "video_duration_ms", lambda k: 25000)  # 25 秒也放行(作品不限长)
     uh = _user_hdr()
-    r = client.post("/audit/submit", data={"type": "video", "video_kind": "work"},
+    pid = client.post("/admin/projects", json={"name": "作品项目A"}, headers=_admin_hdr()).json()["id"]
+    r = client.post("/audit/submit", data={"type": "video", "video_kind": "work", "project_id": pid},
                     files={"file": ("film.mp4", b"vid-work-ok-1", "video/mp4")}, headers=uh)
     assert r.status_code == 200 and r.json()["status"] == "submitted"
     t = _wait_task(r.json()["task_id"], uh)
@@ -388,13 +426,71 @@ def test_dedup_reserve_blocks_inflight_and_saved():
     assert dup4 is True and ex is not None and ex.id == "dz"
 
 
+def test_failed_audit_deletes_material_and_allows_reupload(monkeypatch):
+    # 审核失败:任务标失败 + 暴露原因 + 删掉没成功的物料 → 同内容能重新上传(不被去重挡)
+    from app.api import deps
+    uh = _user_hdr()
+
+    def _boom(url):
+        raise RuntimeError("反解炸了")
+    monkeypatch.setattr(deps._vision, "describe_image", _boom)   # 图片反解抛错 → 审核失败
+    data = b"fail-then-reupload-unique-bytes-42"
+    r = client.post("/audit/submit", data={"type": "image"},
+                    files={"file": ("f.png", data, "image/png")}, headers=uh)
+    assert r.json()["status"] == "submitted"
+    mid = r.json()["material_id"]
+    t = _wait_task(r.json()["task_id"], uh)
+    assert t["status"] == "failed"
+    assert t["error"]                                            # 失败原因被暴露(待审核页能看到)
+    assert client.get(f"/materials/{mid}", headers=uh).status_code == 404   # 没成功的物料已删
+    # 修好后同内容再传:不再被去重当重复,可重新上传
+    monkeypatch.setattr(deps._vision, "describe_image", lambda url: "现在正常了")
+    r2 = client.post("/audit/submit", data={"type": "image"},
+                     files={"file": ("f2.png", data, "image/png")}, headers=uh)
+    assert r2.json()["status"] == "submitted"
+
+
+def test_upload_audio_file_as_music_accepted():
+    # 歌曲上传:音频文件选「音乐」类型放行(声音/音乐同属音频家族)→ 建成 music 物料(才走联网搜档案)
+    uh = _user_hdr()
+    r = client.post("/audit/submit", data={"type": "music"},
+                    files={"file": ("晴天.mp3", b"fake-song-bytes-unique-music-1", "audio/mpeg")}, headers=uh)
+    assert r.status_code == 200 and r.json()["status"] == "submitted"
+    from app.api import deps
+    assert deps.material_repo.get(r.json()["material_id"]).type.value == "music"
+
+
+def test_dedup_skips_dead_material(monkeypatch):
+    # 举一反三:历史残留 / 竞态遗留的「死上传」(有失败任务的物料)不该挡住重传 → 清掉残留、放行
+    import hashlib
+    from app.api import deps
+    from app.api.router import _dedup_reserve, _dedup_release
+    from app.domain.models import Material, MaterialType, AuditStatus, AuditTask, JobStatus
+    owner = "user01"
+    data = b"dead-residue-unique-bytes-999"
+    chash = hashlib.md5(data).hexdigest()
+    deps.material_repo.save(Material(id="deadmat1", type=MaterialType.IMAGE, thumb="",
+                                     source_timecode=0.0, embedding=[], audit_status=AuditStatus.PROCESSING,
+                                     source_job="", oss_key="audit/dead.png", owner_id=owner,
+                                     content_hash=chash))
+    deps.task_repo.save(AuditTask(id="deadtask1", owner_id=owner, name="dead.png",
+                                  material_type=MaterialType.IMAGE, material_id="deadmat1",
+                                  content_hash=chash, status=JobStatus.FAILED, created_ms=1))
+    existing, dup = _dedup_reserve(owner, chash)
+    assert dup is False and existing is None                     # 死上传不算重复 → 放行
+    assert deps.material_repo.get("deadmat1") is None            # 残留物料已清
+    assert deps.task_repo.get("deadtask1") is None               # 残留失败任务已清
+    _dedup_release(owner, chash)
+
+
 def test_batch_video_kind_follows_tab(monkeypatch):
     # 批量视频按顶部 tab(请求 video_kind)分,不再按时长自动猜。
     # 关键判别:8 秒短片若选「作品」必须当作品(旧的按时长逻辑会误判成物料)。
     from app.api import deps
     uh = _user_hdr()
     monkeypatch.setattr(deps.storage, "video_duration_ms", lambda k: 8000)    # 8 秒
-    r = client.post("/audit/batch", data={"video_kind": "work"},
+    pid = client.post("/admin/projects", json={"name": "作品项目B"}, headers=_admin_hdr()).json()["id"]
+    r = client.post("/audit/batch", data={"video_kind": "work", "project_id": pid},
                     files=[("files", ("shortfilm.mp4", b"batch-shortwork-9", "video/mp4"))], headers=uh)
     assert _wait_task(r.json()["task_ids"][0], uh)["video_kind"] == "work"
     r2 = client.post("/audit/batch", data={"video_kind": "material"},
@@ -430,14 +526,53 @@ def test_whitelist_crud_and_perm():
     client.request("DELETE", "/admin/whitelist", params={"word": "另一个"}, headers=ah)
 
 
+def test_blockwords_crud_and_perm():
+    assert client.get("/admin/blockwords").status_code == 401                       # 游客
+    assert client.get("/admin/blockwords", headers=_user_hdr()).status_code == 403  # 普通用户无 audit.rules
+    ah = _admin_hdr()
+    client.post("/admin/blockwords", json={"words": ["硬禁词A", "硬禁词B"]}, headers=ah)
+    ws = client.get("/admin/blockwords", headers=ah).json()["words"]
+    assert "硬禁词A" in ws and "硬禁词B" in ws
+    client.request("DELETE", "/admin/blockwords", params={"word": "硬禁词A"}, headers=ah)
+    assert "硬禁词A" not in client.get("/admin/blockwords", headers=ah).json()["words"]
+    # 清理
+    client.request("DELETE", "/admin/blockwords", params={"word": "硬禁词B"}, headers=ah)
+
+
+def test_new_material_processing_then_flips(monkeypatch):
+    # 提交后物料初始为「审核中(processing)」,机审完才翻成 pass/review
+    ah, uh = _admin_hdr(), _user_hdr()
+    mid = client.post("/materials", json={"type": "image", "oss_key": "proc1.png"}, headers=uh).json()["id"]
+    m = client.get("/materials", headers=ah).json()
+    row = [x for x in m["items"] if x["id"] == mid]
+    assert row and row[0]["audit_status"] == "processing"    # 初始=审核中,未审完
+
+
+def test_processing_not_in_review_queue():
+    ah, uh = _admin_hdr(), _user_hdr()
+    # 直接建一个 processing 物料(未走审核)→ 不应出现在人工审核队列
+    mid = client.post("/materials", json={"type": "image", "oss_key": "proc2.png"}, headers=uh).json()["id"]
+    ids = [x["id"] for x in client.get("/audit/queue?size=100", headers=ah).json()["items"]]
+    assert mid not in ids                                     # 机审中的不进人工队列
+
+
+def test_set_audit_rejects_processing():
+    ah, uh = _admin_hdr(), _user_hdr()
+    mid = client.post("/materials", json={"type": "image", "oss_key": "proc3.png"}, headers=uh).json()["id"]
+    r = client.post(f"/materials/{mid}/set-audit", json={"status": "processing"}, headers=ah)
+    assert r.status_code == 400                              # 人工不能把状态设成 processing
+
+
 def test_recheck_requires_audit_perm_and_flips_verdict():
-    """重新审核:普通用户无权(403);删规则后管理员重判 → block 翻 pass(只对已存报告重判)。"""
+    """重新审核:普通用户无权(403);删规则后管理员重判 → review 翻 pass(只对已存报告重判)。"""
     uh, ah = _user_hdr(), _admin_hdr()
-    rid = client.post("/audit/rules", json={"source_type": "any", "keywords": ["赌博暗词RX"],
+    from app.api import deps
+    deps._llm.set_response({"findings": [{"rule": 1, "segment": 1, "reason": "命中"}]})   # 语义判命中该规则
+    rid = client.post("/audit/rules", json={"source_type": "any", "condition": "赌博暗词RX",
                                             "action": "block"}, headers=ah).json()["id"]
     tid = client.post("/audit/submit", data={"type": "corpus", "content": "含赌博暗词RX的一段文字"},
                       headers=uh).json()["task_id"]
-    assert _wait_task(tid, uh)["verdict"] == "block"
+    assert _wait_task(tid, uh)["verdict"] == "review"   # 机器命中 → 待人工复核
     # 普通用户无审核权限
     assert client.post(f"/audit/tasks/{tid}/recheck", headers=uh).status_code == 403
     # 删掉规则 → 管理员重新审核 → 用当前规则(无)重判 → 通过
@@ -453,8 +588,10 @@ def test_audit_queue_carries_media_and_report():
     ah, uh = _admin_hdr(), _user_hdr()
     assert client.get("/audit/queue").status_code == 401                      # 游客
     assert client.get("/audit/queue", headers=uh).status_code == 403          # 普通用户
-    # 造一条待复核 + 带报告的物料:加 review 规则 → 提交 corpus → 命中转 review
-    rid = client.post("/audit/rules", json={"source_type": "any", "keywords": ["队列复核词QX"],
+    # 造一条待复核 + 带报告的物料:加 review 规则 → 语义判命中 → 转 review
+    from app.api import deps
+    deps._llm.set_response({"findings": [{"rule": 1, "segment": 1, "reason": "命中"}]})
+    rid = client.post("/audit/rules", json={"source_type": "any", "condition": "队列复核词QX",
                                             "action": "review"}, headers=ah).json()["id"]
     tid = client.post("/audit/submit", data={"type": "corpus", "content": "这段含队列复核词QX"},
                       headers=uh).json()["task_id"]
@@ -479,7 +616,9 @@ def test_task_verdict_follows_material_after_manual_review():
     """待审核任务的裁定跟随物料现状:管理员在审核队列改判后,任务页立即反映 pass/block,
     不再停留在机审的『待人工复核』(修复:审核队列已清空但任务仍显示待复核)。"""
     ah, uh = _admin_hdr(), _user_hdr()
-    rid = client.post("/audit/rules", json={"source_type": "any", "keywords": ["跟随复核词QZ"],
+    from app.api import deps
+    deps._llm.set_response({"findings": [{"rule": 1, "segment": 1, "reason": "命中"}]})
+    rid = client.post("/audit/rules", json={"source_type": "any", "condition": "跟随复核词QZ",
                                             "action": "review"}, headers=ah).json()["id"]
     tid = client.post("/audit/submit", data={"type": "corpus", "content": "含跟随复核词QZ的一段"},
                       headers=uh).json()["task_id"]
@@ -499,3 +638,145 @@ def test_task_verdict_follows_material_after_manual_review():
     client.delete(f"/materials/{mid}", headers=ah)
     client.delete(f"/audit/rules/{rid}", headers=ah)
     client.delete(f"/audit/tasks/{tid}", headers=ah)
+
+
+def test_audit_submit_rejects_wrong_or_bad_file():
+    """内容审核单条上传的错误提示:类型不符 / 格式不支持 / 空文件 都要 400 + 明确原因。"""
+    uh = _user_hdr()
+    # 选「视频」却传图片 → 类型不符
+    r = client.post("/audit/submit", data={"type": "video"},
+                    files={"file": ("pic.jpg", b"imgbytes", "image/jpeg")}, headers=uh)
+    assert r.status_code == 400 and "不符" in r.json()["detail"]
+    # 不支持的格式
+    r2 = client.post("/audit/submit", data={"type": "image"},
+                     files={"file": ("mal.exe", b"x", "application/octet-stream")}, headers=uh)
+    assert r2.status_code == 400 and "不支持" in r2.json()["detail"]
+    # 空文件
+    r3 = client.post("/audit/submit", data={"type": "image"},
+                     files={"file": ("empty.png", b"", "image/png")}, headers=uh)
+    assert r3.status_code == 400 and ("空" in r3.json()["detail"] or "缺少" in r3.json()["detail"])
+
+
+def test_audit_submit_rejects_over_1gb(monkeypatch):
+    """单文件 >1GB → 413 + 提示。用小上限模拟(不真传 1GB)。"""
+    monkeypatch.setattr("app.api.router._MAX_UPLOAD", 10)
+    uh = _user_hdr()
+    r = client.post("/audit/submit", data={"type": "image"},
+                    files={"file": ("big.png", b"0123456789ABCDEF", "image/png")}, headers=uh)  # 16 > 10
+    assert r.status_code == 413 and "1GB" in r.json()["detail"]
+
+
+def test_batch_skips_oversized_and_unsupported_with_reasons(monkeypatch):
+    """批量:超 1GB / 格式不支持 的文件被跳过,并按原因分类回报。"""
+    monkeypatch.setattr("app.api.router._MAX_UPLOAD", 10)
+    uh = _user_hdr()
+    r = client.post("/audit/batch", data={"video_kind": "material"},
+                    files=[("files", ("big.png", b"0123456789ABCDEF", "image/png")),      # 超限
+                           ("files", ("bad.exe", b"y", "application/octet-stream"))],       # 不支持
+                    headers=uh)
+    d = r.json()
+    assert d["skipped_big"] == 1 and d["skipped_type"] == 1 and d["created"] == 0
+    assert d["skipped"] == 2
+
+
+def test_projects_crud_perm_and_dupe():
+    ah, uh = _admin_hdr(), _user_hdr()
+    assert client.post("/admin/projects", json={"name": "X项目"}).status_code == 401           # 游客
+    assert client.post("/admin/projects", json={"name": "X项目"}, headers=uh).status_code == 403  # 普通用户
+    pid = client.post("/admin/projects", json={"name": "汽水音乐QC"}, headers=ah).json()["id"]
+    assert client.post("/admin/projects", json={"name": "汽水音乐QC"}, headers=ah).status_code == 409  # 重名
+    names = [p["name"] for p in client.get("/projects", headers=uh).json()["projects"]]           # 登录即可列
+    assert "汽水音乐QC" in names
+    empty = client.post("/admin/projects", json={"name": "空项目QC"}, headers=ah).json()["id"]
+    assert client.delete(f"/admin/projects/{empty}", headers=ah).status_code == 200               # 空项目可删
+
+
+def test_submit_work_requires_existing_project_and_lands_in_project_queue():
+    uh, ah = _user_hdr(), _admin_hdr()
+    # 作品无项目 → 400
+    r = client.post("/audit/submit", data={"type": "video", "video_kind": "work"},
+                    files={"file": ("w.mp4", b"proj-w-1", "video/mp4")}, headers=uh)
+    assert r.status_code == 400 and "项目" in r.json()["detail"]
+    # 不存在的项目 → 400
+    r2 = client.post("/audit/submit", data={"type": "video", "video_kind": "work", "project_id": "nope"},
+                     files={"file": ("w2.mp4", b"proj-w-2", "video/mp4")}, headers=uh)
+    assert r2.status_code == 400
+    # 合法项目 → 落 project_id;进该项目队列、不进物料栏
+    pid = client.post("/admin/projects", json={"name": "队列项目QC"}, headers=ah).json()["id"]
+    t = _wait_task(client.post("/audit/submit",
+                   data={"type": "video", "video_kind": "work", "project_id": pid},
+                   files={"file": ("w3.mp4", b"proj-w-3", "video/mp4")}, headers=uh).json()["task_id"], uh)
+    assert t["project_id"] == pid
+    mid = t["material_id"]
+    # 浏览:库里按项目筛能查到该作品,project="" 的物料栏里没有它
+    assert any(m["id"] == mid for m in client.get(f"/library/all?project={pid}", headers=ah).json()["items"])
+    assert not any(m["id"] == mid for m in client.get("/library/all?project=", headers=ah).json()["items"])
+    # 审核栏:强制转 review → 进该项目审核 tab、不进物料 tab
+    client.post(f"/materials/{mid}/set-audit", json={"status": "review"}, headers=ah)
+    assert any(m["id"] == mid for m in client.get(f"/audit/queue?project={pid}", headers=ah).json()["items"])
+    assert not any(m["id"] == mid for m in client.get("/audit/queue", headers=ah).json()["items"])  # 物料栏无它
+
+
+def test_delete_project_blocked_when_it_has_work():
+    uh, ah = _user_hdr(), _admin_hdr()
+    pid = client.post("/admin/projects", json={"name": "有作品QC"}, headers=ah).json()["id"]
+    _wait_task(client.post("/audit/submit",
+               data={"type": "video", "video_kind": "work", "project_id": pid},
+               files={"file": ("wk.mp4", b"proj-has-work-1", "video/mp4")}, headers=uh).json()["task_id"], uh)
+    r = client.delete(f"/admin/projects/{pid}", headers=ah)
+    assert r.status_code == 400 and "作品" in r.json()["detail"]
+
+
+# ── 作品必须归属项目:保证任何时候都有可选项目(修「作品上传失败:一个项目都没有」)──
+def test_projects_list_self_heals_when_empty(monkeypatch):
+    from app.api import deps
+    from app.infrastructure.fakes import InMemoryProjectRepo
+    monkeypatch.setattr(deps, "project_repo", InMemoryProjectRepo())
+    assert deps.project_repo.list() == []                        # 起始空
+    ps = client.get("/projects", headers=_user_hdr()).json()["projects"]
+    assert len(ps) >= 1                                          # GET 自愈补默认项目 → 下拉永不为空
+    ps2 = client.get("/projects", headers=_user_hdr()).json()["projects"]
+    assert len(ps2) == len(ps)                                   # 幂等,不重复补
+
+
+def test_cannot_delete_last_project(monkeypatch):
+    from app.api import deps
+    from app.infrastructure.fakes import InMemoryProjectRepo
+    monkeypatch.setattr(deps, "project_repo", InMemoryProjectRepo())
+    ah = _admin_hdr()
+    p1 = client.post("/admin/projects", json={"name": "唯一项目QC"}, headers=ah).json()["id"]
+    r = client.delete(f"/admin/projects/{p1}", headers=ah)
+    assert r.status_code == 400 and "保留" in r.json()["detail"]  # 最后一个不能删(否则作品没项目可选)
+    client.post("/admin/projects", json={"name": "第二项目QC"}, headers=ah)
+    assert client.delete(f"/admin/projects/{p1}", headers=ah).status_code == 200  # 有多个 → 可删
+
+
+def test_work_submit_uses_self_healed_project(monkeypatch):
+    from app.api import deps
+    from app.infrastructure.fakes import InMemoryProjectRepo
+    monkeypatch.setattr(deps, "project_repo", InMemoryProjectRepo())
+    uh = _user_hdr()
+    pid = client.get("/projects", headers=uh).json()["projects"][0]["id"]   # 自愈拿到默认项目
+    r = client.post("/audit/submit", data={"type": "video", "video_kind": "work", "project_id": pid},
+                    files={"file": ("selfheal.mp4", b"selfheal-work-1", "video/mp4")}, headers=uh)
+    assert r.status_code == 200 and r.json()["status"] == "submitted"
+
+
+def test_project_scoped_rules_filter_and_queue_tabs():
+    ah = _admin_hdr()
+    pid = client.post("/admin/projects", json={"name": "规则项目QC"}, headers=ah).json()["id"]
+    client.post("/audit/rules", json={"source_type": "any", "keywords": ["项目违规词QC"],
+                                      "action": "review", "project_id": pid}, headers=ah)
+    client.post("/audit/rules", json={"source_type": "any", "keywords": ["标准违规词QC"],
+                                      "action": "block"}, headers=ah)   # 标准规则(无项目)
+    prules = client.get(f"/audit/rules?project={pid}", headers=ah).json()["rules"]
+    assert len(prules) == 1 and prules[0]["project_id"] == pid
+    std = client.get("/audit/rules?project=", headers=ah).json()["rules"]
+    assert std and all(r["project_id"] == "" for r in std)
+    # 不存在项目的规则 → 400
+    assert client.post("/audit/rules", json={"keywords": ["x"], "project_id": "nope"},
+                       headers=ah).status_code == 400
+    # 审核栏 tabs:项目在前、物料栏("")放最后(与上传页项目优先一致)
+    keys = [t["key"] for t in client.get("/audit/queue/tabs", headers=ah).json()["tabs"]]
+    assert "" in keys and pid in keys
+    assert keys[-1] == "" and keys.index(pid) < keys.index("")   # 物料最后、项目在前

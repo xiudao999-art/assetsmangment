@@ -1,8 +1,10 @@
 """组合根(Composition Root):在 api 层装配 service + infra。
 现用假 infra;Phase 2 换成真阿里云客户端时,只改这里,service/domain 不动。"""
 from __future__ import annotations
+import uuid
+import time
 from app.config import settings
-from app.domain.models import User
+from app.domain.models import User, Project
 from app.service.material import MaterialService
 from app.service.search import SearchService
 from app.service.audit import AuditService
@@ -17,7 +19,7 @@ from app.infrastructure.fakes import (
     FakeVideoParser, FakeEmbedder, InMemoryVectorIndex, InMemoryUserRepo,
     FakeHasher, FakeTokenIssuer, InMemoryRbac, ListAuditLog, InMemoryFavoriteRepo,
     FakeTranscriber, FakeVisionDescriber, FakeLlm, InMemoryAuditRuleRepo, InMemoryAuditReportRepo,
-    InMemoryAuditTaskRepo, InMemoryWhitelistRepo,
+    InMemoryAuditTaskRepo, InMemoryWhitelistRepo, InMemoryProjectRepo, InMemoryBlockwordRepo,
 )
 
 # ── 进程内单例 ──
@@ -32,7 +34,8 @@ else:
 if settings.data_dir:
     from app.infrastructure.jsonstore import (
         Store, JsonMaterialRepo, JsonUserRepo, JsonFavoriteRepo, JsonRbac,
-        JsonAuditRuleRepo, JsonAuditReportRepo, JsonAuditTaskRepo, JsonWhitelistRepo,
+        JsonAuditRuleRepo, JsonAuditReportRepo, JsonAuditTaskRepo, JsonWhitelistRepo, JsonProjectRepo,
+        JsonBlockwordRepo,
     )
     _store = Store(f"{settings.data_dir.rstrip('/')}/state.json")
     material_repo = JsonMaterialRepo(_store)
@@ -43,6 +46,8 @@ if settings.data_dir:
     report_repo = JsonAuditReportRepo(_store)
     task_repo = JsonAuditTaskRepo(_store)
     whitelist_repo = JsonWhitelistRepo(_store)
+    blockword_repo = JsonBlockwordRepo(_store)
+    project_repo = JsonProjectRepo(_store)
 else:
     material_repo = InMemoryMaterialRepo()
     user_repo = InMemoryUserRepo()
@@ -52,6 +57,8 @@ else:
     report_repo = InMemoryAuditReportRepo()
     task_repo = InMemoryAuditTaskRepo()
     whitelist_repo = InMemoryWhitelistRepo()
+    blockword_repo = InMemoryBlockwordRepo()
+    project_repo = InMemoryProjectRepo()
 
 # 向量索引:有真 embedding(DashScope)+ 真 pg 连接串 → pgvector 语义近邻;否则内存
 _placeholder_db = settings.database_url.startswith("postgresql://user:pass@localhost")
@@ -66,6 +73,10 @@ else:
 audit_log = ListAuditLog()
 jobs: dict[str, dict] = {}
 batches: dict[str, dict] = {}   # 批量上传进度(内存,轮询窗口足够)
+
+# 有界审核工作池:单条/批量的后台审核都提交到它,超出上限的排队(背压),不再无限起线程。
+from concurrent.futures import ThreadPoolExecutor
+audit_pool = ThreadPoolExecutor(max_workers=max(1, settings.audit_concurrency), thread_name_prefix="audit")
 
 # 内容安全审核器:开通「内容安全增强版」并置 AM_ENABLE_CONTENT_SAFETY=true 才接真;否则走人工审核
 if settings.enable_content_safety:
@@ -108,6 +119,21 @@ else:
     _vision = FakeVisionDescriber()
     _transcriber = FakeTranscriber()
 
+# ── 物料档案器:有 ARK key + 豆包模型 id → 豆包 pro 2.1 直接看图/视频提「情绪/场景」多值标签 ──
+# 未配 → None(pipeline 走 qwen 文本兜底,即现状);FakeArchiver 只在测试/本地 QC 注入,不做生产默认。
+if settings.ark_api_key and settings.doubao_vl_model:
+    from app.infrastructure.doubao_ark import DoubaoArchiver
+    _archiver = DoubaoArchiver(settings.ark_api_key, settings.doubao_vl_model, settings.ark_base_url)
+else:
+    _archiver = None
+
+# ── 联网搜索:有 Tavily key → 音乐物料按歌名联网搜「情绪/场景」合成档案;未配 → None(音乐走 qwen 文本兜底)──
+if settings.tavily_api_key:
+    from app.infrastructure.tavily import TavilySearch
+    _tavily = TavilySearch(settings.tavily_api_key)
+else:
+    _tavily = None
+
 # ── 播种账号:一个管理员 + 一个普通用户(演示用)。已存在则不覆盖(持久化后只种一次)──
 if user_repo.get("admin") is None:
     user_repo.save(User(id="admin", name="admin", pwd_hash=_h.hash("admin123"), role="admin"))
@@ -119,6 +145,39 @@ ADMIN_PERMS = {"materials.audit", "materials.publish", "materials.delete_any", "
 if not ADMIN_PERMS.issubset(rbac.permissions_of("admin")):
     for _p in ADMIN_PERMS:
         rbac.grant("admin", _p)
+
+def ensure_default_project() -> str:
+    """保证至少有一个作品项目(作品必须归属项目);返回一个可用项目 id。
+    已有 → 返回最早那个;一个都没有 → 建「汽水音乐」。幂等 —— 供启动播种 + 运行时自愈复用,
+    这样即便管理员把项目删光,下次列项目/提交作品也永远有项目可选,作品不会「莫名上传失败」。"""
+    existing = project_repo.list()
+    if existing:
+        return min(existing, key=lambda p: p.created_ms).id
+    p = Project(id=uuid.uuid4().hex, name="汽水音乐", created_by="admin",
+                created_ms=int(time.time() * 1000))
+    project_repo.add(p)
+    return p.id
+
+
+# ── 播种作品项目:后台至少要有一个项目才能提交作品 ──
+ensure_default_project()
+
+
+def ensure_rule_numbers() -> None:
+    """给历史规则回填稳定编号 no(幂等):no==0 的规则按 list() 顺序续 max+1 赋号并持久化。
+    在运行进程内做(不用外部脚本,避免独立进程覆盖 state 的竞态)。全有号则跳过。"""
+    rules = rule_repo.list()
+    missing = [r for r in rules if not getattr(r, "no", 0)]
+    if not missing:
+        return
+    nxt = max((getattr(r, "no", 0) for r in rules), default=0) + 1
+    for r in missing:
+        r.no = nxt
+        nxt += 1
+        rule_repo.add(r)   # 覆盖持久化
+
+
+ensure_rule_numbers()
 
 
 def get_material_service() -> MaterialService:
@@ -153,7 +212,9 @@ def get_library_service() -> LibraryService:
 
 def get_audit_service() -> AuditPipelineService:
     return AuditPipelineService(_transcriber, _vision, _llm, rule_repo, report_repo,
-                                storage, material_repo, _embedder, index, _auditor)
+                                storage, material_repo, _embedder, index, _auditor,
+                                blockwords=lambda: blockword_repo.words(), archiver=_archiver,
+                                tavily=_tavily)
 
 
 def current_user(authorization: str | None):

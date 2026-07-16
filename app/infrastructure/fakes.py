@@ -87,8 +87,8 @@ class InMemoryMaterialRepo:
         pool = [m for m in self.items if (not only_pass or m.audit_status == AuditStatus.PASS)]
 
         def score(m: Material) -> float:
-            hay = " ".join([m.thumb, m.description, m.ai_summary, m.ai_emotion,
-                            m.ai_atmosphere, m.ai_scene, " ".join(m.tags or [])])
+            hay = " ".join([m.thumb, m.description, m.ai_summary, " ".join(m.ai_emotions or []),
+                            m.ai_atmosphere, " ".join(m.ai_scenarios or []), " ".join(m.tags or [])])
             return 1.0 if (query_text and query_text in hay) else 0.0
 
         return sorted(pool, key=score, reverse=True)
@@ -131,6 +131,8 @@ class InMemoryVectorIndex:
         self._items: dict[str, list[float]] = {}
 
     def add(self, material_id: str, vector: list[float]) -> None:
+        if not vector or not any(vector):
+            return  # 与真 pgvector 契约一致:空/全零向量不入库(避免污染语义近邻)
         self._items[material_id] = vector
 
     def query(self, vector: list[float], k: int = 10) -> list[str]:
@@ -275,6 +277,26 @@ class InMemoryWhitelistRepo:
         self._w.discard((word or "").strip())
 
 
+class InMemoryBlockwordRepo:
+    """绝对禁词(审核第一波,命中即拦)。"""
+    def __init__(self) -> None:
+        self._w: set[str] = set()
+
+    def words(self) -> set[str]:
+        return set(self._w)
+
+    def list(self) -> list[str]:
+        return sorted(self._w)
+
+    def add(self, word: str) -> None:
+        w = (word or "").strip()
+        if w:
+            self._w.add(w)
+
+    def remove(self, word: str) -> None:
+        self._w.discard((word or "").strip())
+
+
 # ── 审核引擎假实现 ──
 class FakeTranscriber:
     """假 ASR:返回两段带时间轴的转写(测试/本地用)。"""
@@ -288,6 +310,36 @@ class FakeTranscriber:
 class FakeVisionDescriber:
     def describe_image(self, url: str) -> str:
         return f"画面内容(假):{url[:40]}"
+
+
+class FakeArchiver:
+    """假物料档案器(豆包 pro 2.1 的占位):默认返回多值情绪/场景样本;可 set_response 编排。"""
+    def __init__(self, response=None) -> None:
+        self._response = response
+        self.calls: list[tuple] = []
+
+    def set_response(self, response) -> None:
+        self._response = response
+
+    def tag(self, material_type: str, media_url: str = "", is_video: bool = False,
+            text: str = "") -> dict:
+        self.calls.append((material_type, media_url, is_video, text))
+        if self._response is not None:
+            return self._response
+        return {"summary": "一条测试物料", "emotions": ["欢快", "搞笑"],
+                "scenarios": ["群里活跃气氛时", "需要一个搞笑停顿时"],
+                "atmosphere": "轻松", "tags": ["测试", "素材"]}
+
+
+class FakeTavily:
+    """假联网搜索(Tavily 的占位):返回固定简报、记录查询词。测试/本地用,不打真网。"""
+    def __init__(self, brief: str = "概述:这是一首广为流传的歌曲,情绪温暖治愈,常配旅行、回忆类短视频。") -> None:
+        self._brief = brief
+        self.calls: list[str] = []
+
+    def search(self, query: str) -> str:
+        self.calls.append(query)
+        return self._brief
 
 
 class FakeLlm:
@@ -305,9 +357,10 @@ class FakeLlm:
             return self._response
         if "时间段" in system or "moment" in system.lower():
             return {"moments_ms": []}
-        if "摘要" in system or "档案" in system:  # 物料摘要
-            return {"summary": "一条测试物料", "scene": "通用", "emotion": "平静",
-                    "atmosphere": "中性", "tags": ["测试", "素材"]}
+        if "档案" in system or "摘要" in system:  # 物料档案(多值情绪/场景)
+            return {"summary": "一条测试物料", "emotions": ["平静", "中性"],
+                    "scenarios": ["通用场景一", "需要铺垫时"], "atmosphere": "中性",
+                    "tags": ["测试", "素材"]}
         return {"decision": "pass", "triggered_rule_ids": [], "reason": "无问题"}
 
 
@@ -324,8 +377,29 @@ class InMemoryAuditRuleRepo:
     def list(self) -> list[AuditRule]:
         return list(self._rules.values())
 
-    def list_for(self, source_type: str) -> list[AuditRule]:
-        return [r for r in self._rules.values() if r.applies_to(source_type)]
+    def list_for(self, source_type: str, project_id: str = "") -> list[AuditRule]:
+        return [r for r in self._rules.values() if r.applies_to(source_type, project_id)]
+
+
+class InMemoryProjectRepo:
+    def __init__(self) -> None:
+        self._p: dict = {}
+
+    def add(self, project) -> None:
+        self._p[project.id] = project
+
+    def get(self, project_id: str):
+        return self._p.get(project_id)
+
+    def get_by_name(self, name: str):
+        n = (name or "").strip()
+        return next((p for p in self._p.values() if p.name == n), None)
+
+    def delete(self, project_id: str) -> None:
+        self._p.pop(project_id, None)
+
+    def list(self) -> list:
+        return sorted(self._p.values(), key=lambda p: p.created_ms)
 
 
 class InMemoryAuditReportRepo:

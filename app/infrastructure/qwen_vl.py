@@ -25,14 +25,19 @@ class QwenVLVisionDescriber:
 
     def describe_image(self, url: str) -> str:
         from dashscope import MultiModalConversation
-        resp = MultiModalConversation.call(
-            api_key=self._api_key, model=self._model,
-            messages=[{"role": "user", "content": [{"image": url}, {"text": self._PROMPT}]}])
-        if getattr(resp, "status_code", None) != 200:
-            raise RuntimeError(f"图像反解失败: {getattr(resp, 'status_code', '?')} "
-                               f"{getattr(resp, 'message', '')}")
-        content = resp.output.choices[0].message.content
-        return content[0]["text"] if isinstance(content, list) else str(content)
+        from app.config import settings
+        from app.infrastructure.retry import call_ai
+
+        def _call():
+            resp = MultiModalConversation.call(
+                api_key=self._api_key, model=self._model,
+                messages=[{"role": "user", "content": [{"image": url}, {"text": self._PROMPT}]}])
+            if getattr(resp, "status_code", None) != 200:
+                raise RuntimeError(f"图像反解失败: {getattr(resp, 'status_code', '?')} "
+                                   f"{getattr(resp, 'message', '')}")
+            content = resp.output.choices[0].message.content
+            return content[0]["text"] if isinstance(content, list) else str(content)
+        return call_ai(_call, timeout_s=settings.ai_timeout_s, retries=settings.ai_retries)
 
 _PROMPT = (
     "你是视频物料反解引擎。请把这段视频拆解成若干可复用的物料候选。"
