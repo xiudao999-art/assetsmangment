@@ -352,7 +352,14 @@ def test_perm_catalog_has_labeled_permissions():
 
 def test_per_user_grant_takes_effect_immediately():
     ah = _admin_hdr()
-    uid = client.post("/admin/users", json={"name": "grantee", "password": "pw123456"}, headers=ah).json()["id"]
+    # 清理上次跑崩残留
+    users = client.get("/admin/users", headers=ah).json()["users"]
+    for u in users:
+        if u["name"] == "grantee":
+            client.delete(f"/admin/users/{u['id']}", headers=ah)
+    r = client.post("/admin/users", json={"name": "grantee", "password": "pw123456"}, headers=ah)
+    assert r.status_code == 200, f"create user failed: {r.text}"
+    uid = r.json()["id"]
     gh = _hdr(_token("grantee", "pw123456"))
     assert client.get("/library/all", headers=gh).status_code == 403          # 授权前:无权
     r = client.post(f"/admin/users/{uid}/perms", json={"permissions": ["library.all"]}, headers=ah)
@@ -361,13 +368,19 @@ def test_per_user_grant_takes_effect_immediately():
     # 收回
     client.post(f"/admin/users/{uid}/perms", json={"permissions": []}, headers=ah)
     assert client.get("/library/all", headers=gh).status_code == 403
+    # 清理
+    client.delete(f"/admin/users/{uid}", headers=ah)
 
 
 def test_set_user_perms_rejects_unknown():
     ah = _admin_hdr()
-    uid = client.post("/admin/users", json={"name": "grantee2", "password": "pw123456"}, headers=ah).json()["id"]
+    r = client.post("/admin/users", json={"name": "grantee2", "password": "pw123456"}, headers=ah)
+    assert r.status_code == 200, f"create user failed: {r.text}"
+    uid = r.json()["id"]
     r = client.post(f"/admin/users/{uid}/perms", json={"permissions": ["not.a.real.perm", "audit.rules"]}, headers=ah)
     assert r.json()["permissions"] == ["audit.rules"]   # 目录外权限被丢弃
+    # 清理
+    client.delete(f"/admin/users/{uid}", headers=ah)
 
 
 # ── 视频 物料/作品 + ≤20s 强制 ──

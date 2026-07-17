@@ -1,5 +1,5 @@
 """JSON 文件持久化仓储(infra→domain)。
-把物料/用户/收藏/权限落到 {data_dir}/state.json,容器重启不丢。
+把物料/用户/收藏/权限落到 {data_dir}/state.json.bak,容器重启不丢。
 写操作后原子落盘(tmp + os.replace);启动时加载。接口与 fakes 里的内存仓储完全一致,
 所以 deps 里换成它 = 只改组合根,service/domain 不动(端口未变)。
 向量索引/视频 job 仍留内存(可重建、且属瞬态),不影响收藏/物料持久化。"""
@@ -100,7 +100,7 @@ class Store:
     def _load(self) -> None:
         if not os.path.exists(self.path):
             return
-        with open(self.path, "r", encoding="utf-8") as f:
+        with open(self.path, "r", encoding="utf-8-sig") as f:
             d = json.load(f)
         for m in d.get("materials", []):
             mat = self._mat_from_dict(m)
@@ -265,11 +265,11 @@ class JsonAuditRuleRepo:
     def __init__(self, store: Store) -> None:
         self._s = store
 
-    def add(self, rule: AuditRule) -> None:
+    def add(self, rule: AuditRule, by: str = "") -> None:
         self._s.rules[rule.id] = rule
         self._s.save()
 
-    def delete(self, rule_id: str) -> None:
+    def delete(self, rule_id: str, by: str = "") -> None:
         self._s.rules.pop(rule_id, None)
         self._s.save()
 

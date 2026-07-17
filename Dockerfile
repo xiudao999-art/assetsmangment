@@ -1,18 +1,18 @@
 # 物料管理系统 API 镜像
 FROM python:3.11-slim
 
-COPY --from=ghcr.io/astral-sh/uv:latest /uv /bin/uv
 WORKDIR /app
 ENV PYTHONPATH=/app PYTHONUNBUFFERED=1
-# 走阿里云 PyPI 镜像(ECS 直连 pypi.org 会卡死);拉长超时防慢链路误判
-ENV UV_INDEX_URL=https://mirrors.aliyun.com/pypi/simple/ UV_HTTP_TIMEOUT=120
+# 走阿里云 PyPI 镜像(ECS 直连 pypi.org 会卡死)
+ENV PIP_INDEX_URL=https://mirrors.aliyun.com/pypi/simple/ PIP_DEFAULT_TIMEOUT=120
 
 # 只装依赖(不把本项目装成包),从源码运行以保证 frontend 相对路径正确
-RUN uv pip install --system --no-cache \
+RUN pip install --no-cache-dir \
     "fastapi>=0.115" "uvicorn[standard]>=0.32" "pydantic>=2.9" "pydantic-settings>=2.6" \
     "sqlalchemy>=2.0" "psycopg[binary]>=3.2" "pgvector>=0.3" "alembic>=1.14" \
     "redis>=5.2" "celery>=5.4" "oss2>=2.19" "dashscope>=1.20" \
-    "alibabacloud-green20220302>=3.2.4" "httpx>=0.28" "python-multipart>=0.0.12"
+    "alibabacloud_tea_openapi>=0.4.5" \
+    "alibabacloud-green20220302==3.2.4" "httpx>=0.28" "python-multipart>=0.0.12"
 
 COPY app ./app
 COPY frontend ./frontend

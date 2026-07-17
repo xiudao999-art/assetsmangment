@@ -81,6 +81,27 @@
 
 **测试注意**: `JsonUserRepo`（state.json）在测试间持久化，测试需自行清理所建用户，否则下回跑 409。跑测试前先停掉本地服务进程，防 state.json 锁冲突（`PermissionError`）。
 
+## 部署（单实例 Docker Compose）
+
+服务器目录结构：
+```
+${ASSETS_ROOT}  (默认 /software/project/python/assets)
+├── restart.sh                  ← 手动上传一次
+├── docker-compose.yml          ← 手动上传一次
+├── .env                        ← 手动创建一次（按 .env-test 填真实密钥）
+├── assetsmangment.zip          ← 每次部署上传
+├── assetsmangment/             ← 脚本自动解压（Dockerfile + app/ + frontend/）
+├── data/                       ← state.json 持久化
+├── logs/assetsmangment/        ← 日志
+└── backups/                    ← 旧版备份
+```
+
+**首次初始化**: `scp deploy/restart.sh deploy/docker-compose.yml` 到服务器主目录，创建 `.env`，`chmod +x restart.sh`。
+
+**每次部署**: 本地 `deploy\pack.cmd` 打包 → `scp assetsmangment.zip` → 服务器 `sh restart.sh`。脚本自动：停服 → 备份 → 解压 → `docker compose build` → `docker compose up -d`。
+
+**注意**: PG/Redis 在 compose 外（宿主机或其他容器），应用用 bridge 网络 + 端口映射 `8088:8000`。阿里云 SDK 依赖钉版本：`alibabacloud-green20220302==3.2.4` + `alibabacloud_tea_openapi>=0.4.5`，升版需对齐。
+
 ### PG 真源迁移（进行中）
 
 | 模块 | 表 | 仓储 | 状态 |

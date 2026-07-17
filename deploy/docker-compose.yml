@@ -1,0 +1,24 @@
+services:
+  assets-api:
+    build:
+      context: ${ASSETS_ROOT:-/software/project/python/assets}/assetsmangment
+      dockerfile: Dockerfile
+    image: assets-api:latest
+    container_name: assets-api
+    restart: always
+    ports:
+      - "8088:8000"
+    volumes:
+      - ${ASSETS_ROOT:-/software/project/python/assets}/data:/data
+      - ${ASSETS_ROOT:-/software/project/python/assets}/logs/assetsmangment:/logs
+    env_file:
+      - ${ASSETS_ROOT:-/software/project/python/assets}/.env
+    environment:
+      - AM_USE_FAKES=false
+      - AM_DATA_DIR=/data
+      - TZ=Asia/Shanghai
+    deploy:
+      resources:
+        limits:
+          memory: 1g
+          cpus: "2.0"
