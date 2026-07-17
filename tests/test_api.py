@@ -439,28 +439,35 @@ def test_dedup_reserve_blocks_inflight_and_saved():
     assert dup4 is True and ex is not None and ex.id == "dz"
 
 
-def test_failed_audit_deletes_material_and_allows_reupload(monkeypatch):
-    # 审核失败:任务标失败 + 暴露原因 + 删掉没成功的物料 → 同内容能重新上传(不被去重挡)
+def test_failed_audit_keeps_material_for_retry(monkeypatch):
+    # 审核失败:任务标失败 + 暴露原因 + 物料保留(不删)→ 可重试;同内容重新上传会被去重挡住(用重试)
     from app.api import deps
     uh = _user_hdr()
 
     def _boom(url):
         raise RuntimeError("反解炸了")
     monkeypatch.setattr(deps._vision, "describe_image", _boom)   # 图片反解抛错 → 审核失败
-    data = b"fail-then-reupload-unique-bytes-42"
+    data = b"fail-then-retry-unique-bytes-43"
     r = client.post("/audit/submit", data={"type": "image"},
                     files={"file": ("f.png", data, "image/png")}, headers=uh)
     assert r.json()["status"] == "submitted"
     mid = r.json()["material_id"]
-    t = _wait_task(r.json()["task_id"], uh)
+    tid = r.json()["task_id"]
+    t = _wait_task(tid, uh)
     assert t["status"] == "failed"
     assert t["error"]                                            # 失败原因被暴露(待审核页能看到)
-    assert client.get(f"/materials/{mid}", headers=uh).status_code == 404   # 没成功的物料已删
-    # 修好后同内容再传:不再被去重当重复,可重新上传
+    assert client.get(f"/materials/{mid}", headers=uh).status_code == 200   # 物料保留,不删
+    # 重试失败任务 → 审核成功(需 admin)
     monkeypatch.setattr(deps._vision, "describe_image", lambda url: "现在正常了")
-    r2 = client.post("/audit/submit", data={"type": "image"},
-                     files={"file": ("f2.png", data, "image/png")}, headers=uh)
-    assert r2.json()["status"] == "submitted"
+    ah = _admin_hdr()
+    rr = client.post(f"/audit/tasks/{tid}/retry", headers=ah)
+    assert rr.status_code == 200
+    t2 = _wait_task(tid, uh)
+    assert t2["status"] == "done"
+    # 同内容再传:被去重挡住(应走重试而非重复上传)
+    r3 = client.post("/audit/submit", data={"type": "image"},
+                     files={"file": ("f3.png", data, "image/png")}, headers=uh)
+    assert r3.json()["status"] == "duplicate"
 
 
 def test_upload_audio_file_as_music_accepted():

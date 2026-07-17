@@ -84,7 +84,14 @@ class TaskJanitor:
         count = 0
         for task in stuck:
             try:
-                self._resolve_stuck_task(task, _RECOVERY_ERROR)
+                # Re-read in case another instance already resolved it
+                # (multi-instance deploy — both boot and run recovery concurrently).
+                current = self._task_repo.get(task.id)
+                if current is None:
+                    continue
+                if current.status not in (JobStatus.PENDING, JobStatus.RUNNING):
+                    continue
+                self._resolve_stuck_task(current, _RECOVERY_ERROR)
                 count += 1
             except Exception:
                 logger.exception("TaskJanitor startup recovery: resolve task %s", task.id)
@@ -148,7 +155,7 @@ class TaskJanitor:
            _finish_task).  Mark DONE, sync verdict/report from material, do
            NOT delete the material.
         2. Material missing or still PROCESSING → audit genuinely never
-           finished.  Mark FAILED + cleanup the unusable material.
+           finished.  Mark FAILED + downgrade material to REVIEW (keep it for retry).
         """
         m = None
         if task.material_id:
@@ -164,16 +171,16 @@ class TaskJanitor:
             task.report_id = getattr(m, "audit_report_id", "") or ""
             task.error = ""
         else:
-            # Audit genuinely never finished — material is unusable.
+            # Audit genuinely never finished — keep material for retry.
             task.status = JobStatus.FAILED
             task.error = error[:200]
             if task.material_id:
-                self._cleanup_material(task.material_id)
+                self._downgrade_material(task.material_id)
 
         self._task_repo.save(task)
 
-    def _cleanup_material(self, material_id: str) -> None:
-        """Delete OSS file + repo metadata for a material.  Best-effort —
+    def _downgrade_material(self, material_id: str) -> None:
+        """Mark a material as REVIEW so it can be retried. Best-effort —
         never raises, because the janitor must not crash on cleanup failures."""
         try:
             m = self._material_repo.get(material_id)
@@ -181,12 +188,9 @@ class TaskJanitor:
             return
         if m is None:
             return
-        if m.oss_key:
+        if m.audit_status == AuditStatus.PROCESSING:
             try:
-                self._storage.delete(m.oss_key)
+                m.audit_status = AuditStatus.REVIEW
+                self._material_repo.save(m)
             except Exception:
                 pass
-        try:
-            self._material_repo.delete(material_id)
-        except Exception:
-            pass

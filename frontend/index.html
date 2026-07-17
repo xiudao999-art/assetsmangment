@@ -686,12 +686,14 @@ function taskRow(t){
   const thumb=previewable
     ? `<button class="thumb" onclick="previewTaskMaterial('${t.material_id}')" title="预览${t.material_type==='video'?'并播放':''}">${GLYPH[t.material_type]||'▦'}</button>`
     : `<div class="thumb">${GLYPH[t.material_type]||'▦'}</div>`;
-  const recheck=(ME.role==='admin'&&t.status==='done'&&(t.verdict==='review'||t.verdict==='block'))
+  const recheck=(ME.role==='admin'&&t.status==='done'&&t.report_id)
     ?`<button class="btn sm" onclick="recheckTask('${t.id}')" title="用当前白名单/规则重新判定(不重新抽帧/转写)">重新审核</button>`:'';
+  const retry=(ME.role==='admin'&&t.status==='failed'&&t.material_id)
+    ?`<button class="btn sm" onclick="retryTask('${t.id}')" title="重新跑完整审核(抽帧/转写/反解)">重试</button>`:'';
   return `<div class="qrow">${thumb}
     <div class="meta"><div>${t.name||'—'} <span class="owner">${LT[t.material_type]||t.material_type}</span>${kind}</div>
       <div class="k">${active?'⏳ ':''}${st}</div>${err}</div>
-    ${vB}${view}${recheck}<button class="btn sm" onclick="delTask('${t.id}')" title="移除">✕</button></div>`}
+    ${vB}${view}${recheck}${retry}<button class="btn sm" onclick="delTask('${t.id}')" title="移除">✕</button></div>`}
 async function loadPending(){const r=await api('GET','/audit/tasks');const ts=r.data.tasks||[];
   setCnt('pending',ts.filter(t=>t.status==='pending'||t.status==='running').length);
   $('#pending-list').innerHTML=ts.length?ts.map(taskRow).join(''):'<div class="empty"><b class="disp">还没有审核任务</b>去「内容审核」提交视频/图片/文字/声音,或批量上传。</div>';
@@ -710,6 +712,9 @@ async function delTask(id){const r=await api('DELETE','/audit/tasks/'+id);if(r.o
 async function recheckTask(id){const r=await api('POST','/audit/tasks/'+id+'/recheck');
   if(r.ok){toast('已用当前白名单重新审核…');closeDrawer&&closeDrawer();loadPending();setTimeout(loadPending,1600)}
   else toast(r.data.detail||'重新审核失败',true)}
+async function retryTask(id){const r=await api('POST','/audit/tasks/'+id+'/retry');
+  if(r.ok){toast('已重新提交审核…');loadPending();setTimeout(loadPending,1600)}
+  else toast(r.data.detail||'重试失败',true)}
 
 /* ── 作品审核记录:按项目分组 + 按天筛选 + 退回历史 + 导出 Excel ── */
 let WORKS_RANGE=null, WORKS_BY_TASK={};

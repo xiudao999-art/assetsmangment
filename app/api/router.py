@@ -395,13 +395,16 @@ def _new_task(owner_id: str, name: str, mtype: MaterialType, material_id: str, c
 
 
 def _fail_task(task: AuditTask, error: str) -> None:
-    """审核失败:标失败 + 暴露原因 + 删掉没成功的物料。
-    没成功的上传不留物料 → 既不占库、也不因 content_hash 去重挡住同内容重传。删物料 best-effort,不抛。"""
+    """审核失败:标失败 + 暴露原因 + 物料降级为 REVIEW(不删,方便重试)。
+    不删 OSS/元数据 → 用户可从「待审核」页点「重试」重新跑审核;想彻底清除可手动删任务+物料。"""
     task.status = JobStatus.FAILED
     task.error = (error or "审核失败,请重试。")[:200]
     if task.material_id:
         try:
-            deps.get_material_service().delete(task.material_id)   # 删 OSS + 元数据
+            m = deps.material_repo.get(task.material_id)
+            if m is not None and m.audit_status == AuditStatus.PROCESSING:
+                m.audit_status = AuditStatus.REVIEW
+                deps.material_repo.save(m)
         except Exception:
             pass
     deps.task_repo.save(task)
@@ -990,6 +993,26 @@ def recheck_audit_task(task_id: str, user: dict = Depends(_user)):
     deps.task_repo.save(t)
     deps.audit_pool.submit(_run_task_recheck, t.id)   # 提交到有界审核池
     return {"status": "rechecking", "id": t.id}
+
+
+@router.post("/audit/tasks/{task_id}/retry")
+def retry_audit_task(task_id: str, user: dict = Depends(_user)):
+    """对失败的任务重新跑**完整**审核(重新抽帧/转写/反解)。需审核权限。
+    与 recheck 区别:recheck 复用已存报告只重判;retry 从零跑全流程。"""
+    _require_perm(user, "materials.audit")
+    t = deps.task_repo.get(task_id)
+    if t is None:
+        raise HTTPException(404, "task not found")
+    if t.status != JobStatus.FAILED:
+        raise HTTPException(400, "仅可重试失败的任务")
+    m = deps.material_repo.get(t.material_id) if t.material_id else None
+    if m is None:
+        raise HTTPException(400, "物料已被删除,请重新上传")
+    t.status = JobStatus.RUNNING   # 同步置「审核中」→ 前端立刻看到并开始轮询
+    t.error = ""
+    deps.task_repo.save(t)
+    deps.audit_pool.submit(_run_task_audit, t.id, "")
+    return {"status": "retrying", "id": t.id}
 
 
 @router.post("/materials/{mid}/recheck")

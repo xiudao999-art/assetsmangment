@@ -132,10 +132,21 @@ ${ASSETS_ROOT}  (默认 /software/project/python/assets)
 审核任务异步跑在 `ThreadPoolExecutor` 里。服务重启或外部 API 挂死 → 任务永远卡在 `PENDING/RUNNING`，物料永远 `PROCESSING`。JSON 存储仅在加载时内存修复，PG 存储无启动恢复。
 
 **两层补偿**（FastAPI `lifespan` 启动，`app/main.py`）：
-1. **启动恢复（同步）**：`task_janitor.start()` → 扫全部 `PENDING/RUNNING` 任务。物料已审核完成（`audit_status != processing`）→ 任务标 `DONE` 并同步裁定（`_persist` 成功但 `_finish_task` 写失败的保护）；物料仍 `processing` → 任务标 `FAILED` + 清理物料。
+1. **启动恢复（同步）**：`task_janitor.start()` → 扫全部 `PENDING/RUNNING` 任务。物料已审核完成（`audit_status != processing`）→ 任务标 `DONE` 并同步裁定（`_persist` 成功但 `_finish_task` 写失败的保护）；物料仍 `processing` → 任务标 `FAILED` + 物料降级 `REVIEW`（**不删**，保留给重试用）。
 2. **运行时常驻扫描（daemon 线程）**：每 `AM_JANITOR_SCAN_INTERVAL_S`（默认 300s）扫一次，把 `created_ms` 超过 `AM_JANITOR_STUCK_TIMEOUT_S`（默认 1800s）的 `PENDING/RUNNING` 任务按同上逻辑修复。fail 前 re-read 防竞态（audit pool 刚好完成的跳过）。
 
-**约定**：只依赖 domain ports（`AuditTaskRepo`/`MaterialRepo`/`ObjectStorage`），零 FastAPI 耦合。每层 try/except 隔离——单个失败不中断扫描。
+**约定**：只依赖 domain ports（`AuditTaskRepo`/`MaterialRepo`/`ObjectStorage`），零 FastAPI 耦合。每层 try/except 隔离——单个失败不中断扫描。**物料不删**——失败/中断的物料降级为 `REVIEW` 保留，用户可从待审核页点「重试」重新跑完整审核。
+
+### 审核任务重审（recheck vs retry）
+
+待审核任务页每个任务提供两种重审途径：
+
+| 按钮 | 适用状态 | 端点 | 行为 |
+|---|---|---|---|
+| 「重新审核」 | `done` + 有 `report_id`（不限裁定：pass/review/block 均可） | `POST /audit/tasks/{id}/recheck` | 复用已存报告 segments，用**当前**白名单/规则只重判（不重抽帧/转写） |
+| 「重试」 | `failed` + 有 `material_id` | `POST /audit/tasks/{id}/retry` | 从零跑**完整**审核（重新抽帧/转写/反解） |
+
+**失败保留物料**：`_fail_task()` 和 TaskJanitor 不再删除失败物料（OSS+元数据），改为降级 `PROCESSING→REVIEW`。同内容重新上传会触发去重提示——应走「重试」按钮。
 
 ## 审核规则系统
 
