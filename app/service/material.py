@@ -39,6 +39,22 @@ class MaterialService:
         self._repo.save(material)
         return material
 
+    def create_file(self, type: MaterialType, oss_key: str, fileobj, owner_id: str,
+                    content_hash: str = "") -> Material:
+        """流式版 create:从 file-like 对象分块直传 OSS,避免全量 bytes 拷贝。
+        其余行为与 create 完全一致。content_hash 必须预先计算传入。"""
+        self._storage.put_fileobj(oss_key, fileobj)
+        embedding = self._embedder.embed(
+            MaterialCandidate(type=type, thumb="", source_timecode=0.0, description="")
+        )
+        material = Material(
+            id=uuid.uuid4().hex, type=type, thumb=f"{oss_key}#thumb",
+            source_timecode=0.0, embedding=embedding, audit_status=AuditStatus.PROCESSING,
+            source_job="", oss_key=oss_key, owner_id=owner_id, content_hash=content_hash,
+        )
+        self._repo.save(material)
+        return material
+
     def get_signed_url(self, material_id: str) -> str:
         """REQ-102:返回受时限签名 URL。物料不存在(含已删)→ 抛错。"""
         material = self._repo.get(material_id)
