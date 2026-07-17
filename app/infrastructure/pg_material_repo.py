@@ -93,6 +93,17 @@ class PgMaterialRepo:
     # ── CRUD ──
     def save(self, material: Material) -> None:
         from psycopg.types.json import Jsonb
+        # domain 层可能传 UUID id;PG 用雪花 BIGINT → 先尝试转换,失败则换发雪花
+        try:
+            rid = int(material.id)
+        except (TypeError, ValueError):
+            # 旧 UUID 或非整数 id → 换发雪花(新入库);已存在的按 content_hash 找
+            existing = None
+            if material.content_hash and material.owner_id:
+                existing = self.by_content_hash(material.owner_id, material.content_hash)
+            rid = int(existing.id) if existing else self._idgen()
+            material.id = str(rid)  # 回写:调用方后续用 material.id 操作(如 index_material)
+
         with self._conn() as c:
             c.execute(
                 f"""INSERT INTO {self._table}
@@ -123,7 +134,7 @@ class PgMaterialRepo:
                         reject_events = EXCLUDED.reject_events,
                         update_by = EXCLUDED.update_by,
                         update_time = now()""",
-                (int(material.id), material.type.value, material.thumb,
+                (rid, material.type.value, material.thumb,
                  material.source_timecode, material.audit_status.value,
                  material.source_job, material.oss_key, material.description,
                  material.owner_id, material.is_public, material.audit_report_id,

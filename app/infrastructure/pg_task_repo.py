@@ -66,7 +66,13 @@ class PgAuditTaskRepo:
             c.execute(f"CREATE INDEX IF NOT EXISTS idx_{t}_live ON {t} (del_flag) WHERE del_flag = 0")
 
     def save(self, task: AuditTask) -> None:
-        """插入或按 id 覆盖(upsert)。更新只动业务列 + update_by/update_time。"""
+        """插入或按 id 覆盖(upsert)。domain 层可能传 UUID id,自动换发雪花。更新只动业务列。"""
+        try:
+            tid = int(task.id)
+        except (TypeError, ValueError):
+            tid = self._idgen()
+            task.id = str(tid)
+
         with self._conn() as c:
             c.execute(
                 f"""INSERT INTO {self._table}
@@ -88,7 +94,7 @@ class PgAuditTaskRepo:
                         project_id = EXCLUDED.project_id,
                         update_by = EXCLUDED.update_by,
                         update_time = now()""",
-                (int(task.id), task.owner_id, task.name, task.material_type.value,
+                (tid, task.owner_id, task.name, task.material_type.value,
                  task.material_id, task.content_hash, task.status.value, task.verdict,
                  task.report_id, task.created_ms, task.error, task.video_kind,
                  task.project_id, task.owner_id, task.owner_id),

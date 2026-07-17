@@ -67,7 +67,9 @@
 | `.venv\Scripts\python app\main.py` | 启动开发服务器 (localhost:8099, hot-reload) |
 | `bash scripts/verify.sh` | 三层闭环验证（架构+代码+产品） |
 | `.venv\Scripts\lint-imports` | 架构契约检查 |
-| `.venv\Scripts\pytest -q` | 单元/集成测试 |
+| `.venv\Scripts\pytest -q` | 单元/集成测试（271 tests） |
+| `.venv\Scripts\pytest tests/test_pg_repos.py -q` | PG 仓储集成测试（35 tests，需 `AM_DATABASE_URL`） |
+| `.venv\Scripts\python scripts/migrate_all_to_pg.py` | state.json → PG 全量数据迁移（幂等） |
 | `.venv\Scripts\behave specs/features` | BDD 验收测试 |
 | `make serve` | Linux/Mac 启动（Windows 用上面那条 `python app\main.py`） |
 
@@ -79,7 +81,7 @@
 | ③ 代码 | `pytest`（271 tests） |
 | ① 产品 | `behave`（7 features / 17 scenarios） |
 
-**测试注意**: `JsonUserRepo`（state.json）在测试间持久化，测试需自行清理所建用户，否则下回跑 409。跑测试前先停掉本地服务进程，防 state.json 锁冲突（`PermissionError`）。
+**测试注意**: conftest 已 monkeypatch 全部仓储为内存实现（含 user/favorites/rbac/audit_log），不再依赖 state.json，消除了测试间状态污染和 409 问题。PG 仓储集成测试在 `tests/test_pg_repos.py`（35 tests），用一次性表隔离，需要 `AM_DATABASE_URL` 指向真实 PG。
 
 ## 部署（单实例 Docker Compose）
 

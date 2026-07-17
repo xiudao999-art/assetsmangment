@@ -210,6 +210,15 @@
     .skel .frame,.skl-l{animation:none;background:var(--raise)}
     .cell,.rail,.drawer,.pgbtn{transition:none;transform:none}
   }
+  .select-btn{width:100%;min-height:42px;display:flex;align-items:center;justify-content:space-between;gap:10px;padding:10px 12px;border:1px solid var(--line-2);border-radius:9px;background:var(--panel);color:var(--ink);cursor:pointer;font:400 14px/1.35 Inter;text-align:left;white-space:nowrap;overflow:hidden;text-overflow:ellipsis;transition:border-color .15s,background .15s,color .15s}
+  .select-btn:hover{border-color:var(--faint)}
+  .select-btn.open{border-color:var(--mint);background:var(--panel)}
+  .select-btn:focus-visible{outline:2px solid color-mix(in oklab,var(--mint) 60%,transparent);outline-offset:2px}
+  .src-dropdown{position:absolute;top:calc(100% + 4px);left:0;z-index:50;min-width:100%;max-width:min(320px,calc(100vw - 40px));border:1px solid var(--line-2);border-radius:9px;background:var(--panel);box-shadow:0 10px 24px rgba(28,21,38,.08);padding:6px;display:grid;gap:2px}
+  .src-opt{display:flex;align-items:center;gap:10px;padding:8px 10px;border-radius:7px;font:400 14px/1.4 Inter;color:var(--dim);cursor:pointer;transition:background .12s,color .12s,border-color .12s;border:1px solid transparent}
+  .src-opt:hover{background:var(--raise);color:var(--ink)}
+  .src-opt:has(input:checked){background:color-mix(in oklab,var(--mint) 8%,var(--panel));color:var(--ink)}
+  .src-opt input[type=checkbox]{width:16px;height:16px;flex:none;margin:0;accent-color:var(--mint)}
 </style>
 </head>
 <body>
@@ -343,8 +352,9 @@
 
         <div style="display:flex;align-items:center;gap:12px;color:var(--dim);font-size:12px;margin:2px 0 14px"><span style="flex:1;height:1px;background:var(--line)"></span>或手动添加单条<span style="flex:1;height:1px;background:var(--line)"></span></div>
         <div class="row" style="align-items:flex-end;flex-wrap:wrap;gap:12px">
-          <div class="field f-fixed" style="margin:0"><label>来源类型</label>
-            <select id="ru-src"><option value="any">全部</option><option value="original_text">上传原文</option><option value="transcript">语音转写</option><option value="image_content">图像画面</option><option value="video_frame">视频帧画面</option></select></div>
+          <div class="field f-fixed" style="margin:0;position:relative"><label>来源类型</label>
+            <button type="button" id="ru-src-btn" class="select-btn" aria-haspopup="true" aria-expanded="false" onclick="toggleSrcDropdown()">全部 ▾</button>
+            <div id="ru-src-dd" class="src-dropdown" style="display:none"><label class="src-opt"><input type="checkbox" value="any" onchange="srcOptToggle(this)"> 全部</label><label class="src-opt"><input type="checkbox" value="original_text" onchange="srcOptToggle(this)"> 上传原文</label><label class="src-opt"><input type="checkbox" value="transcript" onchange="srcOptToggle(this)"> 语音转写</label><label class="src-opt"><input type="checkbox" value="image_content" onchange="srcOptToggle(this)"> 图像画面</label><label class="src-opt"><input type="checkbox" value="video_frame" onchange="srcOptToggle(this)"> 视频帧画面</label></div></div>
           <div class="field f-fixed" style="margin:0"><label>动作</label><select id="ru-act"><option value="block">拦截</option><option value="review">待复核</option></select></div>
           <div class="field f-fixed" style="margin:0"><label>严格程度</label><select id="ru-level" onchange="ruLevelToggle()"><option value="metaphor">隐喻(连影射暗示都拦)</option><option value="literal">字面(只按表面意思)</option><option value="regex">正则(自然语言→大模型编译,审核不走大模型)</option></select></div>
         </div>
@@ -411,7 +421,7 @@ const LT={image:'图片',meme:'表情包',video:'视频',style:'风格',corpus:'
 const MAX_UPLOAD=1024*1024*1024;   // 单文件上限 1GB
 const fmtMB=n=>Math.round(n/1048576);
 const VERDICT_CN={processing:'审核中',pass:'通过',review:'待人工复核',block:'拦截'};
-const SRC_CN={original_text:'上传原文',transcript:'语音转写',image_content:'图像画面',video_frame:'视频帧画面',text:'文本'};
+const SRC_CN={original_text:'上传原文',transcript:'语音转写',image_content:'图像画面',video_frame:'视频帧画面',any:'全部',text:'文本'};
 function esc(s){return (s||'').replace(/[&<>"]/g,c=>({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;'}[c]))}
 const ALLSEEN={};   // id→物料(供详情面板取摘要/标签)
 const TCODE=t=>{const s=Math.max(0,Math.floor(t||0));return `00:${String(Math.floor(s/60)).padStart(2,'0')}:${String(s%60).padStart(2,'0')}`};
@@ -852,11 +862,18 @@ async function loadRules(){await ensureProjects('#ru-project',true);fillCondPres
       const kwLabel=x.match_level==='regex'?'要拦':'关键词';
       const reLine=(x.match_level==='regex'&&x.regex)?`<div class="k" style="margin-top:3px;font-family:ui-monospace,monospace">正则:${esc(x.regex).slice(0,160)}</div>`:'';
       const noTag=x.no?`<b style="color:var(--mint)">规则 ${x.no}</b> · `:'';
-      return `<div class="qrow"><div class="meta"><div>${noTag}${SRC_CN[x.source_type]||'全部'} · <span class="stamp ${x.action==='block'?'block':'review'}">${x.action==='block'?'拦截':'待复核'}</span> · <span class="stamp" style="color:var(--dim)">${lvCn}</span></div><div class="k">${kwLabel}:${(x.keywords||[]).map(esc).join('、')||'—'}${x.match_level==='regex'?'':' ｜ 条件:'+esc(x.condition||'—')}</div>${reLine}${guideLine}${excLine}</div><button class="btn sm" onclick="editRule('${x.id}')">编辑</button><button class="btn sm block" onclick="delRule('${x.id}')">删除</button></div>`;
+      return `<div class="qrow"><div class="meta"><div>${noTag}${(x.source_type||'any').split(',').map(t=>SRC_CN[t.trim()]||t).join('/')||'全部'} · <span class="stamp ${x.action==='block'?'block':'review'}">${x.action==='block'?'拦截':'待复核'}</span> · <span class="stamp" style="color:var(--dim)">${lvCn}</span></div><div class="k">${kwLabel}:${(x.keywords||[]).map(esc).join('、')||'—'}${x.match_level==='regex'?'':' ｜ 条件:'+esc(x.condition||'—')}</div>${reLine}${guideLine}${excLine}</div><button class="btn sm" onclick="editRule('${x.id}')">编辑</button><button class="btn sm block" onclick="delRule('${x.id}')">删除</button></div>`;
     }).join(''):'<div class="empty">该作用域还没有规则,加一条试试。</div>')}
 async function delRuleException(id,idx){const r=await api('DELETE','/audit/rules/'+id+'/exceptions?index='+idx);if(r.ok){toast('已移除例外');loadRules()}else toast(r.data.detail||'移除失败',true)}
+function srcTypeVal(){const cbs=document.querySelectorAll('#ru-src-dd input[type=checkbox]:checked');return Array.from(cbs).map(c=>c.value).join(',')||'any'}
+function setSrcType(raw){const vals=(raw||'any').split(',').map(s=>s.trim());document.querySelectorAll('#ru-src-dd input[type=checkbox]').forEach(c=>{c.checked=vals.includes(c.value)});updateSrcBtn()}
+function srcOptToggle(cb){if(cb.value==='any'&&cb.checked){document.querySelectorAll('#ru-src-dd input[type=checkbox]').forEach(c=>{if(c.value!=='any')c.checked=false})}else if(cb.value!=='any'&&cb.checked){const anyCb=document.querySelector('#ru-src-dd input[value=any]');if(anyCb)anyCb.checked=false}updateSrcBtn()}
+function updateSrcBtn(){const vals=srcTypeVal().split(',').filter(Boolean);const names={any:'全部',original_text:'上传原文',transcript:'语音转写',image_content:'图像画面',video_frame:'视频帧画面'};let label='全部';if(!(vals.length===5||vals.includes('any'))){label=vals.length<=2?vals.map(v=>names[v]||v).join('、'):`已选 ${vals.length} 项`}$('#ru-src-btn').textContent=label+' ▾'}
+function setSrcDropdown(open){const dd=document.getElementById('ru-src-dd'),btn=document.getElementById('ru-src-btn');if(!dd||!btn)return;dd.style.display=open?'grid':'none';btn.classList.toggle('open',open);btn.setAttribute('aria-expanded',open?'true':'false')}
+function toggleSrcDropdown(){const dd=document.getElementById('ru-src-dd');setSrcDropdown(dd?.style.display==='none')}
+document.addEventListener('click',e=>{if(!e.target.closest('#ru-src-btn')&&!e.target.closest('#ru-src-dd'))setSrcDropdown(false)})
 function editRule(id){const x=RULES_CACHE[id];if(!x)return;EDITING_RULE=id;
-  $('#ru-src').value=x.source_type||'any';$('#ru-act').value=x.action||'block';
+  setSrcType(x.source_type||'any');$('#ru-act').value=x.action||'block';
   const lv=$('#ru-level');if(lv)lv.value=['literal','regex'].includes(x.match_level)?x.match_level:'metaphor';
   $('#ru-kw').value=(x.keywords||[]).join(',');$('#ru-cond').value=x.condition||'';
   const rx=$('#ru-regex');if(rx)rx.value=x.regex||'';ruLevelToggle();
@@ -865,7 +882,7 @@ function editRule(id){const x=RULES_CACHE[id];if(!x)return;EDITING_RULE=id;
   const pj=$('#ru-project');if(pj&&[...pj.options].some(o=>o.value===(x.project_id||'')))pj.value=x.project_id||'';  // 只设值,不触发 loadRules
   $('#ru-save-btn').textContent='保存修改';$('#ru-cancel').style.display='inline';
   $('#ru-src').scrollIntoView({behavior:'smooth',block:'center'})}
-function cancelEdit(){EDITING_RULE='';$('#ru-kw').value='';$('#ru-cond').value='';
+function cancelEdit(){EDITING_RULE='';setSrcType('any');$('#ru-kw').value='';$('#ru-cond').value='';
   const g=$('#ru-guidance');if(g)g.value='';
   const rx=$('#ru-regex');if(rx)rx.value='';
   const lv=$('#ru-level');if(lv)lv.value='metaphor';   // 复位为默认(隐喻)
@@ -886,7 +903,7 @@ async function genRegex(){const text=$('#ru-kw').value.trim();
     toast('已生成正则,可再手动微调')}
   else toast(r.data.detail||'生成失败',true)}
 async function saveRule(){const kw=$('#ru-kw').value.split(/[，,]/).map(s=>s.trim()).filter(Boolean);
-  const body={source_type:$('#ru-src').value,keywords:kw,condition:$('#ru-cond').value.trim(),
+  const body={source_type:srcTypeVal(),keywords:kw,condition:$('#ru-cond').value.trim(),
               action:$('#ru-act').value,project_id:$('#ru-project')?.value||'',guidance:($('#ru-guidance')?.value||'').trim(),
               match_level:$('#ru-level')?.value||'metaphor',regex:($('#ru-regex')?.value||'').trim()};
   if(body.match_level==='regex'){if(!kw.length&&!body.regex){toast('正则规则:请填「要拦的内容」或直接写正则',true);return}}
@@ -910,7 +927,7 @@ async function parseRules(){const scope=$('#ru-project')?.value||'';
 function renderParsed(){const box=$('#ru-parsed');if(!box)return;
   if(!PARSED.length){box.innerHTML='';return}
   const scope=$('#ru-project')?.value||'';const scopeCn=scope?projName(scope):'标准(全局)';
-  const rows=PARSED.map((x,i)=>`<div class="qrow"><div class="meta"><div>${x.category?`<span class="stamp" style="color:var(--dim)">${esc(x.category)}</span> `:''}${SRC_CN[x.source_type]||'全部'} · <span class="stamp ${x.action==='block'?'block':'review'}">${x.action==='block'?'拦截':'待复核'}</span> · <span class="stamp" style="color:var(--dim)">${x.match_level==='literal'?'字面':'隐喻'}</span></div><div class="k">关键词:${(x.keywords||[]).map(esc).join('、')||'—'} ｜ 条件:${esc(x.condition||'—')}</div></div><button class="btn sm block" onclick="dropParsed(${i})">移除</button></div>`).join('');
+  const rows=PARSED.map((x,i)=>`<div class="qrow"><div class="meta"><div>${x.category?`<span class="stamp" style="color:var(--dim)">${esc(x.category)}</span> `:''}${(x.source_type||'any').split(',').map(t=>SRC_CN[t.trim()]||t).join('/')||'全部'} · <span class="stamp ${x.action==='block'?'block':'review'}">${x.action==='block'?'拦截':'待复核'}</span> · <span class="stamp" style="color:var(--dim)">${x.match_level==='literal'?'字面':'隐喻'}</span></div><div class="k">关键词:${(x.keywords||[]).map(esc).join('、')||'—'} ｜ 条件:${esc(x.condition||'—')}</div></div><button class="btn sm block" onclick="dropParsed(${i})">移除</button></div>`).join('');
   box.innerHTML=`<div class="owner" style="margin-bottom:8px">预览 <b>${PARSED.length}</b> 条(可移除个别条),确认后落到作用域「<b>${esc(scopeCn)}</b>」</div>`+rows+
     `<div style="display:flex;gap:10px;margin-top:6px"><button class="btn key" onclick="confirmParsed()">确认添加 ${PARSED.length} 条</button><button class="btn sm" onclick="PARSED=[];renderParsed()">清空</button></div>`}
 function dropParsed(i){PARSED.splice(i,1);renderParsed()}

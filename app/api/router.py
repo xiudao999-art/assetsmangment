@@ -669,8 +669,10 @@ async def audit_submit(type: str = Form("image"), content: str = Form(""),
         return {"status": "submitted", "task_id": task.id, "material_id": m.id}
     except HTTPException:
         raise
-    except Exception:                                       # OSS 上传/建库/索引失败 → 友好提示,不抛 500
-        raise HTTPException(502, "上传到存储或建库失败,请稍后重试。")
+    except Exception as _e:                                 # OSS 上传/建库/索引失败 → 友好提示,不抛 500
+        import traceback
+        traceback.print_exc()
+        raise HTTPException(502, f"上传到存储或建库失败,请稍后重试。({_e})")
     finally:
         _dedup_release(owner, chash)
 
