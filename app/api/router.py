@@ -7,6 +7,7 @@ import threading
 from fastapi import APIRouter, HTTPException, UploadFile, File, Form, Header, Depends, Query
 from fastapi.concurrency import run_in_threadpool
 from app.api import deps, schemas
+from app.infrastructure.snowflake import next_id_str   # 规则主键:雪花 BIGINT 的字符串形态(PG 规范)
 from app.domain.models import MaterialType, AuditStatus, Material, AuditRule, User, AuditTask, JobStatus, Project, TextSourceType
 from app.service.material import MaterialNotFound
 from app.service.user import InvalidCredentials, DuplicateName
@@ -769,12 +770,12 @@ def add_audit_rule(body: schemas.RuleIn, user: dict = Depends(_user)):
     project_id = (body.project_id or "").strip()
     if project_id and deps.project_repo.get(project_id) is None:
         raise HTTPException(400, "所选项目不存在。")
-    rule = AuditRule(id=uuid.uuid4().hex, no=_next_rule_no(), source_type=body.source_type or "any",
+    rule = AuditRule(id=next_id_str(), no=_next_rule_no(), source_type=body.source_type or "any",
                      keywords=[k for k in body.keywords if k.strip()], condition=body.condition.strip(),
                      action=action, enabled=True, created_by=user["id"], project_id=project_id,
                      guidance=(body.guidance or "").strip(), match_level=_norm_level(body.match_level),
                      regex=(body.regex or "").strip())
-    deps.rule_repo.add(rule)
+    deps.rule_repo.add(rule, by=user["id"])
     return _rule_out(rule)
 
 
@@ -796,7 +797,7 @@ def update_audit_rule(rule_id: str, body: schemas.RuleIn, user: dict = Depends(_
                         project_id=project_id, guidance=(body.guidance or "").strip(),
                         match_level=_norm_level(body.match_level), regex=(body.regex or "").strip(),
                         exceptions=getattr(existing, "exceptions", []))   # 编号/例外不随编辑丢失
-    deps.rule_repo.add(updated)   # dict keyed by id → 覆盖
+    deps.rule_repo.add(updated, by=user["id"])   # 按 id 覆盖(upsert)
     return _rule_out(updated)
 
 
@@ -853,11 +854,11 @@ def bulk_add_audit_rules(body: schemas.RulesBulkIn, user: dict = Depends(_user))
         if not kws and not cond:
             continue    # 空规则(无词无条件)—— 无法命中,跳过
         action = d.action if d.action in ("block", "review") else "review"
-        rule = AuditRule(id=uuid.uuid4().hex, no=_next_rule_no(), source_type=st, keywords=kws,
+        rule = AuditRule(id=next_id_str(), no=_next_rule_no(), source_type=st, keywords=kws,
                          condition=cond, action=action, enabled=True,
                          created_by=user["id"], project_id=project_id,
                          match_level=_norm_level(getattr(d, "match_level", "metaphor")))
-        deps.rule_repo.add(rule)   # 立刻落库 → 下一条 _next_rule_no 见到它、编号递增
+        deps.rule_repo.add(rule, by=user["id"])   # 立刻落库 → 下一条 _next_rule_no 见到它、编号递增
         created.append(rule)
     return {"created": len(created), "rules": [_rule_out(r) for r in created]}
 
@@ -865,7 +866,7 @@ def bulk_add_audit_rules(body: schemas.RulesBulkIn, user: dict = Depends(_user))
 @router.delete("/audit/rules/{rule_id}")
 def delete_audit_rule(rule_id: str, user: dict = Depends(_user)):
     _require_perm(user, "audit.rules")
-    deps.rule_repo.delete(rule_id)
+    deps.rule_repo.delete(rule_id, by=user["id"])
     return {"deleted": rule_id}
 
 
@@ -889,7 +890,7 @@ def add_rule_exception(rule_id: str, body: schemas.RuleExceptionIn, user: dict =
         rule.exceptions = []
     rule.exceptions.append({"text": text[:500], "note": (body.note or "").strip()[:500],
                             "by": user["id"], "ms": int(time.time() * 1000)})
-    deps.rule_repo.add(rule)
+    deps.rule_repo.add(rule, by=user["id"])
     return _rule_out(rule)
 
 
@@ -904,7 +905,7 @@ def delete_rule_exception(rule_id: str, index: int, user: dict = Depends(_user))
     if 0 <= index < len(exc):
         exc.pop(index)
         rule.exceptions = exc
-        deps.rule_repo.add(rule)
+        deps.rule_repo.add(rule, by=user["id"])
     return _rule_out(rule)
 
 
@@ -940,7 +941,7 @@ def delete_audit_task(task_id: str, user: dict = Depends(_user)):
 
 @router.post("/audit/tasks/{task_id}/recheck")
 def recheck_audit_task(task_id: str, user: dict = Depends(_user)):
-    """加白/改规则后,用当前白名单重新判定该任务(只对已存报告重判,不重抽帧/转写)。改判需审核权限。"""
+    """加白/改规则后,用当前白名单重新判定该任务(画面用当前 vision 提示词重新反解,不重抽帧/转写)。改判需审核权限。"""
     _require_perm(user, "materials.audit")
     t = deps.task_repo.get(task_id)
     if t is None:
@@ -956,8 +957,8 @@ def recheck_audit_task(task_id: str, user: dict = Depends(_user)):
 
 @router.post("/materials/{mid}/recheck")
 def recheck_material(mid: str, user: dict = Depends(_user)):
-    """审核队列里对单条物料「按最新规则重新审核」:复用已存报告的 segments,不重转写/抽帧,
-    只用**当前**规则重跑三波级联 → 回写报告 + 物料状态 + 关联任务,同步返回新报告(标红即刷新)。"""
+    """审核队列里对单条物料「按最新规则重新审核」:画面用当前 vision 提示词重新反解,
+    口播/原文复用已存 segments;只用**当前**规则重跑三波级联 → 回写报告 + 物料状态 + 关联任务,同步返回新报告(标红即刷新)。"""
     _require_perm(user, "materials.audit")
     m = deps.material_repo.get(mid)
     if m is None:
@@ -1270,7 +1271,7 @@ def add_project(body: schemas.ProjectIn, user: dict = Depends(_user)):
         raise HTTPException(400, "项目名不能为空。")
     if deps.project_repo.get_by_name(name) is not None:
         raise HTTPException(409, "项目名已存在。")
-    p = Project(id=uuid.uuid4().hex, name=name, created_by=user["id"], created_ms=int(time.time() * 1000))
+    p = Project(id=next_id_str(), name=name, created_by=user["id"], created_ms=int(time.time() * 1000))
     deps.project_repo.add(p)
     return _project_out(p)
 
@@ -1288,7 +1289,7 @@ def delete_project(project_id: str, user: dict = Depends(_user)):
         raise HTTPException(400, f"该项目下还有 {n} 个作品,请先处理这些作品再删除项目。")
     for r in deps.rule_repo.list():                        # 连带删该项目的规则
         if getattr(r, "project_id", "") == project_id:
-            deps.rule_repo.delete(r.id)
+            deps.rule_repo.delete(r.id, by=user["id"])
     deps.project_repo.delete(project_id)
     return {"deleted": project_id}
 

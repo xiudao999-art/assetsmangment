@@ -48,3 +48,45 @@
 ## 协作与成本
 - **每个 BMAD 工作流开新 chat**(防上下文污染);规划期可用 Web Bundles 省 token。
 - 小改走 Quick Flow,不上全套敏捷仪式。
+
+## 本地启动
+
+```powershell
+# 前提: PostgreSQL(127.0.0.1:5432, 库 assets + pgvector) + Redis 已运行
+.venv\Scripts\python app\main.py    # → http://localhost:8099
+```
+
+**Windows 注意**: 虚拟环境路径是 `.venv\Scripts\`（非 `bin/`），且所有 Python 命令需设 `PYTHONUTF8=1`（防 GBK 解码错误）。`scripts/verify.sh` 已适配跨平台路径。
+
+**PyCharm 注意**: `config.py` 的 `env_file=".env"` 相对 CWD 解析。PyCharm 需在 Run Configuration 里把 **Working directory** 设为项目根目录 `D:\project\assetsmangment`，否则 `.env` 找不到 → 走内存/JSON 假实现而非 PG。
+
+### 常用命令（Windows）
+
+| 命令 | 用途 |
+|---|---|
+| `.venv\Scripts\python app\main.py` | 启动开发服务器 (localhost:8099, hot-reload) |
+| `bash scripts/verify.sh` | 三层闭环验证（架构+代码+产品） |
+| `.venv\Scripts\lint-imports` | 架构契约检查 |
+| `.venv\Scripts\pytest -q` | 单元/集成测试 |
+| `.venv\Scripts\behave specs/features` | BDD 验收测试 |
+| `make serve` | Linux/Mac 启动（Windows 用上面那条 `python app\main.py`） |
+
+### 三层验证状态
+
+| 传感器 | 命令 |
+|---|---|
+| ② 架构 | `lint-imports`（3 contracts） |
+| ③ 代码 | `pytest`（236 tests） |
+| ① 产品 | `behave`（7 features / 17 scenarios） |
+
+**测试注意**: `JsonUserRepo`（state.json）在测试间持久化，测试需自行清理所建用户，否则下回跑 409。跑测试前先停掉本地服务进程，防 state.json 锁冲突（`PermissionError`）。
+
+### PG 真源迁移（进行中）
+
+| 模块 | 表 | 仓储 | 状态 |
+|---|---|---|---|
+| 审核规则 | `audit_rule` | `PgAuditRuleRepo` | ✅ 已迁移 |
+| 作品项目 | `project` | `PgProjectRepo` | ✅ 已迁移 |
+| 物料/用户/收藏等 | — | JSON/内存 | 待迁移 |
+
+全项目 PG 表遵循统一基础字段规范：`id`（雪花 BIGINT 主键）、`del_flag`（0=在用，软删置新雪花 ID）、`create_by`/`create_time`/`update_by`/`update_time`。domain 层的 `id` 均为 `str`（雪花 int64 序列化，防 JS 2^53 精度丢失）。

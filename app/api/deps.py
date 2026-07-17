@@ -4,6 +4,7 @@ from __future__ import annotations
 import uuid
 import time
 from app.config import settings
+from app.infrastructure.snowflake import next_id, next_id_str
 from app.domain.models import User, Project
 from app.service.material import MaterialService
 from app.service.search import SearchService
@@ -29,6 +30,10 @@ if settings.oss_access_key_id and settings.oss_bucket:
     storage = OssStorage()   # 真 OSS
 else:
     storage = FakeStorage()
+
+# 占位 DSN(默认值)= 视为未配库;真实 DSN 才接 PG(规则真源 + pgvector)。
+_placeholder_db = settings.database_url.startswith("postgresql://user:pass@localhost")
+_real_db = bool(settings.database_url) and not _placeholder_db
 
 # 物料/用户/收藏/权限:设了 AM_DATA_DIR 就落 JSON 文件(容器重启不丢),否则纯内存。
 if settings.data_dir:
@@ -60,9 +65,33 @@ else:
     blockword_repo = InMemoryBlockwordRepo()
     project_repo = InMemoryProjectRepo()
 
+# 审核规则:配置了真实 AM_DATABASE_URL → PG 是唯一真源(audit_rule 表,雪花ID+软删基础字段),
+# 覆盖上面的 JSON/内存实现。连接/建表失败 = 启动即报错,**不静默回退 JSON**(回退会分叉真源、
+# 丢数据)—— 与 PgVectorIndex import 时建表的既有行为一致。
+if _real_db:
+    from app.infrastructure.pg_rule_repo import PgAuditRuleRepo
+    try:
+        rule_repo = PgAuditRuleRepo(settings.database_url)
+    except Exception as _e:
+        raise RuntimeError(
+            f"AM_DATABASE_URL 已配置但 PG 连接/建表失败:{_e}。"
+            "规则真源在 PG,不做静默回退 —— 请检查数据库可达性/凭据后再启动。"
+        ) from _e
+
+# 作品项目:配了真 PG 同样走雪花ID+软删,material.project_id 引用项目 id str,
+# 与规则一致(同一 PG 实例,不额外连)。连接/建表失败同理不静默回退。
+if _real_db:
+    from app.infrastructure.pg_project_repo import PgProjectRepo
+    try:
+        project_repo = PgProjectRepo(settings.database_url)
+    except Exception as _e:
+        raise RuntimeError(
+            f"AM_DATABASE_URL 已配置但 PG 项目表连接/建表失败:{_e}。"
+            "项目真源在 PG,不做静默回退 —— 请检查数据库可达性/凭据后再启动。"
+        ) from _e
+
 # 向量索引:有真 embedding(DashScope)+ 真 pg 连接串 → pgvector 语义近邻;否则内存
-_placeholder_db = settings.database_url.startswith("postgresql://user:pass@localhost")
-if settings.dashscope_api_key and settings.database_url and not _placeholder_db:
+if settings.dashscope_api_key and _real_db:
     from app.infrastructure.pgvector_index import PgVectorIndex
     index = PgVectorIndex(settings.database_url, dim=settings.embedding_dim)
     _vector_search = True
@@ -153,7 +182,7 @@ def ensure_default_project() -> str:
     existing = project_repo.list()
     if existing:
         return min(existing, key=lambda p: p.created_ms).id
-    p = Project(id=uuid.uuid4().hex, name="汽水音乐", created_by="admin",
+    p = Project(id=next_id_str(), name="汽水音乐", created_by="admin",
                 created_ms=int(time.time() * 1000))
     project_repo.add(p)
     return p.id
