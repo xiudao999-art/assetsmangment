@@ -9,6 +9,7 @@ from fastapi.concurrency import run_in_threadpool
 from app.api import deps, schemas
 from app.infrastructure.snowflake import next_id_str   # 规则主键:雪花 BIGINT 的字符串形态(PG 规范)
 from app.domain.models import MaterialType, AuditStatus, Material, AuditRule, User, AuditTask, JobStatus, Project, TextSourceType
+from app.domain.mp4 import parse_mp4_duration_ms
 from app.service.material import MaterialNotFound
 from app.service.user import InvalidCredentials, DuplicateName
 from app.service.authorization import PermissionDenied
@@ -512,7 +513,9 @@ def _process_one_batch_item(item: tuple, owner_id: str) -> None:
             m = msvc.create(mtype, key, data, owner_id, chash)
             # 物料视频 ≤20s 护栏(与单个上传一致):超时长→删物料+任务失败,不入库不审核;请改选「作品」
             if mtype == MaterialType.VIDEO and kind == "material":
-                dur = deps.storage.video_duration_ms(m.oss_key)
+                dur = parse_mp4_duration_ms(data)   # 优先内存解析,避免 OSS 回读
+                if dur is None:
+                    dur = deps.storage.video_duration_ms(m.oss_key)
                 if dur is not None and dur > 20000:
                     msvc.delete(m.id)
                     task.status = JobStatus.FAILED
@@ -655,13 +658,18 @@ async def audit_submit(type: str = Form("image"), content: str = Form(""),
                 "message": f"「{fname}」已在你的库中,未重复上传。"}
     try:
         key = f"audit/{uuid.uuid4().hex}-{fname}"
-        m = await run_in_threadpool(deps.get_material_service().create, mtype, key, data, owner, chash)
+        # 流式上传:seek 回文件头,OSS 从 file-like 对象分块读取,避免全量 bytes 再次拷贝
+        await file.seek(0)
+        m = await run_in_threadpool(deps.get_material_service().create_file,
+                                     mtype, key, file.file, owner, chash)
         if project_id and mtype == MaterialType.VIDEO:     # 作品(视频)落项目(队列按 Material.project_id 分栏/筛)
             m.project_id = project_id
             deps.material_repo.save(m)
-        # 物料视频强制 ≤20 秒(作品不限);解析不到时长则放行,前端已预检
+        # 物料视频强制 ≤20 秒(作品不限);优先从内存 data 解析 MP4 时长,失败回退 OSS
         if mtype == MaterialType.VIDEO and video_kind == "material":
-            dur = await run_in_threadpool(deps.storage.video_duration_ms, m.oss_key)
+            dur = parse_mp4_duration_ms(data)
+            if dur is None:
+                dur = await run_in_threadpool(deps.storage.video_duration_ms, m.oss_key)
             if dur is not None and dur > 20000:
                 await run_in_threadpool(deps.get_material_service().delete, m.id)  # 删 OSS + 元数据
                 return {"status": "too_long",

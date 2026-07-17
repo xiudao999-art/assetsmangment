@@ -102,6 +102,10 @@ class FakeStorage:
     def put(self, oss_key: str, data: bytes = b"") -> None:
         self._keys.add(oss_key)
 
+    def put_fileobj(self, oss_key: str, fileobj) -> None:
+        """流式上传:从 file-like 对象读取并存储。"""
+        self._keys.add(oss_key)
+
     def signed_url(self, oss_key: str) -> str:
         return f"https://oss.fake/{oss_key}?Expires=3600&Signature=xyz"
 

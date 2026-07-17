@@ -95,6 +95,7 @@ class MaterialRepo(Protocol):
 class ObjectStorage(Protocol):
     """OSS 存储端口。"""
     def put(self, oss_key: str, data: bytes) -> None: ...
+    def put_fileobj(self, oss_key: str, fileobj) -> None: ...   # 流式上传(file-like object)
     def signed_url(self, oss_key: str) -> str: ...          # 预览用签名 URL
     def download_url(self, oss_key: str) -> str: ...        # 下载用签名 URL(强制 attachment)
     def snapshot_url(self, oss_key: str, ms: int = 1000) -> str: ...  # 视频封面帧签名 URL

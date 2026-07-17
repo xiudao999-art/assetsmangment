@@ -2,28 +2,7 @@
 SDK 延迟导入,保证无 oss2/无密钥时模块仍可 import(仅实例化时才连)。"""
 from __future__ import annotations
 from app.config import settings
-
-
-def _mvhd_duration_ms(data: bytes):
-    """从 mp4 字节里找 mvhd atom,读 timescale/duration 算时长(ms)。"""
-    i = data.find(b"mvhd")
-    if i < 0:
-        return None
-    v = data[i + 4]  # mvhd 内容首字节 = version
-    try:
-        if v == 0:
-            if i + 24 > len(data):
-                return None
-            ts = int.from_bytes(data[i + 16:i + 20], "big")
-            du = int.from_bytes(data[i + 20:i + 24], "big")
-        else:  # version 1:创建/修改时间各 8 字节
-            if i + 36 > len(data):
-                return None
-            ts = int.from_bytes(data[i + 24:i + 28], "big")
-            du = int.from_bytes(data[i + 28:i + 36], "big")
-        return int(du / ts * 1000) if ts else None
-    except Exception:
-        return None
+from app.domain.mp4 import parse_mp4_duration_ms
 
 
 class OssStorage:
@@ -34,6 +13,56 @@ class OssStorage:
 
     def put(self, oss_key: str, data: bytes) -> None:
         self._bucket.put_object(oss_key, data)
+
+    def put_fileobj(self, oss_key: str, fileobj) -> None:
+        """流式上传到 OSS。≥10MB 用分片并发(UCloud 多连接),小文件直传。"""
+        # 取文件大小,判断是否走分片
+        try:
+            fileobj.seek(0, 2)
+            size = fileobj.tell()
+            fileobj.seek(0)
+        except Exception:
+            size = None
+        if size and size >= 10 * 1024 * 1024:
+            self._multipart_upload(oss_key, fileobj, size)
+        else:
+            self._bucket.put_object(oss_key, fileobj)
+
+    def _multipart_upload(self, oss_key: str, fileobj, total_size: int) -> None:
+        """分片并发上传:多线程并行 PUT 各分片,大文件显著快于单连接 PUT。"""
+        import oss2 as _oss2
+        from concurrent.futures import ThreadPoolExecutor, as_completed
+
+        part_size = max(1024 * 1024, total_size // 10)  # 1MB ~ total/10
+        # 预读全部分片到内存(上游已有 data bytes,不增加峰值)
+        chunks: list[bytes] = []
+        while True:
+            chunk = fileobj.read(part_size)
+            if not chunk:
+                break
+            chunks.append(chunk)
+
+        if not chunks:
+            self._bucket.put_object(oss_key, b"")
+            return
+
+        upload_id = self._bucket.init_multipart_upload(oss_key).upload_id
+        part_infos: list = [None] * len(chunks)
+        try:
+            workers = min(4, len(chunks))
+            with ThreadPoolExecutor(max_workers=workers) as ex:
+                futures = {
+                    ex.submit(self._bucket.upload_part, oss_key, upload_id, i + 1, chunks[i]): i
+                    for i in range(len(chunks))
+                }
+                for fut in as_completed(futures):
+                    idx = futures[fut]
+                    result = fut.result()
+                    part_infos[idx] = _oss2.models.PartInfo(idx + 1, result.etag)
+            self._bucket.complete_multipart_upload(oss_key, upload_id, part_infos)
+        except Exception:
+            self._bucket.abort_multipart_upload(oss_key, upload_id)
+            raise
 
     def signed_url(self, oss_key: str) -> str:
         # 受时限签名 URL(REQ-102)—— 预览用
@@ -61,13 +90,13 @@ class OssStorage:
         moov 可能在文件头(faststart)或尾部,两处都试;拿不到返回 None。"""
         try:
             head = self._bucket.get_object(oss_key, byte_range=(0, 512 * 1024 - 1)).read()
-            d = _mvhd_duration_ms(head)
+            d = parse_mp4_duration_ms(head)
             if d:
                 return d
             size = self._bucket.head_object(oss_key).content_length
             if size and size > 512 * 1024:
                 tail = self._bucket.get_object(oss_key, byte_range=(size - 512 * 1024, size - 1)).read()
-                return _mvhd_duration_ms(tail)
+                return parse_mp4_duration_ms(tail)
         except Exception:
             return None
         return None
