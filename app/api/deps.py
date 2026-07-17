@@ -293,6 +293,18 @@ def ensure_rule_numbers() -> None:
 ensure_rule_numbers()
 
 
+# ── Task janitor (startup recovery + runtime compensation for stuck audit tasks) ──
+from app.service.task_janitor import TaskJanitor   # noqa: E402 (import after singleton wiring)
+
+task_janitor = TaskJanitor(
+    task_repo=task_repo,
+    material_repo=material_repo,
+    storage=storage,
+    scan_interval_s=settings.janitor_scan_interval_s,
+    stuck_timeout_s=settings.janitor_stuck_timeout_s,
+)
+
+
 def get_material_service() -> MaterialService:
     return MaterialService(material_repo, storage, _embedder)
 

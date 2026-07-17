@@ -127,6 +127,16 @@ ${ASSETS_ROOT}  (默认 /software/project/python/assets)
 
 全项目 PG 表遵循统一基础字段规范：`id`（雪花 BIGINT 主键）、`del_flag`（0=在用，软删置新雪花 ID）、`create_by`/`create_time`/`update_by`/`update_time`。domain 层的 `id` 均为 `str`（雪花 int64 序列化，防 JS 2^53 精度丢失）。
 
+### Task Janitor（定时任务补偿，`app/service/task_janitor.py`）
+
+审核任务异步跑在 `ThreadPoolExecutor` 里。服务重启或外部 API 挂死 → 任务永远卡在 `PENDING/RUNNING`，物料永远 `PROCESSING`。JSON 存储仅在加载时内存修复，PG 存储无启动恢复。
+
+**两层补偿**（FastAPI `lifespan` 启动，`app/main.py`）：
+1. **启动恢复（同步）**：`task_janitor.start()` → 扫全部 `PENDING/RUNNING` 任务。物料已审核完成（`audit_status != processing`）→ 任务标 `DONE` 并同步裁定（`_persist` 成功但 `_finish_task` 写失败的保护）；物料仍 `processing` → 任务标 `FAILED` + 清理物料。
+2. **运行时常驻扫描（daemon 线程）**：每 `AM_JANITOR_SCAN_INTERVAL_S`（默认 300s）扫一次，把 `created_ms` 超过 `AM_JANITOR_STUCK_TIMEOUT_S`（默认 1800s）的 `PENDING/RUNNING` 任务按同上逻辑修复。fail 前 re-read 防竞态（audit pool 刚好完成的跳过）。
+
+**约定**：只依赖 domain ports（`AuditTaskRepo`/`MaterialRepo`/`ObjectStorage`），零 FastAPI 耦合。每层 try/except 隔离——单个失败不中断扫描。
+
 ## 审核规则系统
 
 ### 规则来源类型（`source_type`）

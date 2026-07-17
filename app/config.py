@@ -42,6 +42,9 @@ class Settings(BaseSettings):
     audit_concurrency: int = 6      # 同时在审的最大条数(总线程≈本值×帧池5,别调太高)
     ai_timeout_s: int = 60          # 单次 AI 调用(Qwen-VL/LLM/ASR轮询)超时秒数,到点降级
     ai_retries: int = 2             # 偶发失败的重试次数(不含首次)
+    # Task janitor (定时补偿:重启恢复 + 运行时扫描卡住的任务)
+    janitor_scan_interval_s: int = 300       # 扫描间隔(秒),默认 5 分钟
+    janitor_stuck_timeout_s: int = 1800      # PENDING/RUNNING 超过此时长 → FAILED,默认 30 分钟
     # 搜索:向量近邻的相关度阈值(余弦距离,越小越像)。超过此距离的语义近邻视为无关、不返回,
     # 避免"搜一个词却搜出不相关物料"。关键词命中始终优先返回。
     search_max_distance: float = 0.35   # multimodal-embedding-v1:相关≈0.25-0.31、无关≈0.39+,0.35 干净分开

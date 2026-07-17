@@ -1,11 +1,23 @@
 """FastAPI 入口 —— 物料管理系统。分层:api > service > domain > infrastructure。"""
 import os
+from contextlib import asynccontextmanager
 from fastapi import FastAPI
 from fastapi.responses import RedirectResponse
 from fastapi.staticfiles import StaticFiles
 from app.api.router import router
 
-app = FastAPI(title="物料管理系统", version="0.1.0")
+
+@asynccontextmanager
+async def lifespan(app: FastAPI):
+    """Startup: recover stuck tasks + begin periodic scanning.
+    Shutdown: signal the background thread to exit."""
+    from app.api.deps import task_janitor   # lazy import — deps 模块初始化较重
+    task_janitor.start()
+    yield
+    task_janitor.stop()
+
+
+app = FastAPI(title="物料管理系统", version="0.1.0", lifespan=lifespan)
 
 
 @app.middleware("http")
