@@ -42,3 +42,9 @@ build/
 
 # 本地生成的物料索引数据(reindex_vectors.py 产物,不入库)
 索引/
+
+# 部署制品
+assetsmangment.zip
+
+# 测试媒体素材(不入库)
+resources/

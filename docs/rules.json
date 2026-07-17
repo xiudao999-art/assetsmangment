@@ -1,0 +1,341 @@
+{
+  "rules": [
+    {
+      "id": "ca2362010fd8443b95fbbb26e1a74e0f",
+      "source_type": "video_frame",
+      "keywords": [
+        "国旗",
+        "国徽",
+        "国歌",
+        "军旗",
+        "军徽",
+        "华表",
+        "天安门",
+        "人民英雄纪念碑",
+        "人民大会堂",
+        "党徽",
+        "团徽",
+        "队徽",
+        "红领巾"
+      ],
+      "condition": "",
+      "action": "block",
+      "enabled": true
+    },
+    {
+      "id": "ad00a5de9f5c4ac09473ffe6766783d5",
+      "source_type": "any",
+      "keywords": [
+        "中国共产党",
+        "共青团",
+        "少先队",
+        "国企",
+        "央企",
+        "部",
+        "厅",
+        "局"
+      ],
+      "condition": "出现在宣传推介语境中，暗示官方背书或授权",
+      "action": "block",
+      "enabled": true
+    },
+    {
+      "id": "c1bd950df69d41d88308ab2c0407b955",
+      "source_type": "video_frame",
+      "keywords": [],
+      "condition": "画面中出现未授权的明星、真人、演员、影视角色、表情包、AI生成的短剧艺人或领导人形象",
+      "action": "block",
+      "enabled": true
+    },
+    {
+      "id": "4df805a611b74eb7a01119d76d9f9abe",
+      "source_type": "original_text",
+      "keywords": [
+        "杰瑞",
+        "海绵宝宝",
+        "玉桂狗",
+        "小黄人",
+        "蜡笔小新"
+      ],
+      "condition": "作为视频素材出现，且无版权授权证明",
+      "action": "block",
+      "enabled": true
+    },
+    {
+      "id": "735e9c0312f54a5ea81d2f6dd4a88a9f",
+      "source_type": "any",
+      "keywords": [
+        "网赚",
+        "赚钱买房",
+        "还花呗",
+        "端内完全没有的收益",
+        "打开就送10000金币",
+        "新人必得29元",
+        "一小时5块",
+        "1600金币=1元",
+        "11234步=1.23元",
+        "稳赚",
+        "躺赚",
+        "暴利",
+        "日入",
+        "月入",
+        "百分百赚钱",
+        "保底收益",
+        "投资回报率"
+      ],
+      "condition": "针对宣称无需劳动或极低投入即可获得真实金钱收益的网赚或理财诈骗话术，如日入过百、稳赚不赔、投资返利、提现到账等",
+      "action": "review",
+      "enabled": true
+    },
+    {
+      "id": "5e158768c6384091b1e1b0269b52908b",
+      "source_type": "any",
+      "keywords": [
+        "满xx可提现"
+      ],
+      "condition": "未同步展示提示语：所展示金额为广告创意，实际奖励金额根据任务完成情况而定，具体金额以活动规则为准",
+      "action": "review",
+      "enabled": true
+    },
+    {
+      "id": "121310252a2a4c0c804eff5cd0826111",
+      "source_type": "any",
+      "keywords": [
+        "100元",
+        "300元",
+        "一万元",
+        "两部手机",
+        "演唱会",
+        "机票",
+        "火车票"
+      ],
+      "condition": "作为网赚活动奖品或兑换物，且无真实可兑付依据或超平台限额",
+      "action": "block",
+      "enabled": true
+    },
+    {
+      "id": "8e129bb9b02e4fb7a8763e20eebff0f3",
+      "source_type": "any",
+      "keywords": [
+        "app内无广告",
+        "app内赚钱无提现门槛",
+        "点击获取10000金币",
+        "广告点击跳转下载"
+      ],
+      "condition": "所宣称功能与实际产品能力不符，构成虚假引导",
+      "action": "block",
+      "enabled": true
+    },
+    {
+      "id": "d932f7a484004199bedfd0791340483c",
+      "source_type": "any",
+      "keywords": [
+        "赚生活费",
+        "买菜钱"
+      ],
+      "condition": "用于描述网赚收益用途",
+      "action": "review",
+      "enabled": true
+    },
+    {
+      "id": "2688eeddb38e4b8fa855252d89759041",
+      "source_type": "any",
+      "keywords": [
+        "奶茶钱",
+        "零食钱",
+        "水钱"
+      ],
+      "condition": "用于描述网赚收益用途，且不涉及基本生活开销承诺",
+      "action": "review",
+      "enabled": true
+    },
+    {
+      "id": "aa9f63e5aec94cb5a67f4f22efb4a0d9",
+      "source_type": "any",
+      "keywords": [
+        "最",
+        "第一",
+        "顶级",
+        "史上",
+        "绝对",
+        "独一无二",
+        "历史级"
+      ],
+      "condition": "",
+      "action": "block",
+      "enabled": true
+    },
+    {
+      "id": "a3e2c05f0aa14f7db8deee01213dfa41",
+      "source_type": "video_frame",
+      "keywords": [],
+      "condition": "画面中出现指向性箭头、手势（含侧边箭头、组件指向箭头、尾帧箭头）",
+      "action": "review",
+      "enabled": true
+    },
+    {
+      "id": "ddc5e058db654b10869309ff62156e15",
+      "source_type": "any",
+      "keywords": [
+        "上",
+        "下",
+        "去",
+        "下载",
+        "搜索",
+        "认准",
+        "口令说",
+        "左下角",
+        "评论区下载",
+        "同款在评论区",
+        "评论区有惊喜",
+        "评论区有福利",
+        "在评论区里能看到"
+      ],
+      "condition": "搭配站外App名称或主观行为号召，构成外跳引导",
+      "action": "review",
+      "enabled": true
+    },
+    {
+      "id": "538ef5f76e9946bc9fed6e57f3920fac",
+      "source_type": "any",
+      "keywords": [
+        "抖音",
+        "碎片化",
+        "广告",
+        "低俗",
+        "字节跳动CEO",
+        "短视频浪费时间"
+      ],
+      "condition": "出现映射、对比、负面评价等拉踩或贬损其他平台内容",
+      "action": "block",
+      "enabled": true
+    },
+    {
+      "id": "4a667b8b63874f2788027ff637769037",
+      "source_type": "video_frame",
+      "keywords": [
+        "涉军",
+        "涉政",
+        "涉国家标志",
+        "涉社会负面",
+        "涉恶搞名人",
+        "涉辱华人物",
+        "恐怖",
+        "血腥",
+        "黄",
+        "赌",
+        "毒",
+        "蛇",
+        "虫",
+        "鼠",
+        "蚁"
+      ],
+      "condition": "",
+      "action": "block",
+      "enabled": true
+    },
+    {
+      "id": "072555ac64bc472dafceb0fbb019ba52",
+      "source_type": "any",
+      "keywords": [
+        "性别歧视",
+        "地域歧视",
+        "国家政策",
+        "经济敏感信息",
+        "争议类话题"
+      ],
+      "condition": "视频内容传播负能量或发表立场性表达",
+      "action": "review",
+      "enabled": true
+    },
+    {
+      "id": "a3e12de3796f4c878c6a392be2eb8848",
+      "source_type": "video_frame",
+      "keywords": [
+        "播放键"
+      ],
+      "condition": "出现在视频画面中，如封面、片头或按钮UI",
+      "action": "block",
+      "enabled": true
+    },
+    {
+      "id": "ecc55292372f4c468c70768bbe3feb28",
+      "source_type": "any",
+      "keywords": [
+        "卖爆",
+        "爆单",
+        "爆款",
+        "必火"
+      ],
+      "condition": "用于销量或流量承诺，且无客观依据",
+      "action": "block",
+      "enabled": true
+    },
+    {
+      "id": "194d2f4cc3304e9fa2b9319cced89a66",
+      "source_type": "transcript",
+      "keywords": [],
+      "condition": "真人口播背景模糊，或美颜滤镜过度导致人脸失真",
+      "action": "review",
+      "enabled": true
+    },
+    {
+      "id": "f3140223927a427d9d809177a0370e0a",
+      "source_type": "any",
+      "keywords": [],
+      "condition": "音频采样率低于44.1kHz",
+      "action": "block",
+      "enabled": true
+    },
+    {
+      "id": "6e4b11f8e3184abe8f091733d441e8eb",
+      "source_type": "any",
+      "keywords": [],
+      "condition": "音频位深低于16bit",
+      "action": "block",
+      "enabled": true
+    },
+    {
+      "id": "99f24df99a4a4e82802e04c2fb942d1f",
+      "source_type": "image_content",
+      "keywords": [],
+      "condition": "画面中包含二维码",
+      "action": "block",
+      "enabled": true
+    },
+    {
+      "id": "95fc8cedbe3144d695abe216d9c7492c",
+      "source_type": "image_content",
+      "keywords": [
+        "微信",
+        "QQ",
+        "快手",
+        "Bilibili",
+        "小红书",
+        "微博",
+        "网易云",
+        "酷狗",
+        "酷我"
+      ],
+      "condition": "画面中出现除抖音和汽水音乐以外的第三方平台标识，如微信、QQ、快手、B站、小红书等logo或文字标识，但不包括抖音等字节跳动自己的平台",
+      "action": "block",
+      "enabled": true
+    },
+    {
+      "id": "0ccad8b39efc4115ae487f880b58aa29",
+      "source_type": "any",
+      "keywords": [],
+      "condition": "内容中包含指向外部网站的链接，如URL、短链或口播引导跳转等",
+      "action": "block",
+      "enabled": true
+    },
+    {
+      "id": "5f0369492f3b45f1b0c6c673a9a3603b",
+      "source_type": "image_content",
+      "keywords": [],
+      "condition": "画面中包含低俗图像，如暴露身体隐私部位、性暗示姿势或色情符号等",
+      "action": "block",
+      "enabled": true
+    }
+  ]
+}
