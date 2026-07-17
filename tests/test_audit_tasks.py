@@ -72,7 +72,7 @@ def test_task_video_kind_persists_and_defaults(tmp_path):
     r.save(AuditTask(id="w", owner_id="u1", name="film.mp4", material_type=MaterialType.VIDEO,
                      status=JobStatus.DONE, created_ms=1, video_kind="work"))
     assert JsonAuditTaskRepo(Store(path)).get("w").video_kind == "work"   # 存/取
-    # 旧任务(state.json 里缺 video_kind)重载 → 默认 material
+    # 旧任务(state.json.bak 里缺 video_kind)重载 → 默认 material
     from app.infrastructure.jsonstore import Store as _S
     s = _S(path)
     d = s._task_to_dict(s.audit_tasks["w"]); d.pop("video_kind")

@@ -5,7 +5,9 @@
 set -uo pipefail
 cd "$(dirname "$0")/.."
 export PATH="$HOME/.local/bin:$PATH"
-V=.venv/bin
+# 跨平台: Windows 是 Scripts/, Linux/Mac 是 bin/
+if [ -d .venv/Scripts ]; then V=.venv/Scripts; else V=.venv/bin; fi
+export PYTHONUTF8=1
 fail=0
 
 run() {  # $1=标签  其余=命令

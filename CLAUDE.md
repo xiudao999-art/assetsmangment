@@ -76,7 +76,7 @@
 | 传感器 | 命令 |
 |---|---|
 | ② 架构 | `lint-imports`（3 contracts） |
-| ③ 代码 | `pytest`（236 tests） |
+| ③ 代码 | `pytest`（271 tests） |
 | ① 产品 | `behave`（7 features / 17 scenarios） |
 
 **测试注意**: `JsonUserRepo`（state.json）在测试间持久化，测试需自行清理所建用户，否则下回跑 409。跑测试前先停掉本地服务进程，防 state.json 锁冲突（`PermissionError`）。
@@ -102,12 +102,67 @@ ${ASSETS_ROOT}  (默认 /software/project/python/assets)
 
 **注意**: PG/Redis 在 compose 外（宿主机或其他容器），应用用 bridge 网络 + 端口映射 `8088:8000`。阿里云 SDK 依赖钉版本：`alibabacloud-green20220302==3.2.4` + `alibabacloud_tea_openapi>=0.4.5`，升版需对齐。
 
-### PG 真源迁移（进行中）
+### PG 真源迁移（✅ 已全部完成，2026-07-17）
 
 | 模块 | 表 | 仓储 | 状态 |
 |---|---|---|---|
 | 审核规则 | `audit_rule` | `PgAuditRuleRepo` | ✅ 已迁移 |
 | 作品项目 | `project` | `PgProjectRepo` | ✅ 已迁移 |
-| 物料/用户/收藏等 | — | JSON/内存 | 待迁移 |
+| 物料 | `material` | `PgMaterialRepo` | ✅ 已迁移 |
+| 用户 | `app_user` | `PgUserRepo` | ✅ 已迁移 |
+| 收藏 | `user_favorite` | `PgFavoriteRepo` | ✅ 已迁移 |
+| RBAC | `role_permission` + `user_permission` | `PgRbacRepo` | ✅ 已迁移 |
+| 审核任务 | `audit_task` | `PgAuditTaskRepo` | ✅ 已迁移 |
+| 审核报告 | `audit_report` | `PgAuditReportRepo` | ✅ 已迁移 |
+| 白名单 | `content_whitelist` | `PgWhitelistRepo` | ✅ 已迁移 |
+| 禁词 | `blockword` | `PgBlockwordRepo` | ✅ 已迁移 |
+| 审计日志 | `audit_log` | `PgAuditLog` | ✅ 已迁移 |
+| 向量索引 | `material_vectors` | `PgVectorIndex` | ✅ 已迁移(含基础字段) |
+
+**切换逻辑**：配置 `AM_DATABASE_URL` 后，所有仓储 fail-fast 切换到 PG 真源（不静默回退 JSON）。未配置则走 JSON/内存（`AM_DATA_DIR` 有无决定持久化或纯内存）。
+
+**数据迁移**：`scripts/migrate_all_to_pg.py` 从 `state.json` 全量迁入 PG（幂等可重复跑）。
 
 全项目 PG 表遵循统一基础字段规范：`id`（雪花 BIGINT 主键）、`del_flag`（0=在用，软删置新雪花 ID）、`create_by`/`create_time`/`update_by`/`update_time`。domain 层的 `id` 均为 `str`（雪花 int64 序列化，防 JS 2^53 精度丢失）。
+
+## 审核规则系统
+
+### 规则来源类型（`source_type`）
+
+| 类型 | 含义 | 审核内容 |
+|---|---|---|
+| `transcript` | 语音转写 | 阿里云 ASR 转写口播文字 |
+| `video_frame` | 视频关键帧画面 | OSS 截图 → Qwen-VL 反解成中文描述 |
+| `image_content` | 图像反解画面 | Qwen-VL 直接描述图片内容 |
+| `original_text` | 上传原文 | 用户上传的语料/文案 |
+| `any` | 不限 | 以上全部生效 |
+
+**支持逗号多选**：`video_frame,image_content` 表示同时对视频帧和静态图片生效。向后兼容单值（`transcript` = 只对口播）。`applies_to()` 是唯一真源，三个仓储的 `list_for()` 都委托给它。
+
+### 匹配严格程度（`match_level`）
+
+| 级别 | 含义 | 大模型行为 |
+|---|---|---|
+| `literal` | 字面判定 | 只看表面意思，宁可漏不可误伤。不联想、不引申、不结合语境推测 |
+| `metaphor` | 隐喻判定 | 影射/暗示/谐音/代称也要揪出（仅用于政治/国家标志等严重项） |
+| `regex` | 正则精确 | 不走大模型，纯正则命中——审核时零 LLM 调用 |
+
+**选择原则**：事实性检查（免责声明有无、二维码有无）用 `literal`；语义判断（是否网赚话术、是否拉踩）用 `metaphor`；关键词精确匹配用 `regex`。
+
+### 大模型假阳性过滤（`_reason_says_pass`）
+
+大模型有时会在 `findings` 里输出"不违规/符合要求"的条目——不是它判错了，是它**多嘴汇报**。两层防御：
+
+1. **Prompt 收紧**：`_RULE_JUDGE_SYS` 明确禁止输出"不违规"条目
+2. **代码兜底**：`_semantic_judge` 里 `_reason_says_pass()` 检查 reason 是否含"不违规/不应命中/不符合/未违反"等否定 token，命中直接丢弃
+
+### 报告 Segment 命中标注
+
+`_report_out()` 为每个 segment 附加 `triggered_rules` 字段（按 `begin_ms` 时间范围匹配），前端直接渲染"命中: #N 规则描述"而非笼统的"· 命中"。
+
+### 规则调优经验
+
+- 用 **guidance** 告诉大模型"什么不算违规"比改 condition 更有效——condition 定义边界，guidance 消歧义
+- 视觉规则（二维码/低俗/明星/服装/美颜）统一用 `video_frame,image_content`，不区分视频帧和图片
+- `block` → `review` 是安全降级：机器不直接拦截，交人工终判
+- 每次改规则后跑 `recheck` 验证实际效果，大模型会找到你意想不到的角度

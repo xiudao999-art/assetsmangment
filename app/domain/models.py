@@ -112,10 +112,11 @@ class AuditRule:
     exceptions: list[dict] = field(default_factory=list)  # 审核员「忽略」积累的可放行例外 [{text,note,by,ms}]
 
     def applies_to(self, source_type: str, project_id: str = "") -> bool:
-        """规则是否适用:启用 + 来源类型匹配 + (全局 或 命中当前项目)。
+        """规则是否适用:启用 + 来源类型匹配(逗号分隔多选,向后兼容单值) + (全局 或 命中当前项目)。
         全局规则(project_id=="")永远生效;项目规则只在审核对象属于同一项目时生效。"""
+        types = [t.strip() for t in self.source_type.split(",") if t.strip()]
         return (self.enabled
-                and (self.source_type == "any" or self.source_type == source_type)
+                and ("any" in types or source_type in types)
                 and (self.project_id == "" or self.project_id == project_id))
 
 

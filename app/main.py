@@ -23,6 +23,7 @@ def health() -> dict:
     return {"status": "ok"}
 
 
+
 app.include_router(router)
 
 # 后台前端(静态站,同源调用 API)
@@ -32,3 +33,7 @@ if os.path.isdir(_frontend):
     def _root():
         return RedirectResponse("/ui/")
     app.mount("/ui", StaticFiles(directory=_frontend, html=True), name="ui")
+
+if __name__ == "__main__":
+    import uvicorn
+    uvicorn.run("app.main:app", host="0.0.0.0", port=8099, reload=True)

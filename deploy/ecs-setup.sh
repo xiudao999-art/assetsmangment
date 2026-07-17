@@ -13,7 +13,7 @@ if ! command -v docker >/dev/null 2>&1; then
   else
     curl -fsSL https://get.docker.com | bash
   fi
-  systemctl enable --now docker
+  systemctl enable --now docke
 fi
 docker --version
 

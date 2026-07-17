@@ -26,7 +26,9 @@ def _add_rule(hdr, **kw):
 def test_update_rule_changes_fields():
     from app.api import deps
     ah = _admin()
-    rid = _add_rule(ah, keywords=["赌博"], condition="旧条件", action="block")["id"]
+    created = _add_rule(ah, keywords=["赌博"], condition="旧条件", action="block")
+    rid = created["id"]
+    assert rid.isdigit()   # 雪花字符串契约:纯数字 str(BIGINT 序列化,防 JS 精度丢失)
     up = client.put(f"/audit/rules/{rid}", json={"source_type": "transcript", "keywords": ["诈骗", "传销"],
                     "condition": "新条件:出现导流", "action": "review", "project_id": ""}, headers=ah)
     assert up.status_code == 200

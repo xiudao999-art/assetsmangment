@@ -652,9 +652,12 @@ function reportHTML(rep){if(!rep)return '<div class="empty">该任务暂无报�
   const v=rep.verdict;const badge=`<span class="stamp ${v}" style="font-size:13px;padding:5px 12px">${VERDICT_CN[v]||v}</span>`;
   const trig=(rep.triggered||[]).map(trigItem).join('');
   const hitMs=new Set((rep.triggered||[]).filter(t=>t.begin_ms!=null).map(t=>t.begin_ms));
-  const segs=(rep.segments||[]).map(s=>{const hot=(s.begin_ms!=null&&hitMs.has(s.begin_ms));
+  const segs=(rep.segments||[]).map(s=>{
+    const rules=(s.triggered_rules||[]).length?s.triggered_rules:(s.begin_ms!=null&&hitMs.has(s.begin_ms)?[{rule_no:'?',rule_desc:'',action:''}]:[]);
+    const hot=rules.length>0;
     const tc=(s.begin_ms!=null)?`<span class="mono" style="color:${hot?'var(--block)':'var(--mint)'}">${(s.begin_ms/1000).toFixed(1)}s</span> `:'';
-    return `<div class="qrow"${hot?' style="border-color:var(--block);border-left:3px solid var(--block)"':''}><div class="meta"><div class="owner">${SRC_CN[s.source_type]||s.source_type} ${tc}${hot?'<span style="color:var(--block)">· 命中</span>':''}</div><div style="font-size:12.5px;margin-top:4px;color:${hot?'var(--block)':'var(--ink)'}">${esc((s.text||'').slice(0,180))}</div></div></div>`}).join('');
+    const ruleTags=hot?rules.map(r=>`<span style="color:var(--block);font-weight:600">#${r.rule_no}</span>${r.rule_desc?' <span style="color:var(--dim);font-size:11px">'+esc(r.rule_desc.slice(0,60))+'</span>':''}`).join(' · '):'';
+    return `<div class="qrow"${hot?' style="border-color:var(--block);border-left:3px solid var(--block)"':''}><div class="meta"><div class="owner">${SRC_CN[s.source_type]||s.source_type} ${tc}${hot?`<span style="color:var(--block)">· 命中: ${ruleTags}</span>`:''}</div><div style="font-size:12.5px;margin-top:4px;color:${hot?'var(--block)':'var(--ink)'}">${esc((s.text||'').slice(0,180))}</div></div></div>`}).join('');
   return `<div style="margin-bottom:14px;font-size:14px">审核结果:${badge} <div class="owner" style="margin-top:6px">${esc(rep.summary||'')}</div></div>
     ${trig?`<div class="card" style="margin-bottom:12px;padding:14px;border-color:color-mix(in oklab,var(--block) 30%,var(--line-2))"><b style="font-size:13px;color:var(--block)">命中详情(标红为被拦截/待复核的具体内容)</b><div style="margin-top:10px">${trig}</div></div>`:''}
     <div style="color:var(--dim);font-size:12px;margin-bottom:8px">文字链路(共 ${(rep.segments||[]).length} 段)</div>${segs||'<div class="empty">无文字内容</div>'}`}

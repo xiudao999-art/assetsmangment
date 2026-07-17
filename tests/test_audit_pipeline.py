@@ -515,7 +515,7 @@ def test_content_safety_no_audit_detail_still_works():
     assert cs and cs[0].get("risk_words", "") == ""
 
 
-# ── recheck:只对已存报告重判,不重抽帧/转写/不重复生成素材 ──
+# ── recheck:只重判,画面用当前 vision 提示词重新反解,不重抽帧/转写/不重复生成素材 ──
 class _ToggleAuditor:
     def __init__(self):
         self.verdict = "block"
@@ -524,6 +524,7 @@ class _ToggleAuditor:
 
 
 def test_recheck_reevaluates_without_reextraction():
+    """重审不重转写/抽帧/入库帧素材;但画面反解(VIDEO_FRAME/IMAGE_CONTENT)用当前 vision 重跑。"""
     from app.domain.models import TextSegment
     class _RecTx:
         def __init__(self): self.n = 0
@@ -534,7 +535,7 @@ def test_recheck_reevaluates_without_reextraction():
         def __init__(self): self.n = 0
         def describe_image(self, url):
             self.n += 1
-            return "画面内容"
+            return f"画面内容-第{self.n}次"
     tx, vi, aud = _RecTx(), _RecVision(), _ToggleAuditor()
     repo = InMemoryMaterialRepo()
     svc = AuditPipelineService(tx, vi, FakeLlm(response={"moments_ms": [1000]}),
@@ -548,9 +549,15 @@ def test_recheck_reevaluates_without_reextraction():
     aud.verdict = "pass"                                  # 模拟"加白后放行"
     rep2 = svc.recheck(svc.submit(MaterialType.VIDEO, oss_key="v/x.mp4", owner_id="u1"), rep)
     assert rep2.verdict == AuditStatus.PASS               # 用当前策略重判 → 翻成通过
-    assert tx.n == tx_calls and vi.n == vi_calls          # 未重新转写/反解
+    assert tx.n == tx_calls                               # 未重新转写
+    assert vi.n > vi_calls                                # 画面用当前 vision 重新反解(提示词可能已调整)
     assert len(repo.list()) == n_mats                     # 未新增帧素材(不重复入库)
-    assert rep2.segments == rep.segments                  # 复用已存 segments
+    # 口播转写段不变,画面段文字已刷新
+    tx_segs = [s for s in rep2.segments if s.source_type == TextSourceType.TRANSCRIPT]
+    vi_segs = [s for s in rep2.segments if s.source_type == TextSourceType.VIDEO_FRAME]
+    assert tx_segs and all(s.text == "对白" for s in tx_segs)
+    assert vi_segs and all("画面内容" in s.text for s in vi_segs)
+    assert any("第" in s.text for s in vi_segs)           # 确认是重跑后的新结果
 
 
 def test_vision_prompt_avoids_negative_safety_conclusions():

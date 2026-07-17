@@ -90,6 +90,90 @@ if _real_db:
             "项目真源在 PG,不做静默回退 —— 请检查数据库可达性/凭据后再启动。"
         ) from _e
 
+# ── 全仓储 PG 真源切换(fail-fast,不静默回退 JSON) ──
+if _real_db:
+    # 物料
+    from app.infrastructure.pg_material_repo import PgMaterialRepo
+    try:
+        material_repo = PgMaterialRepo(settings.database_url)
+    except Exception as _e:
+        raise RuntimeError(
+            f"AM_DATABASE_URL 已配置但 PG 物料表连接/建表失败:{_e}。"
+            "物料真源在 PG,不做静默回退 —— 请检查数据库可达性/凭据后再启动。"
+        ) from _e
+
+    # 用户
+    from app.infrastructure.pg_user_repo import PgUserRepo
+    try:
+        user_repo = PgUserRepo(settings.database_url)
+    except Exception as _e:
+        raise RuntimeError(
+            f"AM_DATABASE_URL 已配置但 PG 用户表连接/建表失败:{_e}。"
+        ) from _e
+
+    # 收藏
+    from app.infrastructure.pg_favorite_repo import PgFavoriteRepo
+    try:
+        favorites = PgFavoriteRepo(settings.database_url)
+    except Exception as _e:
+        raise RuntimeError(
+            f"AM_DATABASE_URL 已配置但 PG 收藏表连接/建表失败:{_e}。"
+        ) from _e
+
+    # RBAC
+    from app.infrastructure.pg_rbac_repo import PgRbacRepo
+    try:
+        rbac = PgRbacRepo(settings.database_url)
+    except Exception as _e:
+        raise RuntimeError(
+            f"AM_DATABASE_URL 已配置但 PG RBAC 表连接/建表失败:{_e}。"
+        ) from _e
+
+    # 审核任务
+    from app.infrastructure.pg_task_repo import PgAuditTaskRepo
+    try:
+        task_repo = PgAuditTaskRepo(settings.database_url)
+    except Exception as _e:
+        raise RuntimeError(
+            f"AM_DATABASE_URL 已配置但 PG 审核任务表连接/建表失败:{_e}。"
+        ) from _e
+
+    # 审核报告
+    from app.infrastructure.pg_report_repo import PgAuditReportRepo
+    try:
+        report_repo = PgAuditReportRepo(settings.database_url)
+    except Exception as _e:
+        raise RuntimeError(
+            f"AM_DATABASE_URL 已配置但 PG 审核报告表连接/建表失败:{_e}。"
+        ) from _e
+
+    # 白名单
+    from app.infrastructure.pg_whitelist_repo import PgWhitelistRepo
+    try:
+        whitelist_repo = PgWhitelistRepo(settings.database_url)
+    except Exception as _e:
+        raise RuntimeError(
+            f"AM_DATABASE_URL 已配置但 PG 白名单表连接/建表失败:{_e}。"
+        ) from _e
+
+    # 禁词
+    from app.infrastructure.pg_blockword_repo import PgBlockwordRepo
+    try:
+        blockword_repo = PgBlockwordRepo(settings.database_url)
+    except Exception as _e:
+        raise RuntimeError(
+            f"AM_DATABASE_URL 已配置但 PG 禁词表连接/建表失败:{_e}。"
+        ) from _e
+
+    # 审计日志
+    from app.infrastructure.pg_audit_log import PgAuditLog
+    try:
+        audit_log = PgAuditLog(settings.database_url)
+    except Exception as _e:
+        raise RuntimeError(
+            f"AM_DATABASE_URL 已配置但 PG 审计日志表连接/建表失败:{_e}。"
+        ) from _e
+
 # 向量索引:有真 embedding(DashScope)+ 真 pg 连接串 → pgvector 语义近邻;否则内存
 if settings.dashscope_api_key and _real_db:
     from app.infrastructure.pgvector_index import PgVectorIndex

@@ -368,10 +368,10 @@ class InMemoryAuditRuleRepo:
     def __init__(self) -> None:
         self._rules: dict[str, AuditRule] = {}
 
-    def add(self, rule: AuditRule) -> None:
+    def add(self, rule: AuditRule, by: str = "") -> None:
         self._rules[rule.id] = rule
 
-    def delete(self, rule_id: str) -> None:
+    def delete(self, rule_id: str, by: str = "") -> None:
         self._rules.pop(rule_id, None)
 
     def list(self) -> list[AuditRule]:

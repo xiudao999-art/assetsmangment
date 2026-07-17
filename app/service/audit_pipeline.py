@@ -37,6 +37,22 @@ _RULE_TARGET_SRC = {"any": "text", "transcript": TextSourceType.TRANSCRIPT.value
                     "video_frame": TextSourceType.VIDEO_FRAME.value,
                     "original_text": TextSourceType.ORIGINAL_TEXT.value}
 
+
+def _fmt_source_type(raw: str) -> str:
+    """逗号分隔的 source_type → 中文标签,如 video_frame,image_content → 画面"""
+    parts = [t.strip() for t in raw.split(",") if t.strip()]
+    labels = {_RULE_TARGET_CN.get(p, p) for p in parts}
+    return "/".join(sorted(labels)) if labels else "不限"
+
+
+def _source_type_fallback(raw: str) -> str:
+    """多值 source_type 取第一个匹配的 TextSourceType 用于整体 findings 定位;否则 text"""
+    parts = [t.strip() for t in raw.split(",") if t.strip()]
+    for p in parts:
+        if p in _RULE_TARGET_SRC and p != "any":
+            return _RULE_TARGET_SRC[p]
+    return "text"
+
 _MOMENT_SYS = (
     "你是视频审核助理。给你一段带毫秒时间轴的语音转写,"
     "请挑出最多 5 个「可能需要结合画面才能判断是否违规」的重点时间段。"
@@ -61,6 +77,17 @@ _SUMMARY_SYS = (
     "tags(3~6 个便于检索的中文关键词标签数组)。"
     "情绪和场景要具体、能直接拿去匹配短视频片段的情绪/场景需求。"
 )
+
+# 大模型有时会在 findings 里输出"不违规"条目 → 代码兜底过滤
+_FALSE_POSITIVE_TOKENS = ["不违规", "不构成违规", "不应命中", "不纳入", "不判违规",
+                           "符合要求", "未违反", "可以放行", "不算命中",
+                           "不符合", "不构成", "不属于", "不涉及"]
+
+
+def _reason_says_pass(reason: str) -> bool:
+    """大模型 reason 里写了不违规/符合要求 → 这条不该算 finding。"""
+    return any(tok in reason for tok in _FALSE_POSITIVE_TOKENS)
+
 
 def _norm_level(v) -> str:
     """严格程度归一:literal=字面、regex=正则(不走大模型)保留原值;其余(缺省/非法)→ metaphor(隐喻,安全默认)。"""
@@ -97,9 +124,10 @@ _RULE_PARSE_SYS = (
     "你要把它拆解成一条条可执行的结构化规则。"
     "只返回一个合法 JSON 对象,不要 markdown、不要多余解释,顶层字段 rules 是规则数组,每条规则字段:"
     "category(该规则所属分类,取文案里的小标题如 国家标志类/网赚风险类,没有就留空),"
-    "source_type(检查哪种文字来源,只能取:any=不限、original_text=上传原文语料、"
+    "source_type(检查哪种文字来源,可取:any=不限、original_text=上传原文语料、"
     "transcript=视频口播或音频转写、image_content=图片画面、video_frame=视频画面帧;"
-    "明显只针对画面(国旗/二维码/人物形象/字幕水印)用 video_frame,只针对口播文案用 transcript,拿不准用 any),"
+    "支持逗号多选如 video_frame,image_content 表示同时检查视频帧和图片画面;"
+    "明显只针对画面(国旗/二维码/人物形象/字幕水印)用 video_frame,image_content,只针对口播文案用 transcript,拿不准用 any),"
     "condition(必填,一句话清晰描述这条规则禁止或限制什么——审核靠它做语义判断,务必写清楚,不能留空),"
     "keywords(可选,列几个有代表性的参考词/示例词,仅供大模型参考、不做硬匹配,没有就给空数组),"
     "action(命中动作:block=直接拦截/拒审、review=转人工复核;"
@@ -127,6 +155,8 @@ _RULE_JUDGE_SYS = (
     "字面判定宁可漏、不可误伤(它也判「表面意思」而非机械逐字匹配参考词,但表面意思必须自身就违规)。"
     "【隐喻判定】= 除字面直接违反外,【影射、暗示、隐喻、谐音、代称、擦边、结合语境的引申】等间接表达也要揪出来算命中(仅用于国家政治/领导人/民族宗教/国家标志等严重项,隐晦也不放过)。"
     "规则若带「尺度说明」,按它把握违规程度、不要过严;若某处情形和该规则「已确认可放行的例外」里列的类似,则视为通过、不要标为违规;"
+    "**极其重要**:如果你逐条对照后确认某条规则**未被违反**，**严禁在 findings 里输出对应条目**。"
+    "不要输出理由为'不违规''不应命中''符合要求''通过'等否定判定的条目;findings 里每一条都必须是确认违规的。"
     "拿不准偏向标出交人工;没有任何违规时 findings 返回空数组。"
 )
 
@@ -170,15 +200,39 @@ class AuditPipelineService:
 
     def recheck(self, job: AuditJob, old_report: AuditReport) -> AuditReport:
         """只重判:用**当前**白名单/规则对已存报告的 segments 重新评估。
-        不调 _to_segments → 不重转写、不重抽帧、不重复生成帧素材、不重跑摘要(已有)。"""
+        画面反解(IMAGE_CONTENT/VIDEO_FRAME)用当前 vision 提示词重新生成;
+        口播转写/原文复用。不重抽帧、不重复生成帧素材、不重跑摘要(已有)。"""
         try:
-            report = self._evaluate(job, old_report.segments)
+            segments = self._refresh_visual_segments(job, old_report.segments)
+            report = self._evaluate(job, segments)
             job.status = JobStatus.DONE
         except Exception as e:
             report = AuditReport(verdict=AuditStatus.REVIEW, segments=old_report.segments, triggered=[],
                                  summary=f"重新审核异常,转人工复核:{e}")
             job.status = JobStatus.FAILED
         return self._persist(job, report)   # summary_segments=None → 不重跑摘要
+
+    def _refresh_visual_segments(self, job: AuditJob, segments: list[TextSegment]) -> list[TextSegment]:
+        """对画面类 segment 用当前 vision 模型重新反解(提示词可能已调整);
+        口播转写/原文保持不变。单段失败保留原文,不阻塞整体。"""
+        refreshed: list[TextSegment] = []
+        for seg in segments:
+            if seg.source_type == TextSourceType.IMAGE_CONTENT and job.oss_key:
+                try:
+                    new_desc = self._vision.describe_image(self._storage.signed_url(job.oss_key))
+                    refreshed.append(TextSegment(TextSourceType.IMAGE_CONTENT, new_desc))
+                except Exception:
+                    refreshed.append(seg)   # 反解失败保留原文
+            elif seg.source_type == TextSourceType.VIDEO_FRAME and seg.frame_oss_key:
+                try:
+                    new_desc = self._vision.describe_image(self._storage.signed_url(seg.frame_oss_key))
+                    refreshed.append(TextSegment(TextSourceType.VIDEO_FRAME, new_desc,
+                                                begin_ms=seg.begin_ms, frame_oss_key=seg.frame_oss_key))
+                except Exception:
+                    refreshed.append(seg)   # 反解失败保留原文
+            else:
+                refreshed.append(seg)       # 口播转写/原文:保持不变
+        return refreshed
 
     def _evaluate(self, job: AuditJob, segments: list[TextSegment]) -> AuditReport:
         """三波级联(短路,便宜→贵、粗→细):
@@ -657,6 +711,8 @@ class AuditPipelineService:
                 except (TypeError, ValueError):
                     seg = None
             reason = str(f.get("reason") or "命中规则").strip()
+            if _reason_says_pass(reason):
+                continue   # 大模型自己说没违规 → 不纳入 triggered
             rule_desc = (rule.condition or "").strip()[:80] or "（见参考词）"   # 报告显示「因哪条规则」
             if seg is not None:
                 item = {"rule_id": rule.id, "rule_no": getattr(rule, "no", 0), "rule_desc": rule_desc,
@@ -665,7 +721,7 @@ class AuditPipelineService:
                         "begin_ms": seg.begin_ms, "frame_oss_key": seg.frame_oss_key}
             else:  # 整体/无法定位到具体段落 → 用规则目标类型,图片物料落原图供预览
                 item = {"rule_id": rule.id, "rule_no": getattr(rule, "no", 0), "rule_desc": rule_desc,
-                        "source_type": _RULE_TARGET_SRC.get(rule.source_type, "text"),
+                        "source_type": _source_type_fallback(rule.source_type),
                         "action": rule.action, "reason": reason, "text": "",
                         "begin_ms": None, "frame_oss_key": img_key}
             key = (item["rule_id"], item["begin_ms"], item["frame_oss_key"])
@@ -703,7 +759,7 @@ class AuditPipelineService:
         lines = ["(命中即按「动作」处置;参考词仅为方向示例,请按语义判断、勿机械按字匹配)\n"]
         for i, r in enumerate(rules, 1):
             n = getattr(r, "no", 0) or i          # 未回填编号(旧数据/单测)兜底用位置号
-            tgt = _RULE_TARGET_CN.get(r.source_type, "不限")
+            tgt = _fmt_source_type(r.source_type)
             act = "拦截" if r.action == "block" else "待复核"
             lvl = "字面" if _norm_level(getattr(r, "match_level", "metaphor")) == "literal" else "隐喻"
             desc = (r.condition or "").strip() or "(见参考词)"

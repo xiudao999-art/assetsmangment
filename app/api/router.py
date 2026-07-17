@@ -305,16 +305,50 @@ def _report_out(r) -> dict:
             except Exception:
                 d["frame_url"] = ""
         trig.append(d)
+    # 把触发规则信息挂到对应 segment 上，前端可直接渲染"命中: 规则#5"
+    trig_by_ms: dict[int, list[dict]] = {}
+    for t in r.triggered:
+        ms = t.get("begin_ms")
+        if ms is not None:
+            trig_by_ms.setdefault(ms, []).append(t)
+    segs_out = []
+    for s in r.segments:
+        seg = {"source_type": s.source_type, "text": s.text, "begin_ms": s.begin_ms,
+               "end_ms": s.end_ms, "frame_oss_key": s.frame_oss_key}
+        # 匹配：triggered 的 begin_ms 落在 segment 时间范围内
+        matched = []
+        s_begin = s.begin_ms
+        s_end = s.end_ms
+        if s_begin is not None:
+            for ms, items in trig_by_ms.items():
+                if s_end is not None:
+                    in_range = s_begin <= ms <= s_end
+                else:
+                    in_range = ms == s_begin
+                if in_range:
+                    for it in items:
+                        matched.append({"rule_no": it.get("rule_no", 0),
+                                        "rule_desc": (it.get("rule_desc") or "")[:80],
+                                        "action": it.get("action", ""),
+                                        "reason": (it.get("reason") or "")[:200]})
+        seg["triggered_rules"] = matched
+        segs_out.append(seg)
     return {
         "verdict": r.verdict, "summary": r.summary, "triggered": trig,
-        "segments": [{"source_type": s.source_type, "text": s.text, "begin_ms": s.begin_ms,
-                      "end_ms": s.end_ms, "frame_oss_key": s.frame_oss_key} for s in r.segments],
+        "segments": segs_out,
     }
 
 
 def _norm_level(v: str | None) -> str:
     """严格程度归一:literal=字面、regex=正则(不走大模型)保留原值;其余(含缺省/非法)→ metaphor(隐喻,安全默认)。"""
     return v if v in ("literal", "regex") else "metaphor"
+
+
+def _norm_source_type(raw: str) -> str:
+    """来源类型归一:逗号分隔多值,每部分必须是合法值;非法/空→ any"""
+    parts = [p.strip() for p in (raw or "").split(",") if p.strip()]
+    valid = [p for p in parts if p in _SOURCE_TYPES]
+    return ",".join(valid) if valid else "any"
 
 
 def _next_rule_no() -> int:
@@ -770,7 +804,8 @@ def add_audit_rule(body: schemas.RuleIn, user: dict = Depends(_user)):
     project_id = (body.project_id or "").strip()
     if project_id and deps.project_repo.get(project_id) is None:
         raise HTTPException(400, "所选项目不存在。")
-    rule = AuditRule(id=next_id_str(), no=_next_rule_no(), source_type=body.source_type or "any",
+    st = _norm_source_type(body.source_type)
+    rule = AuditRule(id=next_id_str(), no=_next_rule_no(), source_type=st,
                      keywords=[k for k in body.keywords if k.strip()], condition=body.condition.strip(),
                      action=action, enabled=True, created_by=user["id"], project_id=project_id,
                      guidance=(body.guidance or "").strip(), match_level=_norm_level(body.match_level),
@@ -791,7 +826,7 @@ def update_audit_rule(rule_id: str, body: schemas.RuleIn, user: dict = Depends(_
     if project_id and deps.project_repo.get(project_id) is None:
         raise HTTPException(400, "所选项目不存在。")
     updated = AuditRule(id=rule_id, no=getattr(existing, "no", 0) or _next_rule_no(),
-                        source_type=body.source_type or "any",
+                        source_type=_norm_source_type(body.source_type),
                         keywords=[k for k in body.keywords if k.strip()], condition=body.condition.strip(),
                         action=action, enabled=existing.enabled, created_by=existing.created_by,
                         project_id=project_id, guidance=(body.guidance or "").strip(),
@@ -848,7 +883,7 @@ def bulk_add_audit_rules(body: schemas.RulesBulkIn, user: dict = Depends(_user))
         raise HTTPException(400, "所选项目不存在,请刷新后重试。")
     created: list[AuditRule] = []
     for d in body.rules:
-        st = d.source_type if d.source_type in _SOURCE_TYPES else "any"
+        st = _norm_source_type(d.source_type)
         kws = list(dict.fromkeys(k.strip() for k in d.keywords if k.strip()))
         cond = (d.condition or "").strip()
         if not kws and not cond:
