@@ -263,7 +263,7 @@
             <div class="tab on" id="uk-work" onclick="setKind('work')">作品</div>
             <div class="tab" id="uk-mat" onclick="setKind('material')">物料</div>
           </div>
-          <div class="field f-fixed" id="au-project-wrap" style="margin:0"><label>所属项目(作品必选)</label>
+          <div class="field f-fixed" id="au-project-wrap" style="margin:0;flex:0 0 220px"><label>所属项目(作品必选)</label>
             <select id="au-project"></select></div>
         </div>
         <p class="hint" style="margin-top:0;margin-bottom:16px">物料 = 可复用素材(视频 ≤20 秒,抽帧入库);作品 = 成片(仅合规扫描,不入库)+ 归属项目,要过标准规则和项目规则。图片 / 文字 / 声音按物料处理。</p>
@@ -300,6 +300,7 @@
           <div class="owner">提交后即受理,上传+审核在后台进行;完成后这里显示裁定与报告。</div>
           <button class="btn sm f-auto" onclick="loadPending()">刷新</button>
         </div>
+        <div class="filterbar" id="pending-filter"></div>
         <div id="pending-list"></div>
       </section>
       <section id="sec-search">
@@ -519,6 +520,7 @@ const V={mine:{page:1,size:PAGE_SIZE,total:0,type:'',q:'',project:''},
   public:{page:1,size:PAGE_SIZE,total:0,type:'',q:'',project:''},
   all:{page:1,size:PAGE_SIZE,total:0,type:'',q:'',status:'',project:''},
   search:{page:1,size:PAGE_SIZE,total:0,q:'',type:''}};
+let PENDING_PROJECT='';
 function setCnt(sec,n){const e=$('#cnt-'+sec);if(e)e.textContent=n}
 const debounce=(fn,ms=300)=>{let t;return(...a)=>{clearTimeout(t);t=setTimeout(()=>fn(...a),ms)}};
 
@@ -675,13 +677,30 @@ function reportHTML(rep){if(!rep)return '<div class="empty">该任务暂无报�
 /* ── 待审核任务页 ── */
 let pendingTimer=null;
 const TASK_ST={pending:'排队中',running:'审核中',done:'已完成',failed:'失败'};
+function pendingProjectName(t){
+  if(!t.project_id)return '';
+  return projName(t.project_id)||t.project_name||t.project_id}
+function buildPendingFilter(tasks){
+  const el=$('#pending-filter');if(!el)return;
+  const seen=new Set();
+  const chips=[{id:'',name:'全部'}];
+  PROJECTS.forEach(p=>{if(!seen.has(p.id)){seen.add(p.id);chips.push({id:p.id,name:p.name})}});
+  tasks.forEach(t=>{const pid=t.project_id||'';if(pid&&!seen.has(pid)){seen.add(pid);chips.push({id:pid,name:pendingProjectName(t)})}});
+  if(PENDING_PROJECT&&!chips.some(c=>c.id===PENDING_PROJECT))PENDING_PROJECT='';
+  el.innerHTML=`<span class="lbl">项目</span>`+chips.map(c=>`<span class="pchip ${PENDING_PROJECT===c.id?'on':''}" data-p="${c.id}" tabindex="0" role="button">${esc(c.name)}</span>`).join('');
+  el.querySelectorAll('.pchip').forEach(c=>{const act=()=>{PENDING_PROJECT=c.dataset.p;loadPending()};
+    c.onclick=act;c.onkeydown=e=>{if(e.key==='Enter'||e.key===' '){e.preventDefault();act()}}})}
+function filterPendingTasks(tasks){
+  if(!PENDING_PROJECT)return tasks;
+  return tasks.filter(t=>(t.project_id||'')===PENDING_PROJECT)}
 function taskRow(t){
   const st=TASK_ST[t.status]||t.status;
   const vB=(t.verdict&&t.verdict!=='processing')?`<span class="stamp ${t.verdict}">${VERDICT_CN[t.verdict]||t.verdict}</span>`:'';   // 机审中不显裁定徽章,只留「⏳ 审核中」
   const view=(t.status==='done'&&t.report_id)?`<button class="btn sm" onclick="viewTask('${t.id}')">查看报告</button>`:'';
   const err=t.error?`<div class="k" style="color:var(--block)">${t.error}</div>`:'';
   const active=(t.status==='pending'||t.status==='running');
-  const kind=(t.material_type==='video')?`<span class="owner">· ${t.video_kind==='work'?'作品':'物料'}</span>`:'';
+  const projectName=(t.material_type==='video'&&t.video_kind==='work')?pendingProjectName(t):'';
+  const kind=(t.material_type==='video')?`<span class="owner">· ${t.video_kind==='work'?'作品':'物料'}${projectName?` · ${esc(projectName)}`:''}</span>`:'';
   const previewable=!!t.material_id;
   const thumb=previewable
     ? `<button class="thumb" onclick="previewTaskMaterial('${t.material_id}')" title="预览${t.material_type==='video'?'并播放':''}">${GLYPH[t.material_type]||'▦'}</button>`
@@ -694,9 +713,11 @@ function taskRow(t){
     <div class="meta"><div>${t.name||'—'} <span class="owner">${LT[t.material_type]||t.material_type}</span>${kind}</div>
       <div class="k">${active?'⏳ ':''}${st}</div>${err}</div>
     ${vB}${view}${recheck}${retry}<button class="btn sm" onclick="delTask('${t.id}')" title="移除">✕</button></div>`}
-async function loadPending(){const r=await api('GET','/audit/tasks');const ts=r.data.tasks||[];
+async function loadPending(){if(!PROJECTS.length)await fetchProjects();const r=await api('GET','/audit/tasks');const ts=r.data.tasks||[];
+  buildPendingFilter(ts);
+  const shown=filterPendingTasks(ts);
   setCnt('pending',ts.filter(t=>t.status==='pending'||t.status==='running').length);
-  $('#pending-list').innerHTML=ts.length?ts.map(taskRow).join(''):'<div class="empty"><b class="disp">还没有审核任务</b>去「内容审核」提交视频/图片/文字/声音,或批量上传。</div>';
+  $('#pending-list').innerHTML=shown.length?shown.map(taskRow).join(''):(ts.length?'<div class="empty"><b class="disp">当前筛选下没有任务</b>切换项目筛选,或等新的审核任务进来。</div>':'<div class="empty"><b class="disp">还没有审核任务</b>去「内容审核」提交视频/图片/文字/声音,或批量上传。</div>');
   clearTimeout(pendingTimer);
   const activ=ts.some(t=>t.status==='pending'||t.status==='running');
   if(activ&&(location.hash||'').slice(1)==='pending')pendingTimer=setTimeout(loadPending,2500);  // 有进行中→轮询
@@ -861,13 +882,16 @@ async function loadRules(){await ensureProjects('#ru-project',true);fillCondPres
   $('#rules-list').innerHTML=`<div class="owner" style="margin-bottom:8px">当前作用域:<b>${esc(scopeCn)}</b>${scope?'——只对该项目的作品额外生效':'——对所有物料+作品生效'}</div>`+
     (rs.length?rs.map(x=>{
       const exc=x.exceptions||[];
-      const guideLine=x.guidance?`<div class="k" style="color:var(--dim);margin-top:3px">尺度:${esc(x.guidance).slice(0,140)}</div>`:'';
-      const excLine=exc.length?`<div class="k" style="margin-top:3px">例外(${exc.length}):${exc.map((e,i)=>`<span class="chip" style="margin:2px 4px 0 0">${esc((e.text||'').slice(0,22))}<b style="cursor:pointer;margin-left:4px;color:var(--block)" onclick="delRuleException('${x.id}',${i})">×</b></span>`).join('')}</div>`:'';
+      const gf=esc(x.guidance||'');const gs=gf.slice(0,140);const gt=gf.length>140;
+      const guideLine=x.guidance?`<div class="k hovertip" style="color:var(--dim);margin-top:3px">尺度:${gs}${gt?'…<span style="display:inline-block;margin-left:6px;padding:1px 6px;border-radius:999px;border:1px solid var(--line-2);color:var(--faint);font-size:10px;vertical-align:1px">已省略</span>':''}<div class="tipbox">${gf}</div></div>`:'';
+      const excLine=exc.length?`<div class="k" style="margin-top:3px">例外(${exc.length}):${exc.map((e,i)=>{const ef=esc(e.text||'');const es=ef.slice(0,28);const et=ef.length>28;return `<span class="chip hovertip" style="margin:2px 4px 0 0">${es}${et?'…<span style="display:inline-block;margin-left:4px;padding:0 4px;border-radius:999px;border:1px solid var(--line-2);color:var(--faint);font-size:9px;vertical-align:1px">已省略</span>':''}<div class="tipbox" style="font-size:12px">${ef}</div></span><b style="cursor:pointer;margin-left:4px;color:var(--block)" onclick="delRuleException('${x.id}',${i})">×</b>`}).join('')}</div>`:'';
       const lvCn=x.match_level==='regex'?'正则':(x.match_level==='literal'?'字面':'隐喻');
       const kwLabel=x.match_level==='regex'?'要拦':'关键词';
-      const reLine=(x.match_level==='regex'&&x.regex)?`<div class="k" style="margin-top:3px;font-family:ui-monospace,monospace">正则:${esc(x.regex).slice(0,160)}</div>`:'';
+      const rf=esc(x.regex||'');const rs=rf.slice(0,160);const rt=rf.length>160;
+      const reLine=(x.match_level==='regex'&&x.regex)?`<div class="k hovertip" style="margin-top:3px;font-family:ui-monospace,monospace">正则:${rs}${rt?'…<span style="display:inline-block;margin-left:6px;padding:1px 6px;border-radius:999px;border:1px solid var(--line-2);color:var(--faint);font-size:10px;vertical-align:1px">已省略</span>':''}<div class="tipbox" style="font-family:ui-monospace,monospace">${rf}</div></div>`:'';
+      const cf=esc(x.condition||'—');const cs=cf.slice(0,100);const ct=cf.length>100;
       const noTag=x.no?`<b style="color:var(--mint)">规则 ${x.no}</b> · `:'';
-      return `<div class="qrow"><div class="meta"><div>${noTag}${(x.source_type||'any').split(',').map(t=>SRC_CN[t.trim()]||t).join('/')||'全部'} · <span class="stamp ${x.action==='block'?'block':'review'}">${x.action==='block'?'拦截':'待复核'}</span> · <span class="stamp" style="color:var(--dim)">${lvCn}</span></div><div class="k">${kwLabel}:${(x.keywords||[]).map(esc).join('、')||'—'}${x.match_level==='regex'?'':' ｜ 条件:'+esc(x.condition||'—')}</div>${reLine}${guideLine}${excLine}</div><button class="btn sm" onclick="editRule('${x.id}')">编辑</button><button class="btn sm block" onclick="delRule('${x.id}')">删除</button></div>`;
+      return `<div class="qrow"><div class="meta"><div>${noTag}${(x.source_type||'any').split(',').map(t=>SRC_CN[t.trim()]||t).join('/')||'全部'} · <span class="stamp ${x.action==='block'?'block':'review'}">${x.action==='block'?'拦截':'待复核'}</span> · <span class="stamp" style="color:var(--dim)">${lvCn}</span></div><div class="k">${kwLabel}:${(x.keywords||[]).map(esc).join('、')||'—'}${x.match_level==='regex'?'':' ｜ 条件:'+(ct?`<span class="hovertip" style="display:inline-block;padding-bottom:0;vertical-align:middle">${cs}…<span style="display:inline-block;margin-left:4px;padding:0 5px;border-radius:999px;border:1px solid var(--line-2);color:var(--faint);font-size:10px;vertical-align:1px">已省略</span><span class="tipbox">${cf}</span></span>`:cf)}</div>${reLine}${guideLine}${excLine}</div><button class="btn sm" onclick="editRule('${x.id}')">编辑</button><button class="btn sm block" onclick="delRule('${x.id}')">删除</button></div>`;
     }).join(''):'<div class="empty">该作用域还没有规则,加一条试试。</div>')}
 async function delRuleException(id,idx){const r=await api('DELETE','/audit/rules/'+id+'/exceptions?index='+idx);if(r.ok){toast('已移除例外');loadRules()}else toast(r.data.detail||'移除失败',true)}
 function srcTypeVal(){const cbs=document.querySelectorAll('#ru-src-dd input[type=checkbox]:checked');return Array.from(cbs).map(c=>c.value).join(',')||'any'}

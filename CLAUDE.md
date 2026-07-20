@@ -127,6 +127,40 @@ ${ASSETS_ROOT}  (默认 /software/project/python/assets)
 
 全项目 PG 表遵循统一基础字段规范：`id`（雪花 BIGINT 主键）、`del_flag`（0=在用，软删置新雪花 ID）、`create_by`/`create_time`/`update_by`/`update_time`。domain 层的 `id` 均为 `str`（雪花 int64 序列化，防 JS 2^53 精度丢失）。
 
+### 直连数据库改规则（免启动项目）
+
+改规则/查报告不需要启动项目，直接 psycopg 连公网 PG 即可：
+
+```powershell
+# 连接串从 .env 读取（不要硬编码密码）
+.venv\Scripts\python -c "
+import os, psycopg, json, dotenv
+from psycopg.types.json import Jsonb
+dotenv.load_dotenv('.env')
+dsn = os.getenv('AM_DATABASE_URL')
+with psycopg.connect(dsn, autocommit=True) as conn:
+    # 查所有在用规则
+    rows = conn.execute('SELECT id, no, keywords, condition, action, match_level, guidance FROM audit_rule WHERE del_flag=0 ORDER BY no').fetchall()
+    for r in rows: print(f'#{r[1]} {json.dumps(r[2], ensure_ascii=False)} | {r[3][:60]}')
+
+    # 查某物料的审核报告
+    r = conn.execute(\"SELECT report_id, verdict, summary, segments, triggered FROM audit_report WHERE report_id='<report_id>'\").fetchone()
+    # segments → JSONB 数组，triggered → JSONB 命中规则列表
+
+    # 改规则：更新 keywords / condition / guidance / match_level / action
+    conn.execute('UPDATE audit_rule SET keywords=%s, guidance=%s, update_time=now() WHERE id=%s AND del_flag=0',
+                 (Jsonb(['关键词1', '关键词2']), '新guidance', 规则id))
+
+    # 软删规则（不物理删除，置 del_flag 为新雪花 ID）
+    from app.infrastructure.snowflake import next_id
+    conn.execute('UPDATE audit_rule SET del_flag=%s, update_time=now() WHERE id=%s', (next_id(), 规则id))
+
+    # 规则编号重排（填补软删空号）：先移到临时号段再归位，避唯一约束
+"
+```
+
+**关键表**：`audit_rule`（规则，id 雪花 BIGINT / no 在用编号 / del_flag 软删）、`audit_report`（报告，report_id UUID / segments JSONB / triggered JSONB）、`material`（物料，oss_key 文件名 / audit_report_id 关联报告）。
+
 ### Task Janitor（定时任务补偿，`app/service/task_janitor.py`）
 
 审核任务异步跑在 `ThreadPoolExecutor` 里。服务重启或外部 API 挂死 → 任务永远卡在 `PENDING/RUNNING`，物料永远 `PROCESSING`。JSON 存储仅在加载时内存修复，PG 存储无启动恢复。
@@ -177,7 +211,7 @@ ${ASSETS_ROOT}  (默认 /software/project/python/assets)
 大模型有时会在 `findings` 里输出"不违规/符合要求"的条目——不是它判错了，是它**多嘴汇报**。两层防御：
 
 1. **Prompt 收紧**：`_RULE_JUDGE_SYS` 明确禁止输出"不违规"条目
-2. **代码兜底**：`_semantic_judge` 里 `_reason_says_pass()` 检查 reason 是否含"不违规/不应命中/不符合/未违反"等否定 token，命中直接丢弃
+2. **代码兜底**：`_semantic_judge` 里 `_reason_says_pass()` 检查 reason 是否含否定 token（不违规/不应命中/不符合/未违反/不触发/不视为/不命中/不应计入 等），命中直接丢弃
 
 ### 报告 Segment 命中标注
 
@@ -189,3 +223,26 @@ ${ASSETS_ROOT}  (默认 /software/project/python/assets)
 - 视觉规则（二维码/低俗/明星/服装/美颜）统一用 `video_frame,image_content`，不区分视频帧和图片
 - `block` → `review` 是安全降级：机器不直接拦截，交人工终判
 - 每次改规则后跑 `recheck` 验证实际效果，大模型会找到你意想不到的角度
+- **Rule #5 网赚诈骗话术**（2026-07-20）：guidance 追加「平台内"自动兑换成现金""自动提现"等功能描述属于正常产品功能说明，不构成网赚承诺。"白嫖""免费拿"等网络用语在App推广中属于常见营销话术，不视为网赚诈骗话术。」——防大模型把音乐/视频平台正常推广误判为网赚
+- **Rule #6 免责声明**（2026-07-20）：`keywords` 清空为 `[]`，去掉了"满xx可提现"关键字预筛，每条匹配 `video_frame,image_content` 的 segment 都直接走大模型判定。注意：Rule #6 是纯画面检查——视频帧里必须出现金额承诺文字才需要免责声明，口播不算
+- **Qwen-VL 画面反解 prompt 强化**（2026-07-20）：`qwen_vl.py` 的 `_PROMPT` 追加「请逐字抄录画面中出现的所有文字，包括小字、水印、按钮文案、免责声明、金额数字、提现门槛、平台名称、下载引导语等。即使文字很小或位于边缘，也必须抄录」——之前 Qwen-VL 只描述大面积文字（如"免费畅听"），漏掉提现门槛、免责声明等审核关键小字，导致 Rule #6 无法命中
+- **Rule #9 收益=生活开销**（2026-07-20，覆盖原 #10）：keywords 只保留 `["赚生活费", "买菜钱"]`，condition「用于描述网赚收益可覆盖基本生活开销（如买菜、生活费、房租等），暗示稳定收入来源」。guidance 明确「奶茶钱、零食钱、水钱等轻度娱乐消费不算基本生活开销，不触发此规则。音乐/视频/阅读等平台内听歌看视频赚小额金币属于正常运营活动，不在此列」
+- **Rule #10 娱乐小钱**（2026-07-20）：已软删。原 keywords `["奶茶钱", "零食钱", "水钱"]` 不再作为独立规则存在——这些娱乐小钱不视为违规。规则编号 11→10, 12→11 ... 25→24 顺延填补，当前在用 24 条（1~24 连续）
+- **`_reason_says_pass` token 扩充**（2026-07-20）：大模型新学会了"不触发""不视为""不命中""不应计入"等否定表述，原 token 列表没覆盖，导致 Rule #5/#9 的放行 finding 仍出现在 triggered 里。已追加这四个 token
+- **Rule #10 绝对化用语**（2026-07-20，原 #11）：原 condition 和 guidance 均为空，大模型对每条 segment 自由发挥，把"全都能免费唱""再也不用找歌"误判为绝对化承诺。已补 condition「在宣传推广中使用《广告法》禁止的绝对化用语…构成夸大宣传」+ guidance 明确「平台功能描述不构成绝对化承诺」
+
+## 批量上传优化（2026-07-20）
+
+`/audit/batch` 大 zip + 多文件上传三个优化，解决 662 MB zip 上传 2.4 分钟超时 + 容器 OOM（`memory: 1g`）：
+
+### 流式解压（zip 文件）
+- **改前**：`await f.read()` 把整个 zip 读入 `bytes` → `_expand_zip()` 全量解压到内存 → 峰值 ~2 GB
+- **改后**：`ZipFile(f.file)` 直接从 UploadFile 的 SpooledTemporaryFile（磁盘临时文件）读，逐条 `z.read(info)` → 循环内即释放 → 峰值 ~6 MB（单条目）
+
+### 流式 OSS 上传（非 zip 文件）
+- **改前**：`await f.read()` → bytes → `msvc.create(data)` 全量 bytes 传 OSS
+- **改后**：`await f.read()` → 哈希/去重 → `await f.seek(0)` → `msvc.create_file(fileobj)` 从磁盘 SpooledTemporaryFile 分块直传 OSS（≥10MB 走 `_multipart_upload` 多线程并发分片）
+
+### 线程池去 data（zip + 非 zip 公用）
+- **改前**：`_process_one_batch_item` 在线程池内做 上传+审核，`data` bytes 全部排队在 `ThreadPoolExecutor` 无界队列中
+- **改后**：`_batch_prepare_item` 在循环内做 上传+建物料（`run_in_threadpool`），完成后 `data` 引用即释放；只提交纯审核 `_batch_run_audit` 到线程池（队列中仅元数据 `task_id/material_id/oss_key/text`，几 KB）

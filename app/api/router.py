@@ -4,6 +4,7 @@ import uuid
 import time
 import hashlib
 import threading
+import zipfile
 from fastapi import APIRouter, HTTPException, UploadFile, File, Form, Header, Depends, Query
 from fastapi.concurrency import run_in_threadpool
 from app.api import deps, schemas
@@ -488,18 +489,17 @@ def _run_task_recheck(task_id: str) -> None:
         deps.task_repo.save(task)
 
 
-def _process_one_batch_item(item: tuple, owner_id: str) -> None:
-    """批量里单个文件:上传+建物料+审核,回写各自任务。在有界审核池的线程里跑,批内各条并发。"""
-    task_id, name, data, mtype, chash = item
+async def _batch_prepare_item(owner_id: str, name: str, data: bytes, mtype: MaterialType,
+                               chash: str, video_kind: str, project_id: str,
+                               fileobj=None) -> str | None:
+    """批量内单条准备:上传 OSS + 建物料 + 时长检查 + 建任务,只提交「审核」到线程池(数据已释放)。
+    在调用方循环内 await,完成后 data 引用即可释放,内存峰值仅当前单条。
+    有 fileobj 时优先流式直传 OSS(免 data 二次拷贝);无则用 data 上传(zip 条目/语料)。
+    返回 task_id;失败时 _fail_task 标失败并仍返回 task_id(前端可追踪失败原因)。"""
     svc = deps.get_audit_service()
     msvc = deps.get_material_service()
-    task = deps.task_repo.get(task_id)
-    if task is None:
-        return
-    task.status = JobStatus.RUNNING
-    deps.task_repo.save(task)
-    kind = getattr(task, "video_kind", "material")   # 物料/作品由顶部 tab 决定(建任务时已写入),不再按时长猜
-    pid = getattr(task, "project_id", "")            # 作品所属项目(建任务时已写入)
+    task = _new_task(owner_id, name, mtype, "", chash,
+                     video_kind=video_kind, project_id=project_id)
     try:
         if mtype == MaterialType.CORPUS:
             text = data.decode("utf-8", "ignore")
@@ -510,36 +510,54 @@ def _process_one_batch_item(item: tuple, owner_id: str) -> None:
         else:
             text = ""
             key = f"materials/{uuid.uuid4().hex}-{name.rsplit('/', 1)[-1]}"
-            m = msvc.create(mtype, key, data, owner_id, chash)
+            if fileobj is not None:
+                # 流式:从 file-like 对象分块直传 OSS,避免 data bytes 二次拷贝
+                m = await run_in_threadpool(msvc.create_file, mtype, key, fileobj, owner_id, chash)
+            else:
+                m = await run_in_threadpool(msvc.create, mtype, key, data, owner_id, chash)
             # 物料视频 ≤20s 护栏(与单个上传一致):超时长→删物料+任务失败,不入库不审核;请改选「作品」
-            if mtype == MaterialType.VIDEO and kind == "material":
+            if mtype == MaterialType.VIDEO and video_kind == "material":
                 dur = parse_mp4_duration_ms(data)   # 优先内存解析,避免 OSS 回读
                 if dur is None:
-                    dur = deps.storage.video_duration_ms(m.oss_key)
+                    dur = await run_in_threadpool(deps.storage.video_duration_ms, m.oss_key)
                 if dur is not None and dur > 20000:
-                    msvc.delete(m.id)
+                    await run_in_threadpool(msvc.delete, m.id)
                     task.status = JobStatus.FAILED
                     task.error = "物料视频需 ≤20 秒;请改选「作品」或裁剪后重传。"
                     deps.task_repo.save(task)
-                    return
+                    return task.id
             deps.get_index_service().index_material(m)
-        if pid and kind == "work" and mtype == MaterialType.VIDEO:   # 作品(视频)落项目
-            m.project_id = pid
+        if project_id and video_kind == "work" and mtype == MaterialType.VIDEO:   # 作品(视频)落项目
+            m.project_id = project_id
             deps.material_repo.save(m)
         task.material_id = m.id
         deps.task_repo.save(task)
-        job = svc.submit(mtype, oss_key=m.oss_key, owner_id=owner_id, material_id=m.id,
+        # 只提交审核到有界池,不传 data —— 内存已释放
+        deps.audit_pool.submit(_batch_run_audit, task.id, m.id, mtype, m.oss_key, text, owner_id)
+        return task.id
+    except Exception as e:
+        _fail_task(task, str(e))
+        return task.id
+
+
+def _batch_run_audit(task_id: str, material_id: str, mtype: MaterialType, oss_key: str,
+                     text: str, owner_id: str) -> None:
+    """纯审核(线程池内跑):OSS 已上传,只跑 audit pipeline + 回写任务。"""
+    svc = deps.get_audit_service()
+    task = deps.task_repo.get(task_id)
+    if task is None:
+        return
+    task.status = JobStatus.RUNNING
+    deps.task_repo.save(task)
+    kind = getattr(task, "video_kind", "material")
+    pid = getattr(task, "project_id", "")
+    try:
+        job = svc.submit(mtype, oss_key=oss_key, owner_id=owner_id, material_id=material_id,
                          video_kind=kind, project_id=pid)
         report = svc.run(job, text)
         _finish_task(task, job, report)
     except Exception as e:
-        _fail_task(task, str(e))   # 批量单条失败 → 删没成功的物料 + 暴露原因(可重传)
-
-
-def _run_batch_tasks(created: list, owner_id: str) -> None:
-    """批量 fan-out:每个文件各自提交到有界审核池 → 批内并发审(受池上限约束),不再一条条串。"""
-    for item in created:
-        deps.audit_pool.submit(_process_one_batch_item, item, owner_id)
+        _fail_task(task, str(e))
 
 
 # 去重要原子:检查「库内已有」+「同内容正在处理中」并登记,防并发/连点重复提交(检查-建库非原子的竞态)
@@ -728,22 +746,12 @@ def _type_error(filename: str, mtype_value: str) -> str | None:
     return None
 
 
-def _expand_zip(data: bytes) -> list[tuple]:
-    """解包 zip → [(entry名, bytes)];跳过目录、隐藏文件、__MACOSX。"""
-    import zipfile, io
-    out = []
-    try:
-        with zipfile.ZipFile(io.BytesIO(data)) as z:
-            for info in z.infolist():
-                if info.is_dir():
-                    continue
-                base = info.filename.rsplit("/", 1)[-1]
-                if info.filename.startswith("__MACOSX") or base.startswith("."):
-                    continue
-                out.append((info.filename, z.read(info)))
-    except Exception:
-        pass
-    return out
+def _zip_entry_ok(info) -> bool:
+    """zip 条目跳过目录、隐藏文件、__MACOSX。"""
+    if info.is_dir():
+        return False
+    base = info.filename.rsplit("/", 1)[-1]
+    return not (info.filename.startswith("__MACOSX") or base.startswith("."))
 
 
 @router.post("/audit/batch")
@@ -752,51 +760,89 @@ async def audit_batch(files: list[UploadFile] = File(...),
                       user: dict = Depends(_user)):
     """批量:多文件(文件夹拖拽)或单个 zip(自动解包)。逐个上传+审核,状态在「待审核」页看。
     视频统一按顶部 tab 的 video_kind(material/work)分类(不再按时长自动猜);物料视频仍需 ≤20s。
-    同一用户库内按内容 MD5 去重(库内已有 + 批内重复都跳过);不支持的扩展名也跳过。"""
+    同一用户库内按内容 MD5 去重(库内已有 + 批内重复都跳过);不支持的扩展名也跳过。
+    zip 文件直接从磁盘流式解压,不把整个压缩包读入内存。"""
     _require_auth(user)
     owner = user["id"]
     video_kind = video_kind if video_kind in ("material", "work") else "material"
     project_id = _resolve_project(video_kind, project_id)   # 作品批量必须选存在的项目
-    raw = [(f.filename or "file", await f.read()) for f in files]
-    items: list[tuple] = []
-    for name, data in raw:
-        if name.lower().endswith(".zip"):
-            items += _expand_zip(data)
-        else:
-            items.append((name, data))
-    items = [(n, d) for n, d in items if n and d]
-    if not items:
-        raise HTTPException(400, "没有可上传的文件")
-    if len(items) > 200:
-        raise HTTPException(400, "单次批量最多 200 个文件")
-    created: list = []
+    task_ids: list[str] = []
     skipped_big = skipped_type = skipped_dup = 0
     seen: set = set()
-    for name, data in items:
-        if len(data) > _MAX_UPLOAD:                         # 超过 1GB → 跳过
-            skipped_big += 1
-            continue
-        t = _infer_type(name)
-        if t is None:
-            skipped_type += 1
-            continue                                       # 不支持的扩展名
-        chash = hashlib.md5(data).hexdigest()
-        if chash in seen or deps.material_repo.by_content_hash(owner, chash) is not None:
-            skipped_dup += 1
-            continue                                       # 批内重复 + 库内已有
-        seen.add(chash)
-        mtype = MaterialType(t)
-        task = _new_task(owner, name.rsplit("/", 1)[-1], mtype, "", chash,
-                         video_kind=video_kind, project_id=project_id)
-        created.append((task.id, name, data, mtype, chash))
+    count = 0
+
+    for f in files:
+        fname = f.filename or "file"
+
+        if fname.lower().endswith(".zip"):
+            # 流式解压:直接从 UploadFile 的 SpooledTemporaryFile 读,不把整个 zip 加载到内存
+            await f.seek(0)
+            try:
+                with zipfile.ZipFile(f.file) as z:
+                    for info in z.infolist():
+                        if not _zip_entry_ok(info):
+                            continue
+                        if count >= 200:
+                            break
+                        name = info.filename
+                        if info.file_size > _MAX_UPLOAD:
+                            skipped_big += 1
+                            continue
+                        t = _infer_type(name)
+                        if t is None:
+                            skipped_type += 1
+                            continue
+                        # 逐条读取,内存只持有当前这条的 bytes
+                        data = z.read(info)
+                        if not data:
+                            continue
+                        chash = hashlib.md5(data).hexdigest()
+                        if chash in seen or deps.material_repo.by_content_hash(owner, chash) is not None:
+                            skipped_dup += 1
+                            continue
+                        seen.add(chash)
+                        mtype = MaterialType(t)
+                        tid = await _batch_prepare_item(
+                            owner, name.rsplit("/", 1)[-1], data, mtype, chash,
+                            video_kind, project_id)
+                        if tid:
+                            task_ids.append(tid)
+                            count += 1
+            except Exception:
+                pass   # 损坏/非 zip 文件 → 跳过,不阻塞批量
+        else:
+            # 非 zip 单文件:读入哈希 + 去重,然后 seek 回文件头流式传 OSS(免 data 二次拷贝)
+            data = await f.read()
+            if not data or len(data) > _MAX_UPLOAD:
+                skipped_big += 1 if data else 0
+                continue
+            t = _infer_type(fname)
+            if t is None:
+                skipped_type += 1
+                continue
+            chash = hashlib.md5(data).hexdigest()
+            if chash in seen or deps.material_repo.by_content_hash(owner, chash) is not None:
+                skipped_dup += 1
+                continue
+            seen.add(chash)
+            mtype = MaterialType(t)
+            await f.seek(0)   # seek 回文件头,OSS 从 file-like 对象分块直传,不传 data bytes
+            tid = await _batch_prepare_item(
+                owner, fname.rsplit("/", 1)[-1], data, mtype, chash,
+                video_kind, project_id, fileobj=f.file)
+            if tid:
+                task_ids.append(tid)
+                count += 1
+            if count >= 200:
+                break
+
     skipped = skipped_big + skipped_type + skipped_dup
     _sk = {"skipped": skipped, "skipped_big": skipped_big,
-           "skipped_type": skipped_type, "skipped_dup": skipped_dup}   # 跳过原因明细,前端可展示
-    if not created:
+           "skipped_type": skipped_type, "skipped_dup": skipped_dup}
+    if not task_ids:
         return {"status": "done", "created": 0, **_sk, "task_ids": []}
-    _run_batch_tasks(created, owner)   # 快速 fan-out:把每条提交到有界审核池(非阻塞),不再单线程串行
-    return {"status": "submitted", "created": len(created), **_sk,
-            "task_ids": [c[0] for c in created]}
+    return {"status": "submitted", "created": len(task_ids), **_sk,
+            "task_ids": task_ids}
 
 
 # ── 审核规则后台(管理员)——放在 /audit/{job_id} 之前,避免 rules 被当作 job_id ──
