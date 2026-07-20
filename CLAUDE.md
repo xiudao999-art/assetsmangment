@@ -230,3 +230,19 @@ with psycopg.connect(dsn, autocommit=True) as conn:
 - **Rule #10 娱乐小钱**（2026-07-20）：已软删。原 keywords `["奶茶钱", "零食钱", "水钱"]` 不再作为独立规则存在——这些娱乐小钱不视为违规。规则编号 11→10, 12→11 ... 25→24 顺延填补，当前在用 24 条（1~24 连续）
 - **`_reason_says_pass` token 扩充**（2026-07-20）：大模型新学会了"不触发""不视为""不命中""不应计入"等否定表述，原 token 列表没覆盖，导致 Rule #5/#9 的放行 finding 仍出现在 triggered 里。已追加这四个 token
 - **Rule #10 绝对化用语**（2026-07-20，原 #11）：原 condition 和 guidance 均为空，大模型对每条 segment 自由发挥，把"全都能免费唱""再也不用找歌"误判为绝对化承诺。已补 condition「在宣传推广中使用《广告法》禁止的绝对化用语…构成夸大宣传」+ guidance 明确「平台功能描述不构成绝对化承诺」
+
+## 批量上传优化（2026-07-20）
+
+`/audit/batch` 大 zip + 多文件上传三个优化，解决 662 MB zip 上传 2.4 分钟超时 + 容器 OOM（`memory: 1g`）：
+
+### 流式解压（zip 文件）
+- **改前**：`await f.read()` 把整个 zip 读入 `bytes` → `_expand_zip()` 全量解压到内存 → 峰值 ~2 GB
+- **改后**：`ZipFile(f.file)` 直接从 UploadFile 的 SpooledTemporaryFile（磁盘临时文件）读，逐条 `z.read(info)` → 循环内即释放 → 峰值 ~6 MB（单条目）
+
+### 流式 OSS 上传（非 zip 文件）
+- **改前**：`await f.read()` → bytes → `msvc.create(data)` 全量 bytes 传 OSS
+- **改后**：`await f.read()` → 哈希/去重 → `await f.seek(0)` → `msvc.create_file(fileobj)` 从磁盘 SpooledTemporaryFile 分块直传 OSS（≥10MB 走 `_multipart_upload` 多线程并发分片）
+
+### 线程池去 data（zip + 非 zip 公用）
+- **改前**：`_process_one_batch_item` 在线程池内做 上传+审核，`data` bytes 全部排队在 `ThreadPoolExecutor` 无界队列中
+- **改后**：`_batch_prepare_item` 在循环内做 上传+建物料（`run_in_threadpool`），完成后 `data` 引用即释放；只提交纯审核 `_batch_run_audit` 到线程池（队列中仅元数据 `task_id/material_id/oss_key/text`，几 KB）
