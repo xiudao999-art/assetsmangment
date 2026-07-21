@@ -333,6 +333,8 @@ for i in 1..max_iterations:
 **训练与审核一致性**：训练 `_reaudit_material` 走 `recheck()`（和待审核页「重新审核」按钮完全相同的三波级联逻辑，含云安全短路）。**优先用关联 `audit_task` 的报告**（`task.report_id`）而非 `material.audit_report_id`，与手动「重新审核」按钮行为一致；无 task 时回退 material 的报告。recheck 后 `_persist` 更新物料 `audit_report_id`，`_sync_task_after_recheck` 同步更新关联 `audit_task`。异常日志级别均为 WARNING（生产环境可见）。
 
 > **2026-07-21 修复**：此前 `_reaudit_material` 只用 `material.audit_report_id` 取报告。当物料和 task 指向不同报告时（如中间有人手动重审），训练跑在错误报告上 → 漏判/多判计数与 task 报告不一致。根因是 `recheck` 非确定性（Qwen-VL 每次描述同一帧可能不同），两份报告可能有不同判定。修复：`_reaudit_material` 先扫描 task 找到匹配 `material_id` 的 task，优先用 `task.report_id`。
+>
+> **2026-07-21 修复**：`_sync_task_after_recheck` 里 `t.status = "done"` 写成了字符串而非 `JobStatus.DONE` 枚举。`PgAuditTaskRepo.save()` 里调 `task.status.value`，字符串没有 `.value` 属性 → 每次 AttributeError，被 `except` 吞掉 → **task 的 report_id 从未被同步**（静默失败，5 个物料的 task.report_id 全部与 material.audit_report_id 不一致）。修复：`t.status = JobStatus.DONE` + 补 `JobStatus` import。**教训：所有 AuditTask 状态赋值必须用 `JobStatus` 枚举，不能写裸字符串，否则 save 静默失败。**
 
 **`training_result.iterations` 格式**（2026-07-21 修复）：从 `int`（迭代次数）改为 `list[dict]`，每轮记录 `{iteration, metrics, current_materials, converged, rule_changes}`。`current_materials` 为 `{material_id: [rule_id, ...]}`，可追溯每轮 recheck 实际命中。
 

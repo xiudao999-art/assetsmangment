@@ -9,7 +9,7 @@
 from __future__ import annotations
 import logging
 from typing import Optional
-from app.domain.models import TrainingSet, TrainingExample, AuditJob, MaterialType, AuditRule
+from app.domain.models import TrainingSet, TrainingExample, AuditJob, MaterialType, AuditRule, JobStatus
 from app.domain.ports import TrainingSetRepo, TrainingExampleRepo, AuditRuleRepo, MaterialRepo
 from app.infrastructure.snowflake import next_id_str
 
@@ -416,7 +416,7 @@ class TrainingService:
                     continue
                 t.report_id = new_rid
                 t.verdict = getattr(m, "audit_status", "review")
-                t.status = "done"
+                t.status = JobStatus.DONE
                 t.report_generated_at = datetime.datetime.now(
                     datetime.timezone(datetime.timedelta(hours=8))
                 ).isoformat()

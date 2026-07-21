@@ -1002,7 +1002,7 @@ async function confirmTrainingMark(){
     const r=await api('POST','/training/projects/'+encodeURIComponent(ctx.project_id)+'/examples',body);
     if(btn)btn.disabled=false;
     if(!r.ok){toast(r.data.detail||'加入训练集失败',true);return}
-    TRAINING_PREFILL={...ctx,source_note:body.source_note,suggested_rule_ids:body.expected_rule_ids};
+    resetTrainingPrefill();
     closeTrainingMark();
     toast('已加入训练集');
     if((location.hash||'').slice(1)==='rules-training')loadTrainingPage();
@@ -1067,9 +1067,10 @@ function renderTrainingContext(){
   const pid=currentTrainingProject();
   const same=(TRAINING_PREFILL.project_id||'')===pid;
   if(!TRAINING_PREFILL.material_id||!same){box.style.display='none';box.innerHTML='';return}
+  const ex=trainingExampleByMaterialId(TRAINING_PREFILL.material_id);
+  if(ex){box.style.display='none';box.innerHTML='';resetTrainingPrefill();return}
   const sugg=(TRAINING_PREFILL.suggested_rule_ids||[]).length;
   const projectLabel=projName(TRAINING_PREFILL.project_id)||TRAINING_PREFILL.project_id;
-  const ex=trainingExampleByMaterialId(TRAINING_PREFILL.material_id);
   box.style.display='block';
   box.innerHTML=`<div class="qrow" style="margin:0"><div class="thumb">训</div><div class="meta"><div>待审核上下文已带入 <span class="owner">· ${esc(projectLabel)}</span></div><div class="k">${esc(TRAINING_PREFILL.task_name||TRAINING_PREFILL.material_id)}</div><div class="k">material_id: ${esc(TRAINING_PREFILL.material_id)}${sugg?` · 已带入 ${sugg} 条命中建议`:' · 暂无命中建议'}${ex?' · 已入训练集':''}</div></div><button class="btn sm" onclick="viewTrainingReport('${TRAINING_PREFILL.task_id||''}')">查看报告</button><button class="btn sm block" onclick="deleteTrainingContext()">删除</button></div>`}
 function renderTrainingStatus(){
@@ -1090,7 +1091,7 @@ function renderTrainingStatus(){
   if(ts.status==='collecting'){
     extra='<div class="empty" style="margin-top:12px"><b class="disp">样本收集中</b>凑够几条有代表性的作品后再开始训练,效果更稳定。</div>'}
   else{
-    extra=`<div class="kpi"><div class="item"><b>${result.iterations||0}</b><span>迭代轮数</span></div><div class="item"><b>${metrics.total_materials||0}</b><span>训练样本数</span></div><div class="item"><b>${metrics.missed_hits||0}</b><span>漏判次数</span></div><div class="item"><b>${metrics.extra_hits||0}</b><span>多判次数</span></div><div class="item"><b>${fmtPct(metrics.fp_ratio||0)}</b><span>多判率</span></div><div class="item"><b>${result.converged?'已收敛':'未收敛'}</b><span>训练结论</span></div></div>`;
+    extra=`<div class="kpi"><div class="item"><b>${Array.isArray(result.iterations)?result.iterations.length:(result.iterations||0)}</b><span>迭代轮数</span></div><div class="item"><b>${metrics.total_materials||0}</b><span>训练样本数</span></div><div class="item"><b>${metrics.missed_hits||0}</b><span>漏判次数</span></div><div class="item"><b>${metrics.extra_hits||0}</b><span>多判次数</span></div><div class="item"><b>${fmtPct(metrics.fp_ratio||0)}</b><span>多判率</span></div><div class="item"><b>${result.converged?'已收敛':'未收敛'}</b><span>训练结论</span></div></div>`;
     extra+=changes.length?`<div style="margin-top:10px"><label>最近规则调整</label><div style="margin-top:8px">${changes.map(c=>`<div class="qrow" style="align-items:flex-start"><div class="meta"><div>${c.rule_no?`规则 ${c.rule_no}`:'规则'} <span class="owner">${esc(c.analysis||'AI 已调整规则边界')}</span></div><div class="k">关键词:${esc((c.keywords||[]).join('、')||'—')}</div><div class="k">条件:${esc(c.condition||'—')}</div><div class="k">尺度:${esc((c.guidance||'—').slice(0,180))}</div></div></div>`).join('')}</div></div>`:'';
   }
   box.innerHTML=main+extra}
