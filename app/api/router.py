@@ -5,6 +5,7 @@ import time
 import hashlib
 import threading
 import zipfile
+import datetime
 from fastapi import APIRouter, HTTPException, UploadFile, File, Form, Header, Depends, Query
 from fastapi.concurrency import run_in_threadpool
 from app.api import deps, schemas
@@ -382,7 +383,8 @@ def _task_out(t: AuditTask, in_training: bool = False) -> dict:
             verdict = getattr(m.audit_status, "value", m.audit_status)
     return {"id": t.id, "name": t.name, "material_type": t.material_type,
             "material_id": t.material_id, "status": t.status, "verdict": verdict,
-            "report_id": t.report_id, "created_ms": t.created_ms, "error": t.error,
+            "report_id": t.report_id, "created_ms": t.created_ms,
+            "report_generated_at": getattr(t, "report_generated_at", ""), "error": t.error,
             "video_kind": getattr(t, "video_kind", "material"),
             "project_id": getattr(t, "project_id", ""),
             "in_training": in_training}
@@ -427,6 +429,9 @@ def _finish_task(task: AuditTask, job, report, delete_on_fail: bool = True) -> N
     task.status = JobStatus.DONE
     m = deps.material_repo.get(task.material_id)
     task.report_id = m.audit_report_id if m else ""
+    task.report_generated_at = datetime.datetime.now(
+        datetime.timezone(datetime.timedelta(hours=8))
+    ).isoformat()
     deps.task_repo.save(task)
 
 
@@ -435,11 +440,15 @@ def _sync_task_after_recheck(mid: str, report) -> None:
     best-effort:没有任务就跳过;task_repo 无 material_id 索引,扫全量匹配(管理员单次动作,量小)。"""
     m = deps.material_repo.get(mid)
     new_rid = m.audit_report_id if m else ""
+    generated_at = datetime.datetime.now(
+        datetime.timezone(datetime.timedelta(hours=8))
+    ).isoformat()
     for t in deps.task_repo.list_all():
         if t.material_id == mid:
             t.verdict = report.verdict.value
             t.status = JobStatus.DONE
             t.report_id = new_rid
+            t.report_generated_at = generated_at
             t.error = ""
             deps.task_repo.save(t)
 
@@ -1541,11 +1550,20 @@ def _ts_out(ts) -> dict:
 
 
 def _te_out(te) -> dict:
+    task_id = ""
+    task_name = ""
+    for t in deps.task_repo.list_all():
+        if getattr(t, "material_id", "") == te.material_id:
+            task_id = t.id
+            task_name = getattr(t, "name", "") or ""
+            break
     return {
         "id": te.id, "training_set_id": te.training_set_id,
         "material_id": te.material_id,
         "expected_rule_ids": te.expected_rule_ids,
         "source_note": te.source_note,
+        "source_task_id": task_id,
+        "source_task_name": task_name,
     }
 
 
@@ -1581,6 +1599,22 @@ def delete_training_example(project_id: str, example_id: str,
     return {"deleted": example_id}
 
 
+@router.put("/training/projects/{project_id}/examples/{example_id}")
+def update_training_example(project_id: str, example_id: str,
+                            body: schemas.TrainingExampleUpdateIn,
+                            user: dict = Depends(_user)):
+    """编辑训练样本:修改预期命中规则或标注备注。"""
+    _require_perm(user, "audit.rules")
+    try:
+        te = deps.get_training_service().update_example(
+            project_id, example_id,
+            expected_rule_ids=body.expected_rule_ids,
+            source_note=body.source_note, by=user["id"])
+    except Exception as e:
+        raise HTTPException(400, str(e))
+    return _te_out(te)
+
+
 @router.post("/training/projects/{project_id}/train")
 def start_training(project_id: str, body: schemas.TrainingConfigIn | None = None,
                    user: dict = Depends(_user)):
@@ -1600,10 +1634,12 @@ def start_training(project_id: str, body: schemas.TrainingConfigIn | None = None
 
 def _run_training(project_id: str, by: str) -> None:
     """后台执行训练循环。"""
+    import logging
+    _log = logging.getLogger(__name__)
     try:
         deps.get_training_service().run_training(project_id, by=by)
-    except Exception:
-        pass  # 异常已反映在 training_set.status='failed'
+    except Exception as e:
+        _log.exception("训练异常终止: project=%s, error=%s", project_id, e)
 
 
 @router.get("/training/projects/{project_id}/status")

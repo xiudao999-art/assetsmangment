@@ -7,10 +7,13 @@
 4. 重新审核 → 重复直到 漏判=0 且 多判率≤max_fp_ratio 或达到最大迭代次数
 """
 from __future__ import annotations
+import logging
 from typing import Optional
 from app.domain.models import TrainingSet, TrainingExample, AuditJob, MaterialType, AuditRule
 from app.domain.ports import TrainingSetRepo, TrainingExampleRepo, AuditRuleRepo, MaterialRepo
 from app.infrastructure.snowflake import next_id_str
+
+logger = logging.getLogger(__name__)
 
 # ── AI 规则调优系统提示词 ──
 _RULE_ADJUST_SYS = (
@@ -38,12 +41,13 @@ class TrainingService:
     def __init__(self, training_set_repo: TrainingSetRepo,
                  training_example_repo: TrainingExampleRepo,
                  rule_repo: AuditRuleRepo, material_repo: MaterialRepo,
-                 report_repo, audit_pipeline, llm) -> None:
+                 report_repo, task_repo, audit_pipeline, llm) -> None:
         self._ts_repo = training_set_repo
         self._te_repo = training_example_repo
         self._rules = rule_repo
         self._repo = material_repo
         self._reports = report_repo
+        self._tasks = task_repo
         self._audit = audit_pipeline
         self._llm = llm
 
@@ -90,6 +94,25 @@ class TrainingService:
     def remove_example(self, example_id: str, by: str = "") -> None:
         self._te_repo.delete(example_id, by=by)
 
+    def update_example(self, project_id: str, example_id: str,
+                       expected_rule_ids: list[str] | None = None,
+                       source_note: str | None = None, by: str = "") -> TrainingExample:
+        """编辑训练样本:修改预期规则或备注。校验样本存在且属于该项目。"""
+        ts = self._ts_repo.get_by_project(project_id)
+        if ts is None:
+            raise TrainingError("训练集不存在")
+        te = self._te_repo.get(example_id)
+        if te is None:
+            raise TrainingError(f"样本 {example_id} 不存在")
+        if te.training_set_id != ts.id:
+            raise TrainingError(f"样本不属于该项目")
+        if expected_rule_ids is not None:
+            te.expected_rule_ids = list(dict.fromkeys(expected_rule_ids))
+        if source_note is not None:
+            te.source_note = source_note
+        self._te_repo.add(te, by=by)
+        return te
+
     def list_examples(self, project_id: str) -> list[TrainingExample]:
         ts = self._ts_repo.get_by_project(project_id)
         if ts is None:
@@ -125,6 +148,12 @@ class TrainingService:
         if not trainable_rules:
             raise TrainingError("没有可训练的规则,请先添加项目规则或全局规则")
 
+        logger.info(
+            "训练启动: project=%s, samples=%d, rules=%d, max_iter=%d, max_fp=%.2f, by=%s",
+            project_id, len(examples), len(trainable_rules),
+            ts.max_iterations, ts.max_fp_ratio, by,
+        )
+
         import datetime
         ts.rule_snapshot = {
             r.id: {"no": getattr(r, "no", 0), "source_type": r.source_type,
@@ -145,6 +174,8 @@ class TrainingService:
         """执行训练循环(在后台线程中调用)。"""
         ts = self._ts_repo.get_by_project(project_id)
         if ts is None or ts.status != "training":
+            logger.warning("训练跳过: project=%s, ts=%s", project_id,
+                           "None" if ts is None else ts.status)
             return ts
 
         examples = self._te_repo.list_for_set(ts.id)
@@ -161,54 +192,110 @@ class TrainingService:
         all_changes: list[dict] = []
         final_metrics: dict = {}
         converged = False
+        iteration = 0
 
-        for iteration in range(1, max_iter + 1):
-            # 1) 用当前规则重审所有训练样本物料
-            current_results: dict[str, set[str]] = {}
-            for material_id in ground_truth:
-                triggered = self._reaudit_material(material_id, project_id)
-                current_results[material_id] = triggered
+        logger.info(
+            "训练开始: project=%s, samples=%d, rules=%d, max_iter=%d, max_fp=%.2f",
+            project_id, len(ground_truth), len(trainable_rules), max_iter, max_fp,
+        )
 
-            # 2) 对比 ground_truth → 计算指标
-            metrics = self._calc_metrics(ground_truth, current_results, rule_by_id)
-            final_metrics = metrics
+        try:
+            for iteration in range(1, max_iter + 1):
+                logger.info("--- 迭代 %d/%d ---", iteration, max_iter)
 
-            # 3) 收敛判定
-            if metrics["missed_hits"] == 0:
-                fp_ratio = metrics["fp_ratio"]
-                if fp_ratio <= max_fp:
-                    converged = True
+                # 1) 用当前规则重审所有训练样本物料
+                current_results: dict[str, set[str]] = {}
+                for material_id in ground_truth:
+                    triggered = self._reaudit_material(material_id, project_id)
+                    current_results[material_id] = triggered
+
+                # 2) 对比 ground_truth → 计算指标
+                metrics = self._calc_metrics(ground_truth, current_results, rule_by_id)
+                final_metrics = metrics
+                logger.info(
+                    "迭代 %d 指标: materials=%d, expected_hits=%d, actual_hits=%d, "
+                    "missed=%d, extra=%d, fp_ratio=%.4f",
+                    iteration, metrics["total_materials"], metrics["total_expected_hits"],
+                    metrics["actual_hits"], metrics["missed_hits"], metrics["extra_hits"],
+                    metrics["fp_ratio"],
+                )
+
+                # 3) 收敛判定
+                if metrics["missed_hits"] == 0:
+                    fp_ratio = metrics["fp_ratio"]
+                    if fp_ratio <= max_fp:
+                        logger.info(
+                            "收敛: iteration=%d, missed=0, fp_ratio=%.4f ≤ %.4f",
+                            iteration, fp_ratio, max_fp,
+                        )
+                        converged = True
+                        break
+                    else:
+                        logger.info(
+                            "未收敛(多判超标): iteration=%d, fp_ratio=%.4f > %.4f, 继续调整",
+                            iteration, fp_ratio, max_fp,
+                        )
+
+                # 4) AI 逐规则分析并调整
+                iter_changes: list[dict] = []
+                per_rule = metrics.get("per_rule", {})
+                rules_with_issues = sum(1 for rm in per_rule.values()
+                                       if rm["missed"] > 0 or rm["extra"] > 0)
+                logger.info("迭代 %d: %d 条规则需要调整", iteration, rules_with_issues)
+
+                for rid, rm in per_rule.items():
+                    if rm["missed"] == 0 and rm["extra"] == 0:
+                        continue  # 该规则完美,跳过
+                    rule = rule_by_id.get(rid)
+                    if rule is None:
+                        continue
+                    rule_no = getattr(rule, "no", 0)
+                    logger.info(
+                        "  规则 #%d: missed=%d, extra=%d → 调用 AI 调整...",
+                        rule_no, rm["missed"], rm["extra"],
+                    )
+                    # 收集该规则的漏判/多判案例
+                    missed_cases = self._collect_cases(
+                        rid, ground_truth, current_results, missing=True)
+                    extra_cases = self._collect_cases(
+                        rid, ground_truth, current_results, missing=False)
+                    try:
+                        change = self._ai_adjust_rule(rule, missed_cases, extra_cases)
+                        if change:
+                            self._apply_change(rule, change, by)
+                            change["rule_id"] = rid
+                            change["rule_no"] = rule_no
+                            iter_changes.append(change)
+                            logger.info(
+                                "  规则 #%d 已调整: %s",
+                                rule_no, change.get("analysis", "")[:100],
+                            )
+                        else:
+                            logger.info(
+                                "  规则 #%d AI 未返回调整建议,跳过", rule_no,
+                            )
+                    except Exception as e:
+                        logger.warning(
+                            "  规则 #%d 调整异常(不阻塞整体): %s", rule_no, e,
+                        )
+
+                if not iter_changes:
+                    logger.info(
+                        "迭代 %d: 本轮无规则变更,提前结束", iteration,
+                    )
                     break
 
-            # 4) AI 逐规则分析并调整
-            iter_changes: list[dict] = []
-            per_rule = metrics.get("per_rule", {})
-            for rid, rm in per_rule.items():
-                if rm["missed"] == 0 and rm["extra"] == 0:
-                    continue  # 该规则完美,跳过
-                rule = rule_by_id.get(rid)
-                if rule is None:
-                    continue
-                # 收集该规则的漏判/多判案例
-                missed_cases = self._collect_cases(
-                    rid, ground_truth, current_results, missing=True)
-                extra_cases = self._collect_cases(
-                    rid, ground_truth, current_results, missing=False)
-                try:
-                    change = self._ai_adjust_rule(rule, missed_cases, extra_cases)
-                    if change:
-                        self._apply_change(rule, change, by)
-                        change["rule_id"] = rid
-                        change["rule_no"] = getattr(rule, "no", 0)
-                        iter_changes.append(change)
-                except Exception:
-                    pass  # 单条规则调整失败不阻塞整体
+                all_changes.extend(iter_changes)
 
-            all_changes.extend(iter_changes)
+                # 5) 重新加载规则(可能有 AI 调整)
+                trainable_rules = self._trainable_rules(project_id)
+                rule_by_id = {r.id: r for r in trainable_rules}
 
-            # 5) 重新加载规则(可能有 AI 调整)
-            trainable_rules = self._trainable_rules(project_id)
-            rule_by_id = {r.id: r for r in trainable_rules}
+        except Exception as e:
+            logger.exception("训练异常终止: project=%s, error=%s", project_id, e)
+            final_metrics = final_metrics or {}
+            final_metrics["error"] = str(e)
+            converged = False
 
         # 写训练结果
         import datetime
@@ -221,6 +308,13 @@ class TrainingService:
         ts.status = "completed" if converged else "failed"
         ts.completed_at = datetime.datetime.now(datetime.timezone(datetime.timedelta(hours=8))).isoformat()
         self._ts_repo.add(ts, by=by)
+
+        logger.info(
+            "训练完成: project=%s, status=%s, iterations=%d, converged=%s, "
+            "total_changes=%d, final_fp_ratio=%.4f",
+            project_id, ts.status, iteration, converged,
+            len(all_changes), final_metrics.get("fp_ratio", 0),
+        )
         return ts
 
     # ── 内部方法 ──
@@ -231,7 +325,9 @@ class TrainingService:
                 if getattr(r, "project_id", "") in ("", project_id)]
 
     def _reaudit_material(self, material_id: str, project_id: str) -> set[str]:
-        """对单个物料用当前规则重新审核,返回命中规则 ID 集合。无现有报告则跑完整审核。"""
+        """对单个物料用当前规则重新审核,返回命中规则 ID 集合。无现有报告则跑完整审核。
+        recheck 后同步关联 audit_task 的 report_id/verdict,确保「待审核任务」页与训练结论一致。"""
+        import datetime
         m = self._repo.get(material_id)
         if m is None:
             return set()
@@ -247,10 +343,42 @@ class TrainingService:
             else:
                 # 无现有报告 → 跑完整审核
                 report = self._audit.run(job, getattr(m, "description", ""))
-        except Exception:
+        except Exception as e:
+            logger.debug("物料 %s 重审失败: %s", material_id, e)
             return set()
+        # recheck/run 内部 _persist 已更新 material.audit_report_id;
+        # 同步关联 audit_task,避免「待审核任务」页仍指向旧报告。
+        self._sync_task_after_recheck(material_id)
         return {t.get("rule_id", "") for t in report.triggered
                 if t.get("rule_id") and t["rule_id"] not in ("blockword", "content-safety", "")}
+
+    def _sync_task_after_recheck(self, material_id: str) -> None:
+        """按物料 ID 找到关联 AuditTask,把 report_id / verdict / status 同步到最新。
+        best-effort:没有任务或找不到就跳过。"""
+        try:
+            m = self._repo.get(material_id)
+            if m is None:
+                return
+            new_rid = getattr(m, "audit_report_id", "")
+            if not new_rid:
+                return
+            import datetime
+            # task_repo 无 material_id 索引,扫全部匹配(训练量小,<100 条)
+            for t in self._tasks.list_all():
+                if getattr(t, "material_id", "") != material_id:
+                    continue
+                if getattr(t, "del_flag", 0) != 0:
+                    continue
+                t.report_id = new_rid
+                t.verdict = getattr(m, "audit_status", "review")
+                t.status = "done"
+                t.report_generated_at = datetime.datetime.now(
+                    datetime.timezone(datetime.timedelta(hours=8))
+                ).isoformat()
+                self._tasks.save(t)
+                break   # 一个物料只对应一个任务
+        except Exception as e:
+            logger.debug("同步 audit_task 失败(material=%s): %s", material_id, e)
 
     @staticmethod
     def _calc_metrics(ground_truth: dict[str, set[str]],
@@ -330,7 +458,10 @@ class TrainingService:
 
         try:
             out = self._llm.chat_json(_RULE_ADJUST_SYS, user)
-        except Exception:
+        except Exception as e:
+            logger.warning(
+                "AI 调整规则 #%d 调用失败: %s", getattr(rule, "no", 0), e,
+            )
             return None
 
         if not isinstance(out, dict) or not out:

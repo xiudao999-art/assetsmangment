@@ -263,7 +263,7 @@ with psycopg.connect(dsn, autocommit=True) as conn:
 | `rule_training_set` | `PgTrainingSetRepo` | 1:1 关联项目。存训练配置（`max_fp_ratio`/`max_iterations`）、规则快照（`rule_snapshot` JSONB）、训练结果（`training_result` JSONB）、时间戳（`started_at`/`completed_at`） |
 | `rule_training_example` | `PgTrainingExampleRepo` | 样本：物料 × 应命中规则列表。唯一约束 `(training_set_id, material_id, del_flag)`，同物料重复添加 → upsert 覆盖 |
 
-### API 端点（8 个，权限 `audit.rules`）
+### API 端点（9 个，权限 `audit.rules`）
 
 | 方法 | 路径 | 说明 |
 |---|---|---|
@@ -271,21 +271,22 @@ with psycopg.connect(dsn, autocommit=True) as conn:
 | `GET` | `/training/sets/{id}` | 训练集详情 + 全部样本 |
 | `DELETE` | `/training/sets/{id}` | 删除训练集（级联软删全部样本） |
 | `POST` | `/training/projects/{pid}/examples` | 添加样本 `{material_id, expected_rule_ids, source_note}` |
-| `GET` | `/training/projects/{pid}/examples` | 列出项目全部样本 |
+| `GET` | `/training/projects/{pid}/examples` | 列出项目全部样本（含 `source_task_name`） |
+| `PUT` | `/training/projects/{pid}/examples/{eid}` | 编辑样本 `{expected_rule_ids?, source_note?}`（均可选） |
 | `DELETE` | `/training/projects/{pid}/examples/{eid}` | 删除一条样本 |
 | `POST` | `/training/projects/{pid}/train` | 启动训练（可选 `{max_fp_ratio, max_iterations}`） |
 | `GET` | `/training/projects/{pid}/status` | 查询训练状态/结果 |
 
 ### 训练流程（`app/service/training_service.py`）
 
-`start_training()` 同步校验 + 快照 → `run_training()` 提交到 `audit_pool` 后台线程跑：
+`start_training()` 同步校验 + 快照 → `run_training()` 提交到 `audit_pool` 后台线程跑。`TrainingService` 注入了 `task_repo`，recheck 后自动同步关联 `audit_task` 的 `report_id`/`verdict`，确保「待审核任务」页报告与训练结论一致。
 
 ```
 快照项目规则+全局规则 → rule_snapshot
 status = "training", started_at = now
 
 for i in 1..max_iterations:
-    ① 逐物料 recheck（用当前规则重审）→ current_results
+    ① 逐物料 recheck（用当前规则重审）→ 同步 audit_task → current_results
     ② _calc_metrics: 对比 ground_truth，算每条规则的 missed / extra
     ③ 收敛？missed==0 且 fp_ratio≤阈值 → break
     ④ AI 逐规则分析漏判/多判物料 → 调整 keywords/condition/guidance/match_level
@@ -297,6 +298,8 @@ for i in 1..max_iterations:
 **收敛条件**：漏判 = 0（每个物料命中全部应命中规则）**且** 多判率 ≤ `max_fp_ratio`（默认 20%，多命中数 / 总应命中数）。
 
 **`_calc_metrics` 口径**：分母是 `total_expected`（ground truth 总应命中次数），不是 `total_actual`。多判率 = `extra_hits / total_expected_hits`。
+
+**训练与审核一致性**：训练 `_reaudit_material` 走 `recheck()`（和待审核页「重新审核」按钮完全相同的三波级联逻辑，含云安全短路）。recheck 后 `_persist` 更新物料 `audit_report_id`，`_sync_task_after_recheck` 同步更新关联 `audit_task`，避免 task 和 material 指向不同报告导致前端查看结论不一致。
 
 ### AI 规则调优 prompt（`_RULE_ADJUST_SYS`）
 
@@ -311,14 +314,15 @@ for i in 1..max_iterations:
 | 文件 | 职责 |
 |---|---|
 | `app/domain/models.py` | `TrainingSet`、`TrainingExample` dataclass |
-| `app/domain/ports.py` | `TrainingSetRepo`、`TrainingExampleRepo` Protocol |
+| `app/domain/ports.py` | `TrainingSetRepo`、`TrainingExampleRepo` Protocol（含 `get`/`add`/`delete`） |
 | `app/infrastructure/pg_training_set_repo.py` | PG 仓储 + 建表 + 增量迁移 |
 | `app/infrastructure/pg_training_example_repo.py` | PG 仓储 + 建表 |
 | `app/infrastructure/fakes.py` | `InMemoryTrainingSetRepo`、`InMemoryTrainingExampleRepo` |
-| `app/service/training_service.py` | `TrainingService` — 核心训练逻辑 |
-| `app/api/schemas.py` | `TrainingExampleIn`、`TrainingConfigIn` Pydantic |
-| `app/api/router.py` | 8 个训练端点 |
+| `app/service/training_service.py` | `TrainingService` — 核心训练逻辑 + `update_example()` 编辑样本 |
+| `app/api/schemas.py` | `TrainingExampleIn`、`TrainingExampleUpdateIn`、`TrainingConfigIn` Pydantic |
+| `app/api/router.py` | 9 个训练端点（含 `PUT` 编辑） |
 | `app/api/deps.py` | 仓储实例化（内存/JSON/PG 三档）+ `get_training_service()` 工厂 |
+| `frontend/index.html` | 训练页：样本列表展示 task name（非 material_id）、编辑/删除按钮、点击「样」缩略图播放 |
 
 ## 批量上传优化（2026-07-20）
 

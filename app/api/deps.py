@@ -369,7 +369,7 @@ def get_training_service():
     from app.service.training_service import TrainingService
     return TrainingService(training_set_repo, training_example_repo,
                            rule_repo, material_repo, report_repo,
-                           get_audit_service(), _llm)
+                           task_repo, get_audit_service(), _llm)
 
 
 def current_user(authorization: str | None):

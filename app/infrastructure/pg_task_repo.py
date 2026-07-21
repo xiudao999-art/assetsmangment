@@ -11,7 +11,7 @@ from app.infrastructure.snowflake import next_id
 _TABLE_RE = re.compile(r"^[a-z_][a-z0-9_]*$")
 
 _SELECT_COLS = ("id, owner_id, name, material_type, material_id, content_hash, "
-                "status, verdict, report_id, created_ms, error, video_kind, project_id")
+                "status, verdict, report_id, created_ms, report_generated_at, error, video_kind, project_id")
 
 
 class PgAuditTaskRepo:
@@ -43,6 +43,7 @@ class PgAuditTaskRepo:
                     verdict         TEXT NOT NULL DEFAULT '',
                     report_id       TEXT NOT NULL DEFAULT '',
                     created_ms      BIGINT NOT NULL DEFAULT 0,
+                    report_generated_at TEXT NOT NULL DEFAULT '',
                     error           TEXT NOT NULL DEFAULT '',
                     video_kind      TEXT NOT NULL DEFAULT 'material',
                     project_id      TEXT NOT NULL DEFAULT '',
@@ -61,6 +62,12 @@ class PgAuditTaskRepo:
             c.execute(f"COMMENT ON COLUMN {t}.verdict IS '审核裁定:pass/review/block'")
             c.execute(f"COMMENT ON COLUMN {t}.report_id IS '指向审核报告的 ID'")
             c.execute(f"COMMENT ON COLUMN {t}.created_ms IS '创建时间戳(毫秒)'")
+            cols = {row[0] for row in c.execute(
+                "SELECT column_name FROM information_schema.columns WHERE table_schema = current_schema() AND table_name = %s",
+                (t,),
+            ).fetchall()}
+            if "report_generated_at" not in cols:
+                c.execute(f"ALTER TABLE {t} ADD COLUMN report_generated_at TEXT NOT NULL DEFAULT ''")
             c.execute(f"COMMENT ON COLUMN {t}.del_flag IS '软删标记:0=在用，删除时置为新雪花ID'")
             c.execute(f"CREATE INDEX IF NOT EXISTS idx_{t}_owner ON {t} (owner_id, del_flag)")
             c.execute(f"CREATE INDEX IF NOT EXISTS idx_{t}_live ON {t} (del_flag) WHERE del_flag = 0")
@@ -77,9 +84,9 @@ class PgAuditTaskRepo:
             c.execute(
                 f"""INSERT INTO {self._table}
                         (id, owner_id, name, material_type, material_id, content_hash,
-                         status, verdict, report_id, created_ms, error, video_kind, project_id,
+                         status, verdict, report_id, created_ms, report_generated_at, error, video_kind, project_id,
                          create_by, update_by)
-                    VALUES (%s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s)
+                    VALUES (%s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s)
                     ON CONFLICT (id) DO UPDATE SET
                         owner_id = EXCLUDED.owner_id,
                         name = EXCLUDED.name,
@@ -89,6 +96,7 @@ class PgAuditTaskRepo:
                         status = EXCLUDED.status,
                         verdict = EXCLUDED.verdict,
                         report_id = EXCLUDED.report_id,
+                        report_generated_at = EXCLUDED.report_generated_at,
                         error = EXCLUDED.error,
                         video_kind = EXCLUDED.video_kind,
                         project_id = EXCLUDED.project_id,
@@ -96,7 +104,7 @@ class PgAuditTaskRepo:
                         update_time = now()""",
                 (tid, task.owner_id, task.name, task.material_type.value,
                  task.material_id, task.content_hash, task.status.value, task.verdict,
-                 task.report_id, task.created_ms, task.error, task.video_kind,
+                 task.report_id, task.created_ms, getattr(task, "report_generated_at", ""), task.error, task.video_kind,
                  task.project_id, task.owner_id, task.owner_id),
             )
 
@@ -190,13 +198,13 @@ class PgAuditTaskRepo:
     @staticmethod
     def _to_task(row) -> AuditTask:
         (rid, owner_id, name, material_type, material_id, content_hash,
-         status, verdict, report_id, created_ms, error, video_kind, project_id) = row
+         status, verdict, report_id, created_ms, report_generated_at, error, video_kind, project_id) = row
         return AuditTask(
             id=str(rid),
             owner_id=owner_id, name=name,
             material_type=MaterialType(material_type),
             material_id=material_id, content_hash=content_hash,
             status=JobStatus(status), verdict=verdict,
-            report_id=report_id, created_ms=created_ms,
+            report_id=report_id, created_ms=created_ms, report_generated_at=report_generated_at,
             error=error, video_kind=video_kind, project_id=project_id,
         )

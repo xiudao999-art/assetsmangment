@@ -167,6 +167,7 @@ class AuditTask:
     verdict: str = ""               # pass/review/block(done 后)
     report_id: str = ""             # 指向 audit_reports
     created_ms: int = 0
+    report_generated_at: str = ""   # 报告生成时间(ISO 8601)
     error: str = ""
     video_kind: str = "material"    # 视频:material(物料)| work(作品)
     project_id: str = ""            # 作品所属项目(穿到 Material/AuditJob 驱动项目规则)
