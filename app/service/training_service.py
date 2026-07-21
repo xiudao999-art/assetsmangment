@@ -200,6 +200,7 @@ class TrainingService:
         final_metrics: dict = {}
         converged = False
         iteration = 0
+        iterations_log: list[dict] = []
 
         logger.info(
             "训练开始: project=%s, samples=%d, rules=%d, max_iter=%d, max_fp=%.2f",
@@ -227,9 +228,20 @@ class TrainingService:
                     metrics["fp_ratio"],
                 )
 
+                # 记录本轮详情(含 current_materials,便于追溯每轮 recheck 实际命中)
+                iterations_log.append({
+                    "iteration": iteration,
+                    "metrics": metrics,
+                    "current_materials": {
+                        mid: sorted(rids) for mid, rids in current_results.items()
+                    },
+                    "converged": False,  # 本轮收敛判定在下文,先记未收敛
+                    "rule_changes": [],   # 本轮规则变更在下文,最终保存时回填
+                })
+
                 # 每轮迭代后立刻刷新 training_result 到 DB，前端可实时看到进度
                 ts.training_result = {
-                    "iterations": iteration,
+                    "iterations": iterations_log,
                     "converged": False,  # 本轮还没判完，先标未收敛
                     "final_metrics": metrics,
                     "rule_changes": list(all_changes),
@@ -245,6 +257,7 @@ class TrainingService:
                             iteration, fp_ratio, max_fp,
                         )
                         converged = True
+                        iterations_log[-1]["converged"] = True
                         break
                     else:
                         logger.info(
@@ -295,6 +308,13 @@ class TrainingService:
                             "  规则 #%d 调整异常(不阻塞整体): %s", rule_no, e,
                         )
 
+                # 回填本轮规则变更到迭代日志
+                iterations_log[-1]["rule_changes"] = [
+                    {"rule_id": c.get("rule_id", ""), "rule_no": c.get("rule_no", 0),
+                     "analysis": c.get("analysis", "")[:120]}
+                    for c in iter_changes
+                ]
+
                 if not iter_changes:
                     logger.info(
                         "迭代 %d: 本轮无规则变更,提前结束", iteration,
@@ -316,7 +336,7 @@ class TrainingService:
         # 写训练结果
         import datetime
         ts.training_result = {
-            "iterations": iteration,
+            "iterations": iterations_log,
             "converged": converged,
             "final_metrics": final_metrics,
             "rule_changes": all_changes,
@@ -342,12 +362,21 @@ class TrainingService:
 
     def _reaudit_material(self, material_id: str, project_id: str) -> set[str]:
         """对单个物料用当前规则重新审核,返回命中规则 ID 集合。无现有报告则跑完整审核。
+        优先用关联 audit_task 的报告(与手动「重新审核」行为一致);
+        无 task 或无 task.report_id 时回退 material.audit_report_id。
         recheck 后同步关联 audit_task 的 report_id/verdict,确保「待审核任务」页与训练结论一致。"""
         import datetime
         m = self._repo.get(material_id)
         if m is None:
             return set()
-        rid = getattr(m, "audit_report_id", "")
+        # 优先用关联 audit_task 的报告 — 与手动「重新审核」按钮行为一致
+        rid = ""
+        for t in self._tasks.list_all():
+            if getattr(t, "material_id", "") == material_id and getattr(t, "del_flag", 0) == 0:
+                rid = t.report_id or ""
+                break
+        if not rid:
+            rid = getattr(m, "audit_report_id", "")
         old = self._reports.get(rid) if rid else None
         job = AuditJob(id="", material_type=m.type, oss_key=m.oss_key,
                        owner_id=m.owner_id, material_id=material_id,
@@ -360,7 +389,7 @@ class TrainingService:
                 # 无现有报告 → 跑完整审核
                 report = self._audit.run(job, getattr(m, "description", ""))
         except Exception as e:
-            logger.debug("物料 %s 重审失败: %s", material_id, e)
+            logger.warning("物料 %s 重审失败: %s", material_id, e)
             return set()
         # recheck/run 内部 _persist 已更新 material.audit_report_id;
         # 同步关联 audit_task,避免「待审核任务」页仍指向旧报告。
@@ -394,7 +423,7 @@ class TrainingService:
                 self._tasks.save(t)
                 break   # 一个物料只对应一个任务
         except Exception as e:
-            logger.debug("同步 audit_task 失败(material=%s): %s", material_id, e)
+            logger.warning("同步 audit_task 失败(material=%s): %s", material_id, e)
 
     @staticmethod
     def _calc_metrics(ground_truth: dict[str, set[str]],

@@ -330,7 +330,11 @@ for i in 1..max_iterations:
 
 **`_calc_metrics` 口径**：分母是 `total_expected`（ground truth 总应命中次数），不是 `total_actual`。多判率 = `extra_hits / total_expected_hits`。
 
-**训练与审核一致性**：训练 `_reaudit_material` 走 `recheck()`（和待审核页「重新审核」按钮完全相同的三波级联逻辑，含云安全短路）。recheck 后 `_persist` 更新物料 `audit_report_id`，`_sync_task_after_recheck` 同步更新关联 `audit_task`，避免 task 和 material 指向不同报告导致前端查看结论不一致。
+**训练与审核一致性**：训练 `_reaudit_material` 走 `recheck()`（和待审核页「重新审核」按钮完全相同的三波级联逻辑，含云安全短路）。**优先用关联 `audit_task` 的报告**（`task.report_id`）而非 `material.audit_report_id`，与手动「重新审核」按钮行为一致；无 task 时回退 material 的报告。recheck 后 `_persist` 更新物料 `audit_report_id`，`_sync_task_after_recheck` 同步更新关联 `audit_task`。异常日志级别均为 WARNING（生产环境可见）。
+
+> **2026-07-21 修复**：此前 `_reaudit_material` 只用 `material.audit_report_id` 取报告。当物料和 task 指向不同报告时（如中间有人手动重审），训练跑在错误报告上 → 漏判/多判计数与 task 报告不一致。根因是 `recheck` 非确定性（Qwen-VL 每次描述同一帧可能不同），两份报告可能有不同判定。修复：`_reaudit_material` 先扫描 task 找到匹配 `material_id` 的 task，优先用 `task.report_id`。
+
+**`training_result.iterations` 格式**（2026-07-21 修复）：从 `int`（迭代次数）改为 `list[dict]`，每轮记录 `{iteration, metrics, current_materials, converged, rule_changes}`。`current_materials` 为 `{material_id: [rule_id, ...]}`，可追溯每轮 recheck 实际命中。
 
 ### AI 规则调优 prompt（`_RULE_ADJUST_SYS`）
 
