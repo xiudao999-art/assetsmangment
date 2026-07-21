@@ -227,6 +227,15 @@ class TrainingService:
                     metrics["fp_ratio"],
                 )
 
+                # 每轮迭代后立刻刷新 training_result 到 DB，前端可实时看到进度
+                ts.training_result = {
+                    "iterations": iteration,
+                    "converged": False,  # 本轮还没判完，先标未收敛
+                    "final_metrics": metrics,
+                    "rule_changes": list(all_changes),
+                }
+                self._ts_repo.add(ts, by=by)
+
                 # 3) 收敛判定
                 if metrics["missed_hits"] == 0:
                     fp_ratio = metrics["fp_ratio"]
