@@ -779,10 +779,6 @@ async function delTask(id){const r=await api('DELETE','/audit/tasks/'+id);if(r.o
 async function recheckTask(id){const r=await api('POST','/audit/tasks/'+id+'/recheck');
   if(r.ok){toast('已用当前白名单重新审核…');closeDrawer&&closeDrawer();loadPending();setTimeout(loadPending,1600)}
   else toast(r.data.detail||'重新审核失败',true)}
-async function recheckTrainingSample(taskId,btn){const t0=btn.textContent;btn.disabled=true;btn.textContent='重审中…';
-  const r=await api('POST','/audit/tasks/'+taskId+'/recheck');
-  if(r.ok){toast('已用当前规则重新审核该样本,报告已更新');setTimeout(loadTrainingPage,1200)}
-  else{toast(r.data.detail||'重新审核失败',true);btn.disabled=false;btn.textContent=t0}}
 async function retryTask(id){const r=await api('POST','/audit/tasks/'+id+'/retry');
   if(r.ok){toast('已重新提交审核…');loadPending();setTimeout(loadPending,1600)}
   else toast(r.data.detail||'重试失败',true)}
@@ -1103,9 +1099,8 @@ function renderTrainingExamples(){
   box.innerHTML=TRAINING_EXAMPLES.length?TRAINING_EXAMPLES.map(e=>{
     const hits=e.expected_rule_ids.length?e.expected_rule_ids.map(trainingRuleNameById).join('、'):'应全部放行';
     const reportBtn=e.source_task_id?`<button class="btn sm" onclick="viewTrainingReport('${e.source_task_id}')">查看报告</button>`:'';
-    const recheckBtn=(ME.role==='admin'&&e.source_task_id)?`<button class="btn sm" onclick="recheckTrainingSample('${e.source_task_id}',this)" title="用当前规则重新判定该样本">重新审核</button>`:'';
     const taskLabel=e.source_task_name||e.material_id;
-    return `<div class="qrow"><button class="thumb" onclick="previewTaskMaterial('${e.material_id}')" title="点击预览并播放">样</button><div class="meta"><div>${esc(e.source_note||taskLabel)}</div><div class="k">物料: ${esc(taskLabel)}</div><div class="k">标注备注: ${esc(e.source_note||'—')}</div><div class="k">标注结果: ${esc(hits)}</div></div>${reportBtn}${recheckBtn}<button class="btn sm" onclick="editTrainingExample('${e.id}')">编辑</button><button class="btn sm block" onclick="deleteTrainingExample('${e.id}')">删除</button></div>`;
+    return `<div class="qrow"><button class="thumb" onclick="previewTaskMaterial('${e.material_id}')" title="点击预览并播放">样</button><div class="meta"><div>${esc(e.source_note||taskLabel)}</div><div class="k">物料: ${esc(taskLabel)}</div><div class="k">标注备注: ${esc(e.source_note||'—')}</div><div class="k">标注结果: ${esc(hits)}</div></div>${reportBtn}<button class="btn sm" onclick="editTrainingExample('${e.id}')">编辑</button><button class="btn sm block" onclick="deleteTrainingExample('${e.id}')">删除</button></div>`;
   }).join(''):'<div class="empty"><b class="disp">当前项目还没有训练样本</b>去待审核里点「加入规则训练」最快。</div>'}
 function editTrainingExample(exampleId){
   const ex=TRAINING_EXAMPLES.find(e=>e.id===exampleId);
