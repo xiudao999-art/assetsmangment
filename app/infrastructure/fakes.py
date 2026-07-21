@@ -430,29 +430,37 @@ class InMemoryAuditTaskRepo:
     def delete(self, task_id: str) -> None:
         self._tasks.pop(task_id, None)
 
-    def list_for(self, owner_id: str, project_id: str = "", offset: int = 0, limit: int | None = None) -> list[AuditTask]:
+    def list_for(self, owner_id: str, project_id: str = "", name: str = "", offset: int = 0, limit: int | None = None) -> list[AuditTask]:
         tasks = sorted((t for t in self._tasks.values() if t.owner_id == owner_id),
                        key=lambda t: t.created_ms, reverse=True)
         if project_id:
             tasks = [t for t in tasks if getattr(t, "project_id", "") == project_id]
+        if name:
+            tasks = [t for t in tasks if name.lower() in (getattr(t, "name", "") or "").lower()]
         return tasks if limit is None else tasks[offset:offset + limit]
 
-    def list_all(self, project_id: str = "", offset: int = 0, limit: int | None = None) -> list[AuditTask]:
+    def list_all(self, project_id: str = "", name: str = "", offset: int = 0, limit: int | None = None) -> list[AuditTask]:
         tasks = sorted(self._tasks.values(), key=lambda t: t.created_ms, reverse=True)
         if project_id:
             tasks = [t for t in tasks if getattr(t, "project_id", "") == project_id]
+        if name:
+            tasks = [t for t in tasks if name.lower() in (getattr(t, "name", "") or "").lower()]
         return tasks if limit is None else tasks[offset:offset + limit]
 
-    def count_for(self, owner_id: str, project_id: str = "") -> int:
+    def count_for(self, owner_id: str, project_id: str = "", name: str = "") -> int:
         tasks = [t for t in self._tasks.values() if t.owner_id == owner_id]
         if project_id:
             tasks = [t for t in tasks if getattr(t, "project_id", "") == project_id]
+        if name:
+            tasks = [t for t in tasks if name.lower() in (getattr(t, "name", "") or "").lower()]
         return len(tasks)
 
-    def count_all(self, project_id: str = "") -> int:
+    def count_all(self, project_id: str = "", name: str = "") -> int:
         tasks = list(self._tasks.values())
         if project_id:
             tasks = [t for t in tasks if getattr(t, "project_id", "") == project_id]
+        if name:
+            tasks = [t for t in tasks if name.lower() in (getattr(t, "name", "") or "").lower()]
         return len(tasks)
 
 

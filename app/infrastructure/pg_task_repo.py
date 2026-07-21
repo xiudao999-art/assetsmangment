@@ -125,12 +125,15 @@ class PgAuditTaskRepo:
                 (self._idgen(), tid),
             )
 
-    def list_for(self, owner_id: str, project_id: str = "", offset: int = 0, limit: int | None = None) -> list[AuditTask]:
+    def list_for(self, owner_id: str, project_id: str = "", name: str = "", offset: int = 0, limit: int | None = None) -> list[AuditTask]:
         where = "owner_id = %s AND del_flag = 0"
         params: list = [owner_id]
         if project_id:
             where += " AND project_id = %s"
             params.append(project_id)
+        if name:
+            where += " AND name ILIKE %s"
+            params.append(f"%{name}%")
         sql = f"SELECT {_SELECT_COLS} FROM {self._table} WHERE {where} ORDER BY created_ms DESC, id DESC"
         if limit is not None:
             sql += f" LIMIT {int(limit)} OFFSET {int(offset)}"
@@ -138,12 +141,15 @@ class PgAuditTaskRepo:
             rows = c.execute(sql, params).fetchall()
         return [self._to_task(r) for r in rows]
 
-    def list_all(self, project_id: str = "", offset: int = 0, limit: int | None = None) -> list[AuditTask]:
+    def list_all(self, project_id: str = "", name: str = "", offset: int = 0, limit: int | None = None) -> list[AuditTask]:
         where = "del_flag = 0"
         params: list = []
         if project_id:
             where += " AND project_id = %s"
             params.append(project_id)
+        if name:
+            where += " AND name ILIKE %s"
+            params.append(f"%{name}%")
         sql = f"SELECT {_SELECT_COLS} FROM {self._table} WHERE {where} ORDER BY created_ms DESC, id DESC"
         if limit is not None:
             sql += f" LIMIT {int(limit)} OFFSET {int(offset)}"
@@ -151,24 +157,30 @@ class PgAuditTaskRepo:
             rows = c.execute(sql, params).fetchall()
         return [self._to_task(r) for r in rows]
 
-    def count_for(self, owner_id: str, project_id: str = "") -> int:
+    def count_for(self, owner_id: str, project_id: str = "", name: str = "") -> int:
         where = "owner_id = %s AND del_flag = 0"
         params: list = [owner_id]
         if project_id:
             where += " AND project_id = %s"
             params.append(project_id)
+        if name:
+            where += " AND name ILIKE %s"
+            params.append(f"%{name}%")
         with self._conn() as c:
             row = c.execute(
                 f"SELECT COUNT(*) FROM {self._table} WHERE {where}", params
             ).fetchone()
         return row[0] if row else 0
 
-    def count_all(self, project_id: str = "") -> int:
+    def count_all(self, project_id: str = "", name: str = "") -> int:
         where = "del_flag = 0"
         params: list = []
         if project_id:
             where += " AND project_id = %s"
             params.append(project_id)
+        if name:
+            where += " AND name ILIKE %s"
+            params.append(f"%{name}%")
         with self._conn() as c:
             row = c.execute(
                 f"SELECT COUNT(*) FROM {self._table} WHERE {where}", params

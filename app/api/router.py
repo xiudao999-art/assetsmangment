@@ -1007,15 +1007,15 @@ def delete_rule_exception(rule_id: str, index: int, user: dict = Depends(_user))
 # ── 待审核任务(异步审核状态,统一呈现在「待审核」页;用户看自己的,管理员看全部;支持分页+按项目筛选)──
 @router.get("/audit/tasks")
 def list_audit_tasks(page: int = Query(1, ge=1), size: int = Query(20, ge=1, le=100),
-                    project_id: str = Query(""),
+                    project_id: str = Query(""), name: str = Query(""),
                     user: dict = Depends(_user)):
     _require_auth(user)
     off, lim = _page_args(page, size)
     is_admin = user["role"] == "admin"
-    tasks = (deps.task_repo.list_all(project_id=project_id, offset=off, limit=lim) if is_admin
-             else deps.task_repo.list_for(user["id"], project_id=project_id, offset=off, limit=lim))
-    total = deps.task_repo.count_all(project_id=project_id) if is_admin \
-        else deps.task_repo.count_for(user["id"], project_id=project_id)
+    tasks = (deps.task_repo.list_all(project_id=project_id, name=name, offset=off, limit=lim) if is_admin
+             else deps.task_repo.list_for(user["id"], project_id=project_id, name=name, offset=off, limit=lim))
+    total = deps.task_repo.count_all(project_id=project_id, name=name) if is_admin \
+        else deps.task_repo.count_for(user["id"], project_id=project_id, name=name)
     training_materials_by_project: dict[str, set[str]] = {}
     for t in tasks:
         pid = getattr(t, "project_id", "") or ""

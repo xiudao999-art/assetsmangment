@@ -549,7 +549,7 @@ const V={mine:{page:1,size:PAGE_SIZE,total:0,type:'',q:'',project:''},
   public:{page:1,size:PAGE_SIZE,total:0,type:'',q:'',project:''},
   all:{page:1,size:PAGE_SIZE,total:0,type:'',q:'',status:'',project:''},
   search:{page:1,size:PAGE_SIZE,total:0,q:'',type:''},
-  pending:{page:1,size:20,total:0,project:''}};
+  pending:{page:1,size:20,total:0,project:'',name:''}};
 function setCnt(sec,n){const e=$('#cnt-'+sec);if(e)e.textContent=n}
 const debounce=(fn,ms=300)=>{let t;return(...a)=>{clearTimeout(t);t=setTimeout(()=>fn(...a),ms)}};
 
@@ -715,9 +715,11 @@ function buildPendingFilter(){
   const chips=[{id:'',name:'全部'}];
   PROJECTS.forEach(p=>{if(!seen.has(p.id)){seen.add(p.id);chips.push({id:p.id,name:p.name})}});
   if(V.pending.project&&!chips.some(c=>c.id===V.pending.project))V.pending.project='';
-  el.innerHTML=`<span class="lbl">项目</span>`+chips.map(c=>`<span class="pchip ${V.pending.project===c.id?'on':''}" data-p="${c.id}" tabindex="0" role="button">${esc(c.name)}</span>`).join('');
+  el.innerHTML=`<span class="lbl">项目</span>`+chips.map(c=>`<span class="pchip ${V.pending.project===c.id?'on':''}" data-p="${c.id}" tabindex="0" role="button">${esc(c.name)}</span>`).join('')
+    +` <input class="inp sm" id="pending-name-search" type="search" placeholder="搜索文件名…" value="${esc(V.pending.name||'')}" style="width:180px;margin-left:12px">`;
   el.querySelectorAll('.pchip').forEach(c=>{const act=()=>{V.pending.project=c.dataset.p;V.pending.page=1;loadPending()};
-    c.onclick=act;c.onkeydown=e=>{if(e.key==='Enter'||e.key===' '){e.preventDefault();act()}}})}
+    c.onclick=act;c.onkeydown=e=>{if(e.key==='Enter'||e.key===' '){e.preventDefault();act()}}});
+  const ni=$('#pending-name-search');if(ni){ni.oninput=debounce(()=>{V.pending.name=ni.value.trim();V.pending.page=1;loadPending()},350)}}
 function taskRow(t){
   const st=TASK_ST[t.status]||t.status;
   const vB=(t.verdict&&t.verdict!=='processing')?`<span class="stamp ${t.verdict}">${VERDICT_CN[t.verdict]||t.verdict}</span>`:'';   // 机审中不显裁定徽章,只留「⏳ 审核中」
@@ -744,6 +746,7 @@ async function loadPending(){if(!PROJECTS.length)await fetchProjects();
   const v=V.pending;
   const qs=new URLSearchParams();qs.set('page',v.page);qs.set('size',v.size);
   if(v.project)qs.set('project_id',v.project);
+  if(v.name)qs.set('name',v.name);
   const r=await api('GET','/audit/tasks?'+qs.toString());
   const ts=r.data.tasks||[];v.total=r.data.total||0;
   buildPendingFilter();

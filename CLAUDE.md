@@ -188,16 +188,18 @@ with psycopg.connect(dsn, autocommit=True) as conn:
 
 `GET /audit/tasks` 改为服务端分页 + 项目筛选，不再返回全量。
 
-**API**：`GET /audit/tasks?page=1&size=20&project_id=xxx`
+**API**：`GET /audit/tasks?page=1&size=20&project_id=xxx&name=xxx`
 - 返回 `{tasks, total, page, size, count}`（`_page_out` 统一格式）
 - `project_id` 可选，空则不过滤
+- `name` 可选，空则不过滤，按文件名模糊匹配（PG: ILIKE，内存/JSON: 子串不区分大小写）
 - `size` 最大 100
 
-**仓储变更**：`AuditTaskRepo` 协议 `list_for`/`list_all` 增加 `project_id`/`offset`/`limit` 参数，新增 `count_for`/`count_all` 方法。PG/JSON/内存三种实现均已适配，默认值向后兼容。
+**仓储变更**：`AuditTaskRepo` 协议 `list_for`/`list_all`/`count_for`/`count_all` 增加 `project_id`/`name`/`offset`/`limit` 参数。PG/JSON/内存三种实现均已适配，默认值向后兼容。
 
 **前端**：
-- `V.pending` 状态对象（page/size/total/project）替代独立 `PENDING_PROJECT` 变量
+- `V.pending` 状态对象（page/size/total/project/name）
 - 项目筛选下沉服务端（chip 点击 → `V.pending.project` + `page=1` → 重新请求）
+- 文件名模糊搜索输入框（debounce 350ms → `V.pending.name` + `page=1` → 重新请求），与项目筛选可叠加
 - `#pending-pager` 翻页控件，复用 `renderPager`/`LOADER` 机制
 - 训练页不再调用 `/audit/tasks` 构建 `TRAINING_CANDIDATES`（该逻辑已移除）
 
