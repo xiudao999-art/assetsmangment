@@ -316,9 +316,11 @@ status = "training", started_at = now
 for i in 1..max_iterations:
     ① 逐物料 recheck（用当前规则重审）→ 同步 audit_task → current_results
     ② _calc_metrics: 对比 ground_truth，算每条规则的 missed / extra
-    ③ 收敛？missed==0 且 fp_ratio≤阈值 → break
-    ④ AI 逐规则分析漏判/多判物料 → 调整 keywords/condition/guidance/match_level
-    ⑤ _apply_change → rule_repo.add 持久化 → 重新加载规则
+    ③ 每轮迭代后立刻落库 training_result（含 iterations/final_metrics/rule_changes/converged）
+       → 前端 2.5s 轮询实时看到 KPI 跳动，不用等全跑完
+    ④ 收敛？missed==0 且 fp_ratio≤阈值 → break
+    ⑤ AI 逐规则分析漏判/多判物料 → 调整 keywords/condition/guidance/match_level
+    ⑥ _apply_change → rule_repo.add 持久化 → 重新加载规则
 
 写 training_result，status = completed/failed，completed_at = now
 ```
