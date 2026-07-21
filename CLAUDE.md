@@ -120,6 +120,8 @@ ${ASSETS_ROOT}  (默认 /software/project/python/assets)
 | 禁词 | `blockword` | `PgBlockwordRepo` | ✅ 已迁移 |
 | 审计日志 | `audit_log` | `PgAuditLog` | ✅ 已迁移 |
 | 向量索引 | `material_vectors` | `PgVectorIndex` | ✅ 已迁移(含基础字段) |
+| 规则训练集 | `rule_training_set` | `PgTrainingSetRepo` | ✅ 已迁移（2026-07-21） |
+| 规则训练样本 | `rule_training_example` | `PgTrainingExampleRepo` | ✅ 已迁移（2026-07-21） |
 
 **切换逻辑**：配置 `AM_DATABASE_URL` 后，所有仓储 fail-fast 切换到 PG 真源（不静默回退 JSON）。未配置则走 JSON/内存（`AM_DATA_DIR` 有无决定持久化或纯内存）。
 
@@ -159,7 +161,7 @@ with psycopg.connect(dsn, autocommit=True) as conn:
 "
 ```
 
-**关键表**：`audit_rule`（规则，id 雪花 BIGINT / no 在用编号 / del_flag 软删）、`audit_report`（报告，report_id UUID / segments JSONB / triggered JSONB）、`material`（物料，oss_key 文件名 / audit_report_id 关联报告）。
+**关键表**：`audit_rule`（规则，id 雪花 BIGINT / no 在用编号 / del_flag 软删）、`audit_report`（报告，report_id UUID / segments JSONB / triggered JSONB）、`material`（物料，oss_key 文件名 / audit_report_id 关联报告）、`rule_training_set`（训练集，JSONB 快照/结果）、`rule_training_example`（训练样本，material_id → expected_rule_ids JSONB）。
 
 ### Task Janitor（定时任务补偿，`app/service/task_janitor.py`）
 
@@ -230,6 +232,74 @@ with psycopg.connect(dsn, autocommit=True) as conn:
 - **Rule #10 娱乐小钱**（2026-07-20）：已软删。原 keywords `["奶茶钱", "零食钱", "水钱"]` 不再作为独立规则存在——这些娱乐小钱不视为违规。规则编号 11→10, 12→11 ... 25→24 顺延填补，当前在用 24 条（1~24 连续）
 - **`_reason_says_pass` token 扩充**（2026-07-20）：大模型新学会了"不触发""不视为""不命中""不应计入"等否定表述，原 token 列表没覆盖，导致 Rule #5/#9 的放行 finding 仍出现在 triggered 里。已追加这四个 token
 - **Rule #10 绝对化用语**（2026-07-20，原 #11）：原 condition 和 guidance 均为空，大模型对每条 segment 自由发挥，把"全都能免费唱""再也不用找歌"误判为绝对化承诺。已补 condition「在宣传推广中使用《广告法》禁止的绝对化用语…构成夸大宣传」+ guidance 明确「平台功能描述不构成绝对化承诺」
+
+## 规则训练模块（2026-07-21）
+
+基于人工标注样本，AI 迭代调优规则直到收敛。训练范围固定为**项目规则 + 全局规则**两个都调。
+
+### 数据表
+
+| 表 | 仓储 | 说明 |
+|---|---|---|
+| `rule_training_set` | `PgTrainingSetRepo` | 1:1 关联项目。存训练配置（`max_fp_ratio`/`max_iterations`）、规则快照（`rule_snapshot` JSONB）、训练结果（`training_result` JSONB）、时间戳（`started_at`/`completed_at`） |
+| `rule_training_example` | `PgTrainingExampleRepo` | 样本：物料 × 应命中规则列表。唯一约束 `(training_set_id, material_id, del_flag)`，同物料重复添加 → upsert 覆盖 |
+
+### API 端点（8 个，权限 `audit.rules`）
+
+| 方法 | 路径 | 说明 |
+|---|---|---|
+| `GET` | `/training/sets?page=&size=` | 训练集分页列表 |
+| `GET` | `/training/sets/{id}` | 训练集详情 + 全部样本 |
+| `DELETE` | `/training/sets/{id}` | 删除训练集（级联软删全部样本） |
+| `POST` | `/training/projects/{pid}/examples` | 添加样本 `{material_id, expected_rule_ids, source_note}` |
+| `GET` | `/training/projects/{pid}/examples` | 列出项目全部样本 |
+| `DELETE` | `/training/projects/{pid}/examples/{eid}` | 删除一条样本 |
+| `POST` | `/training/projects/{pid}/train` | 启动训练（可选 `{max_fp_ratio, max_iterations}`） |
+| `GET` | `/training/projects/{pid}/status` | 查询训练状态/结果 |
+
+### 训练流程（`app/service/training_service.py`）
+
+`start_training()` 同步校验 + 快照 → `run_training()` 提交到 `audit_pool` 后台线程跑：
+
+```
+快照项目规则+全局规则 → rule_snapshot
+status = "training", started_at = now
+
+for i in 1..max_iterations:
+    ① 逐物料 recheck（用当前规则重审）→ current_results
+    ② _calc_metrics: 对比 ground_truth，算每条规则的 missed / extra
+    ③ 收敛？missed==0 且 fp_ratio≤阈值 → break
+    ④ AI 逐规则分析漏判/多判物料 → 调整 keywords/condition/guidance/match_level
+    ⑤ _apply_change → rule_repo.add 持久化 → 重新加载规则
+
+写 training_result，status = completed/failed，completed_at = now
+```
+
+**收敛条件**：漏判 = 0（每个物料命中全部应命中规则）**且** 多判率 ≤ `max_fp_ratio`（默认 20%，多命中数 / 总应命中数）。
+
+**`_calc_metrics` 口径**：分母是 `total_expected`（ground truth 总应命中次数），不是 `total_actual`。多判率 = `extra_hits / total_expected_hits`。
+
+### AI 规则调优 prompt（`_RULE_ADJUST_SYS`）
+
+对每条有问题的规则（missed > 0 或 extra > 0）：
+- 收集该规则的漏判/多判物料（最多 10 个），取物料的 `ai_summary` / `description` 作为案例文本
+- 发给 Qwen（`_llm.chat_json`），要求返回 `{analysis, keywords, condition, guidance, match_level}`
+- 漏判 → 放宽覆盖（补关键词、放宽 condition）；多判 → 收紧边界（guidance 加反例）
+- 单条规则 AI 调用失败不阻塞整体，下轮重试
+
+### 关键文件
+
+| 文件 | 职责 |
+|---|---|
+| `app/domain/models.py` | `TrainingSet`、`TrainingExample` dataclass |
+| `app/domain/ports.py` | `TrainingSetRepo`、`TrainingExampleRepo` Protocol |
+| `app/infrastructure/pg_training_set_repo.py` | PG 仓储 + 建表 + 增量迁移 |
+| `app/infrastructure/pg_training_example_repo.py` | PG 仓储 + 建表 |
+| `app/infrastructure/fakes.py` | `InMemoryTrainingSetRepo`、`InMemoryTrainingExampleRepo` |
+| `app/service/training_service.py` | `TrainingService` — 核心训练逻辑 |
+| `app/api/schemas.py` | `TrainingExampleIn`、`TrainingConfigIn` Pydantic |
+| `app/api/router.py` | 8 个训练端点 |
+| `app/api/deps.py` | 仓储实例化（内存/JSON/PG 三档）+ `get_training_service()` 工厂 |
 
 ## 批量上传优化（2026-07-20）
 

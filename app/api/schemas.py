@@ -97,3 +97,15 @@ class WhitelistIn(BaseModel):
 
 class BlockwordIn(BaseModel):
     words: list[str] = []           # 绝对禁词:加入这些词(审核第一波,命中即拦)
+
+
+# ── 规则训练 ──
+class TrainingExampleIn(BaseModel):
+    material_id: str                        # 被标注的物料 ID
+    expected_rule_ids: list[str] = []       # 该物料应该命中的规则 ID 列表
+    source_note: str = ""                   # 人工标注备注
+
+
+class TrainingConfigIn(BaseModel):
+    max_fp_ratio: float = 0.20              # 可接受的最大多判率(0~1)
+    max_iterations: int = 10                # 最大重审迭代次数(1~50)

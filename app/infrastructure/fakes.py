@@ -436,3 +436,44 @@ class InMemoryAuditTaskRepo:
 
     def list_all(self) -> list[AuditTask]:
         return sorted(self._tasks.values(), key=lambda t: t.created_ms, reverse=True)
+
+
+class InMemoryTrainingSetRepo:
+    def __init__(self) -> None:
+        self._ts: dict = {}
+
+    def add(self, ts, by: str = "") -> None:
+        self._ts[ts.id] = ts
+
+    def get(self, ts_id: str):
+        return self._ts.get(ts_id)
+
+    def get_by_project(self, project_id: str):
+        return next((t for t in self._ts.values()
+                     if t.project_id == project_id), None)
+
+    def delete(self, ts_id: str, by: str = "") -> None:
+        self._ts.pop(ts_id, None)
+
+    def list(self) -> list:
+        return list(self._ts.values())
+
+
+class InMemoryTrainingExampleRepo:
+    def __init__(self) -> None:
+        self._te: dict = {}
+
+    def add(self, te, by: str = "") -> None:
+        self._te[te.id] = te
+
+    def get(self, te_id: str):
+        return self._te.get(te_id)
+
+    def delete(self, te_id: str, by: str = "") -> None:
+        self._te.pop(te_id, None)
+
+    def list_for_set(self, training_set_id: str) -> list:
+        return sorted(
+            (e for e in self._te.values()
+             if e.training_set_id == training_set_id),
+            key=lambda e: e.id)
