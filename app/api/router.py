@@ -372,7 +372,7 @@ def _project_out(p: Project) -> dict:
     return {"id": p.id, "name": p.name, "created_ms": p.created_ms}
 
 
-def _task_out(t: AuditTask) -> dict:
+def _task_out(t: AuditTask, in_training: bool = False) -> dict:
     # 任务裁定跟随物料现状:管理员在审核队列改判(pass/block)后,待审核页立即反映,
     # 不再停留在机审时的「待人工复核」。物料被删则退回任务存的裁定。
     verdict = t.verdict
@@ -384,7 +384,8 @@ def _task_out(t: AuditTask) -> dict:
             "material_id": t.material_id, "status": t.status, "verdict": verdict,
             "report_id": t.report_id, "created_ms": t.created_ms, "error": t.error,
             "video_kind": getattr(t, "video_kind", "material"),
-            "project_id": getattr(t, "project_id", "")}
+            "project_id": getattr(t, "project_id", ""),
+            "in_training": in_training}
 
 
 def _new_task(owner_id: str, name: str, mtype: MaterialType, material_id: str, chash: str,
@@ -1008,7 +1009,24 @@ def delete_rule_exception(rule_id: str, index: int, user: dict = Depends(_user))
 def list_audit_tasks(user: dict = Depends(_user)):
     _require_auth(user)
     tasks = deps.task_repo.list_all() if user["role"] == "admin" else deps.task_repo.list_for(user["id"])
-    return {"tasks": [_task_out(t) for t in tasks]}
+    training_materials_by_project: dict[str, set[str]] = {}
+    for t in tasks:
+        project_id = getattr(t, "project_id", "") or ""
+        material_id = getattr(t, "material_id", "") or ""
+        if not project_id or not material_id:
+            continue
+        if project_id in training_materials_by_project:
+            continue
+        examples = deps.get_training_service().list_examples(project_id)
+        training_materials_by_project[project_id] = {e.material_id for e in examples}
+    return {"tasks": [
+        _task_out(
+            t,
+            in_training=((getattr(t, "material_id", "") or "") in
+                         training_materials_by_project.get(getattr(t, "project_id", "") or "", set()))
+        )
+        for t in tasks
+    ]}
 
 
 @router.get("/audit/tasks/{task_id}")
