@@ -1,7 +1,14 @@
 """FastAPI 入口 —— 物料管理系统。分层:api > service > domain > infrastructure。"""
+import logging
 import os
 from contextlib import asynccontextmanager
 from fastapi import FastAPI
+
+logging.basicConfig(
+    level=logging.INFO,
+    format="%(asctime)s %(levelname)s [%(name)s] %(message)s",
+    datefmt="%Y-%m-%d %H:%M:%S",
+)
 from fastapi.responses import RedirectResponse
 from fastapi.staticfiles import StaticFiles
 from app.api.router import router

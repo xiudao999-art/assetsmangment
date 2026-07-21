@@ -1,5 +1,6 @@
 """API 端到端集成测试(闭环③/④)—— 用 FastAPI TestClient 驱动真实应用。"""
 from fastapi.testclient import TestClient
+from uuid import uuid4
 from app.main import app
 
 client = TestClient(app)
@@ -242,6 +243,23 @@ def test_audit_tasks_listed_for_owner():
     assert any(x["id"] == tid for x in tasks)
 
 
+def test_audit_tasks_marks_work_in_training():
+    ah, uh = _admin_hdr(), _user_hdr()
+    uniq = uuid4().hex[:8]
+    pid = client.post("/admin/projects", json={"name": f"训练显隐项目QC-{uniq}"}, headers=ah).json()["id"]
+    r = client.post("/audit/submit", data={"type": "video", "video_kind": "work", "project_id": pid},
+                    files={"file": ("train-flag.mp4", f"train-flag-work-{uniq}".encode(), "video/mp4")}, headers=uh)
+    task = _wait_task(r.json()["task_id"], uh)
+    before = [x for x in client.get("/audit/tasks", headers=uh).json()["tasks"] if x["id"] == task["id"]][0]
+    assert before["in_training"] is False
+    rr = client.post(f"/training/projects/{pid}/examples",
+                     json={"material_id": task["material_id"], "expected_rule_ids": [], "source_note": ""},
+                     headers=ah)
+    assert rr.status_code == 200
+    after = [x for x in client.get("/audit/tasks", headers=uh).json()["tasks"] if x["id"] == task["id"]][0]
+    assert after["in_training"] is True
+
+
 def test_batch_upload_multiple_files():
     uh = _user_hdr()
     files = [("files", ("bm_a.png", b"\x89PNG-batch-A", "image/png")),
@@ -444,7 +462,7 @@ def test_failed_audit_keeps_material_for_retry(monkeypatch):
     from app.api import deps
     uh = _user_hdr()
 
-    def _boom(url):
+    def _boom(url, hints=""):
         raise RuntimeError("反解炸了")
     monkeypatch.setattr(deps._vision, "describe_image", _boom)   # 图片反解抛错 → 审核失败
     data = b"fail-then-retry-unique-bytes-43"
@@ -458,7 +476,7 @@ def test_failed_audit_keeps_material_for_retry(monkeypatch):
     assert t["error"]                                            # 失败原因被暴露(待审核页能看到)
     assert client.get(f"/materials/{mid}", headers=uh).status_code == 200   # 物料保留,不删
     # 重试失败任务 → 审核成功(需 admin)
-    monkeypatch.setattr(deps._vision, "describe_image", lambda url: "现在正常了")
+    monkeypatch.setattr(deps._vision, "describe_image", lambda url, hints="": "现在正常了")
     ah = _admin_hdr()
     rr = client.post(f"/audit/tasks/{tid}/retry", headers=ah)
     assert rr.status_code == 200

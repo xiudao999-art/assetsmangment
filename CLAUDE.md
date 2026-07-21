@@ -49,6 +49,10 @@
 - **每个 BMAD 工作流开新 chat**(防上下文污染);规划期可用 Web Bundles 省 token。
 - 小改走 Quick Flow,不上全套敏捷仪式。
 
+## 日志
+
+`main.py` 启动时 `logging.basicConfig(level=INFO)` 让全部 app logger 输出到控制台（uvicorn 只打自己的 access log，不打业务日志）。训练进度、审核流程等关键日志格式：`2026-07-21 14:32:01 INFO [app.service.training_service] --- 迭代 1/5 ---`。
+
 ## 本地启动
 
 ```powershell
@@ -67,7 +71,7 @@
 | `.venv\Scripts\python app\main.py` | 启动开发服务器 (localhost:8099, hot-reload) |
 | `bash scripts/verify.sh` | 三层闭环验证（架构+代码+产品） |
 | `.venv\Scripts\lint-imports` | 架构契约检查 |
-| `.venv\Scripts\pytest -q` | 单元/集成测试（271 tests） |
+| `.venv\Scripts\pytest -q` | 单元/集成测试（272 tests） |
 | `.venv\Scripts\pytest tests/test_pg_repos.py -q` | PG 仓储集成测试（35 tests，需 `AM_DATABASE_URL`） |
 | `.venv\Scripts\python scripts/migrate_all_to_pg.py` | state.json → PG 全量数据迁移（幂等） |
 | `.venv\Scripts\behave specs/features` | BDD 验收测试 |
@@ -78,7 +82,7 @@
 | 传感器 | 命令 |
 |---|---|
 | ② 架构 | `lint-imports`（3 contracts） |
-| ③ 代码 | `pytest`（271 tests） |
+| ③ 代码 | `pytest`（272 tests） |
 | ① 产品 | `behave`（7 features / 17 scenarios） |
 
 **测试注意**: conftest 已 monkeypatch 全部仓储为内存实现（含 user/favorites/rbac/audit_log），不再依赖 state.json，消除了测试间状态污染和 409 问题。PG 仓储集成测试在 `tests/test_pg_repos.py`（35 tests），用一次性表隔离，需要 `AM_DATABASE_URL` 指向真实 PG。
@@ -120,6 +124,8 @@ ${ASSETS_ROOT}  (默认 /software/project/python/assets)
 | 禁词 | `blockword` | `PgBlockwordRepo` | ✅ 已迁移 |
 | 审计日志 | `audit_log` | `PgAuditLog` | ✅ 已迁移 |
 | 向量索引 | `material_vectors` | `PgVectorIndex` | ✅ 已迁移(含基础字段) |
+| 规则训练集 | `rule_training_set` | `PgTrainingSetRepo` | ✅ 已迁移（2026-07-21） |
+| 规则训练样本 | `rule_training_example` | `PgTrainingExampleRepo` | ✅ 已迁移（2026-07-21） |
 
 **切换逻辑**：配置 `AM_DATABASE_URL` 后，所有仓储 fail-fast 切换到 PG 真源（不静默回退 JSON）。未配置则走 JSON/内存（`AM_DATA_DIR` 有无决定持久化或纯内存）。
 
@@ -159,7 +165,7 @@ with psycopg.connect(dsn, autocommit=True) as conn:
 "
 ```
 
-**关键表**：`audit_rule`（规则，id 雪花 BIGINT / no 在用编号 / del_flag 软删）、`audit_report`（报告，report_id UUID / segments JSONB / triggered JSONB）、`material`（物料，oss_key 文件名 / audit_report_id 关联报告）。
+**关键表**：`audit_rule`（规则，id 雪花 BIGINT / no 在用编号 / del_flag 软删）、`audit_report`（报告，report_id UUID / segments JSONB / triggered JSONB）、`material`（物料，oss_key 文件名 / audit_report_id 关联报告）、`rule_training_set`（训练集，JSONB 快照/结果）、`rule_training_example`（训练样本，material_id → expected_rule_ids JSONB）。
 
 ### Task Janitor（定时任务补偿，`app/service/task_janitor.py`）
 
@@ -181,6 +187,25 @@ with psycopg.connect(dsn, autocommit=True) as conn:
 | 「重试」 | `failed` + 有 `material_id` | `POST /audit/tasks/{id}/retry` | 从零跑**完整**审核（重新抽帧/转写/反解） |
 
 **失败保留物料**：`_fail_task()` 和 TaskJanitor 不再删除失败物料（OSS+元数据），改为降级 `PROCESSING→REVIEW`。同内容重新上传会触发去重提示——应走「重试」按钮。
+
+### 审核任务分页（2026-07-21）
+
+`GET /audit/tasks` 改为服务端分页 + 项目筛选，不再返回全量。
+
+**API**：`GET /audit/tasks?page=1&size=20&project_id=xxx&name=xxx`
+- 返回 `{tasks, total, page, size, count}`（`_page_out` 统一格式）
+- `project_id` 可选，空则不过滤
+- `name` 可选，空则不过滤，按文件名模糊匹配（PG: ILIKE，内存/JSON: 子串不区分大小写）
+- `size` 最大 100
+
+**仓储变更**：`AuditTaskRepo` 协议 `list_for`/`list_all`/`count_for`/`count_all` 增加 `project_id`/`name`/`offset`/`limit` 参数。PG/JSON/内存三种实现均已适配，默认值向后兼容。
+
+**前端**：
+- `V.pending` 状态对象（page/size/total/project/name）
+- 项目筛选下沉服务端（chip 点击 → `V.pending.project` + `page=1` → 重新请求）
+- 文件名模糊搜索输入框（debounce 350ms → `V.pending.name` + `page=1` → 重新请求），与项目筛选可叠加
+- `#pending-pager` 翻页控件，复用 `renderPager`/`LOADER` 机制
+- 训练页不再调用 `/audit/tasks` 构建 `TRAINING_CANDIDATES`（该逻辑已移除）
 
 ## 审核规则系统
 
@@ -206,11 +231,35 @@ with psycopg.connect(dsn, autocommit=True) as conn:
 
 **选择原则**：事实性检查（免责声明有无、二维码有无）用 `literal`；语义判断（是否网赚话术、是否拉踩）用 `metaphor`；关键词精确匹配用 `regex`。
 
+### condition 与 guidance 的分工（2026-07-21）
+
+| 字段 | 定位 | 要求 |
+|---|---|---|
+| `condition` | 条件 — 简略达意 | 一句话说清拦截什么，不展开场景/例子/枚举，像法典条文 |
+| `guidance` | 尺度 — 承载细节 | 反例、边界情形、典型场景、易误判情况及处理方式，越详细越好 |
+
+**原则**：condition 定义边界，guidance 消歧义。写规则时先想「这条规则一句话怎么说」，剩下的全放 guidance。AI 训练调优时同样遵循此分工——condition 末尾补半句限定（≤15字），细节展开放在 guidance。
+
+> 2026-07-21 已对库中 12 条冗余规则做了精简（#3 #4 #5 #7 #9 #10 #11 #13 #17 #18 #25 #26），condition 平均缩减 65%，细节全部移入 guidance，零信息丢失。
+
+### 审核判定 prompt（`_RULE_JUDGE_SYS` + `_pack_rules`，2026-07-21 重构）
+
+`_RULE_JUDGE_SYS` 按功能分四段：
+
+| 段落 | 内容 |
+|---|---|
+| **规则解读方式** | 每条规则 = `条件`（一句话核心定义）+ `尺度说明`（权威详细解释）。尺度说明中的反例/放行情景**是硬约束**，不是建议，必须严格遵守，不得自行扩展或收紧。 |
+| **输出格式** | `{findings: [{rule, segment, reason}]}`，只标真实违规 |
+| **判定纪律** | 字面/隐喻两种严格程度区分 + 参考词不硬匹配 |
+| **底线** | 严禁输出"不违规"条目（`_reason_says_pass` 代码兜底），无违规返回空数组 |
+
+`_pack_rules` 格式化每条规则为 `条件:xxx` + `尺度说明:xxx`，与 `_RULE_JUDGE_SYS` 的分工描述一致——LLM 看到的规则清单中条件（简略）和尺度（详细）泾渭分明。
+
 ### 大模型假阳性过滤（`_reason_says_pass`）
 
 大模型有时会在 `findings` 里输出"不违规/符合要求"的条目——不是它判错了，是它**多嘴汇报**。两层防御：
 
-1. **Prompt 收紧**：`_RULE_JUDGE_SYS` 明确禁止输出"不违规"条目
+1. **Prompt 收紧**：`_RULE_JUDGE_SYS`「底线」段明确禁止输出"不违规"条目
 2. **代码兜底**：`_semantic_judge` 里 `_reason_says_pass()` 检查 reason 是否含否定 token（不违规/不应命中/不符合/未违反/不触发/不视为/不命中/不应计入 等），命中直接丢弃
 
 ### 报告 Segment 命中标注
@@ -230,6 +279,87 @@ with psycopg.connect(dsn, autocommit=True) as conn:
 - **Rule #10 娱乐小钱**（2026-07-20）：已软删。原 keywords `["奶茶钱", "零食钱", "水钱"]` 不再作为独立规则存在——这些娱乐小钱不视为违规。规则编号 11→10, 12→11 ... 25→24 顺延填补，当前在用 24 条（1~24 连续）
 - **`_reason_says_pass` token 扩充**（2026-07-20）：大模型新学会了"不触发""不视为""不命中""不应计入"等否定表述，原 token 列表没覆盖，导致 Rule #5/#9 的放行 finding 仍出现在 triggered 里。已追加这四个 token
 - **Rule #10 绝对化用语**（2026-07-20，原 #11）：原 condition 和 guidance 均为空，大模型对每条 segment 自由发挥，把"全都能免费唱""再也不用找歌"误判为绝对化承诺。已补 condition「在宣传推广中使用《广告法》禁止的绝对化用语…构成夸大宣传」+ guidance 明确「平台功能描述不构成绝对化承诺」
+- **Qwen-VL 画面反解注入规则 hints**（2026-07-21）：`VisionDescriber.describe_image` 新增 `hints` 参数。`_visual_rule_hints()` 收集所有视觉类规则（`image_content`/`video_frame`/`any`）的 condition/keywords，按 `rule.id` 去重后注入 Qwen-VL prompt 末尾作为「审核特别关注项」。prompt 明确要求「只在画面中确实存在时才写出，严禁编造」。解决了此前 Qwen-VL 不知道规则关心什么、可能漏掉关键内容（如蜡笔小新等 IP 角色）导致规则永远无法命中的问题。纯文字规则（`transcript`/`original_text`）不参与 hints 收集。
+
+## 规则训练模块（2026-07-21）
+
+基于人工标注样本，AI 迭代调优规则直到收敛。训练范围固定为**项目规则 + 全局规则**两个都调。
+
+### 数据表
+
+| 表 | 仓储 | 说明 |
+|---|---|---|
+| `rule_training_set` | `PgTrainingSetRepo` | 1:1 关联项目。存训练配置（`max_fp_ratio`/`max_iterations`）、规则快照（`rule_snapshot` JSONB）、训练结果（`training_result` JSONB）、时间戳（`started_at`/`completed_at`） |
+| `rule_training_example` | `PgTrainingExampleRepo` | 样本：物料 × 应命中规则列表。唯一约束 `(training_set_id, material_id, del_flag)`，同物料重复添加 → upsert 覆盖 |
+
+### API 端点（9 个，权限 `audit.rules`）
+
+| 方法 | 路径 | 说明 |
+|---|---|---|
+| `GET` | `/training/sets?page=&size=` | 训练集分页列表 |
+| `GET` | `/training/sets/{id}` | 训练集详情 + 全部样本 |
+| `DELETE` | `/training/sets/{id}` | 删除训练集（级联软删全部样本） |
+| `POST` | `/training/projects/{pid}/examples` | 添加样本 `{material_id, expected_rule_ids, source_note}` |
+| `GET` | `/training/projects/{pid}/examples` | 列出项目全部样本（含 `source_task_name`） |
+| `PUT` | `/training/projects/{pid}/examples/{eid}` | 编辑样本 `{expected_rule_ids?, source_note?}`（均可选） |
+| `DELETE` | `/training/projects/{pid}/examples/{eid}` | 删除一条样本 |
+| `POST` | `/training/projects/{pid}/train` | 启动训练（可选 `{max_fp_ratio, max_iterations}`） |
+| `GET` | `/training/projects/{pid}/status` | 查询训练状态/结果 |
+
+### 训练流程（`app/service/training_service.py`）
+
+`start_training()` 同步校验 + 快照 → `run_training()` 提交到 `audit_pool` 后台线程跑。`TrainingService` 注入了 `task_repo`，recheck 后自动同步关联 `audit_task` 的 `report_id`/`verdict`，确保「待审核任务」页报告与训练结论一致。
+
+```
+快照项目规则+全局规则 → rule_snapshot
+status = "training", started_at = now
+
+for i in 1..max_iterations:
+    ① 逐物料 recheck（用当前规则重审）→ 同步 audit_task → current_results
+    ② _calc_metrics: 对比 ground_truth，算每条规则的 missed / extra
+    ③ 每轮迭代后立刻落库 training_result（含 iterations/final_metrics/rule_changes/converged）
+       → 前端 2.5s 轮询实时看到 KPI 跳动，不用等全跑完
+    ④ 收敛？missed==0 且 fp_ratio≤阈值 → break
+    ⑤ AI 逐规则分析漏判/多判物料 → 调整 keywords/condition/guidance/match_level
+    ⑥ _apply_change → rule_repo.add 持久化 → 重新加载规则
+
+写 training_result，status = completed/failed，completed_at = now
+```
+
+**收敛条件**：漏判 = 0（每个物料命中全部应命中规则）**且** 多判率 ≤ `max_fp_ratio`（默认 20%，多命中数 / 总应命中数）。
+
+**`_calc_metrics` 口径**：分母是 `total_expected`（ground truth 总应命中次数），不是 `total_actual`。多判率 = `extra_hits / total_expected_hits`。
+
+**训练与审核一致性**：训练 `_reaudit_material` 走 `recheck()`（和待审核页「重新审核」按钮完全相同的三波级联逻辑，含云安全短路）。**优先用关联 `audit_task` 的报告**（`task.report_id`）而非 `material.audit_report_id`，与手动「重新审核」按钮行为一致；无 task 时回退 material 的报告。recheck 后 `_persist` 更新物料 `audit_report_id`，`_sync_task_after_recheck` 同步更新关联 `audit_task`。异常日志级别均为 WARNING（生产环境可见）。
+
+> **2026-07-21 修复**：此前 `_reaudit_material` 只用 `material.audit_report_id` 取报告。当物料和 task 指向不同报告时（如中间有人手动重审），训练跑在错误报告上 → 漏判/多判计数与 task 报告不一致。根因是 `recheck` 非确定性（Qwen-VL 每次描述同一帧可能不同），两份报告可能有不同判定。修复：`_reaudit_material` 先扫描 task 找到匹配 `material_id` 的 task，优先用 `task.report_id`。
+>
+> **2026-07-21 修复**：`_sync_task_after_recheck` 里 `t.status = "done"` 写成了字符串而非 `JobStatus.DONE` 枚举。`PgAuditTaskRepo.save()` 里调 `task.status.value`，字符串没有 `.value` 属性 → 每次 AttributeError，被 `except` 吞掉 → **task 的 report_id 从未被同步**（静默失败，5 个物料的 task.report_id 全部与 material.audit_report_id 不一致）。修复：`t.status = JobStatus.DONE` + 补 `JobStatus` import。**教训：所有 AuditTask 状态赋值必须用 `JobStatus` 枚举，不能写裸字符串，否则 save 静默失败。**
+
+**`training_result.iterations` 格式**（2026-07-21 修复）：从 `int`（迭代次数）改为 `list[dict]`，每轮记录 `{iteration, metrics, current_materials, converged, rule_changes}`。`current_materials` 为 `{material_id: [rule_id, ...]}`，可追溯每轮 recheck 实际命中。
+
+### AI 规则调优 prompt（`_RULE_ADJUST_SYS`）
+
+对每条有问题的规则（missed > 0 或 extra > 0）：
+- 收集该规则的漏判/多判物料（最多 10 个），取物料的 `ai_summary` / `description` 作为案例文本
+- 发给 Qwen（`_llm.chat_json`），要求返回 `{analysis, keywords, condition, guidance, match_level}`
+- **condition 与 guidance 分工**：prompt 明确要求 condition 简略达意（一句话说清拦截什么），guidance 承载所有细节（反例、边界情形、典型场景）。漏判 → condition 末尾补半句限定（≤15字）+ guidance 展开；多判 → 优先改 guidance 追加反例
+- 单条规则 AI 调用失败不阻塞整体，下轮重试
+
+### 关键文件
+
+| 文件 | 职责 |
+|---|---|
+| `app/domain/models.py` | `TrainingSet`、`TrainingExample` dataclass |
+| `app/domain/ports.py` | `TrainingSetRepo`、`TrainingExampleRepo` Protocol（含 `get`/`add`/`delete`） |
+| `app/infrastructure/pg_training_set_repo.py` | PG 仓储 + 建表 + 增量迁移 |
+| `app/infrastructure/pg_training_example_repo.py` | PG 仓储 + 建表 |
+| `app/infrastructure/fakes.py` | `InMemoryTrainingSetRepo`、`InMemoryTrainingExampleRepo` |
+| `app/service/training_service.py` | `TrainingService` — 核心训练逻辑 + `update_example()` 编辑样本 |
+| `app/api/schemas.py` | `TrainingExampleIn`、`TrainingExampleUpdateIn`、`TrainingConfigIn` Pydantic |
+| `app/api/router.py` | 9 个训练端点（含 `PUT` 编辑） |
+| `app/api/deps.py` | 仓储实例化（内存/JSON/PG 三档）+ `get_training_service()` 工厂 |
+| `frontend/index.html` | 训练页：样本列表展示 task name（非 material_id）、编辑/删除按钮、点击「样」缩略图播放 |
 
 ## 批量上传优化（2026-07-20）
 

@@ -5,6 +5,7 @@ import time
 import hashlib
 import threading
 import zipfile
+import datetime
 from fastapi import APIRouter, HTTPException, UploadFile, File, Form, Header, Depends, Query
 from fastapi.concurrency import run_in_threadpool
 from app.api import deps, schemas
@@ -372,7 +373,7 @@ def _project_out(p: Project) -> dict:
     return {"id": p.id, "name": p.name, "created_ms": p.created_ms}
 
 
-def _task_out(t: AuditTask) -> dict:
+def _task_out(t: AuditTask, in_training: bool = False) -> dict:
     # 任务裁定跟随物料现状:管理员在审核队列改判(pass/block)后,待审核页立即反映,
     # 不再停留在机审时的「待人工复核」。物料被删则退回任务存的裁定。
     verdict = t.verdict
@@ -382,9 +383,11 @@ def _task_out(t: AuditTask) -> dict:
             verdict = getattr(m.audit_status, "value", m.audit_status)
     return {"id": t.id, "name": t.name, "material_type": t.material_type,
             "material_id": t.material_id, "status": t.status, "verdict": verdict,
-            "report_id": t.report_id, "created_ms": t.created_ms, "error": t.error,
+            "report_id": t.report_id, "created_ms": t.created_ms,
+            "report_generated_at": getattr(t, "report_generated_at", ""), "error": t.error,
             "video_kind": getattr(t, "video_kind", "material"),
-            "project_id": getattr(t, "project_id", "")}
+            "project_id": getattr(t, "project_id", ""),
+            "in_training": in_training}
 
 
 def _new_task(owner_id: str, name: str, mtype: MaterialType, material_id: str, chash: str,
@@ -426,6 +429,9 @@ def _finish_task(task: AuditTask, job, report, delete_on_fail: bool = True) -> N
     task.status = JobStatus.DONE
     m = deps.material_repo.get(task.material_id)
     task.report_id = m.audit_report_id if m else ""
+    task.report_generated_at = datetime.datetime.now(
+        datetime.timezone(datetime.timedelta(hours=8))
+    ).isoformat()
     deps.task_repo.save(task)
 
 
@@ -434,11 +440,15 @@ def _sync_task_after_recheck(mid: str, report) -> None:
     best-effort:没有任务就跳过;task_repo 无 material_id 索引,扫全量匹配(管理员单次动作,量小)。"""
     m = deps.material_repo.get(mid)
     new_rid = m.audit_report_id if m else ""
+    generated_at = datetime.datetime.now(
+        datetime.timezone(datetime.timedelta(hours=8))
+    ).isoformat()
     for t in deps.task_repo.list_all():
         if t.material_id == mid:
             t.verdict = report.verdict.value
             t.status = JobStatus.DONE
             t.report_id = new_rid
+            t.report_generated_at = generated_at
             t.error = ""
             deps.task_repo.save(t)
 
@@ -1003,12 +1013,36 @@ def delete_rule_exception(rule_id: str, index: int, user: dict = Depends(_user))
     return _rule_out(rule)
 
 
-# ── 待审核任务(异步审核状态,统一呈现在「待审核」页;用户看自己的,管理员看全部)──
+# ── 待审核任务(异步审核状态,统一呈现在「待审核」页;用户看自己的,管理员看全部;支持分页+按项目筛选)──
 @router.get("/audit/tasks")
-def list_audit_tasks(user: dict = Depends(_user)):
+def list_audit_tasks(page: int = Query(1, ge=1), size: int = Query(20, ge=1, le=100),
+                    project_id: str = Query(""), name: str = Query(""),
+                    user: dict = Depends(_user)):
     _require_auth(user)
-    tasks = deps.task_repo.list_all() if user["role"] == "admin" else deps.task_repo.list_for(user["id"])
-    return {"tasks": [_task_out(t) for t in tasks]}
+    off, lim = _page_args(page, size)
+    is_admin = user["role"] == "admin"
+    tasks = (deps.task_repo.list_all(project_id=project_id, name=name, offset=off, limit=lim) if is_admin
+             else deps.task_repo.list_for(user["id"], project_id=project_id, name=name, offset=off, limit=lim))
+    total = deps.task_repo.count_all(project_id=project_id, name=name) if is_admin \
+        else deps.task_repo.count_for(user["id"], project_id=project_id, name=name)
+    training_materials_by_project: dict[str, set[str]] = {}
+    for t in tasks:
+        pid = getattr(t, "project_id", "") or ""
+        mid = getattr(t, "material_id", "") or ""
+        if not pid or not mid:
+            continue
+        if pid in training_materials_by_project:
+            continue
+        examples = deps.get_training_service().list_examples(pid)
+        training_materials_by_project[pid] = {e.material_id for e in examples}
+    return _page_out([
+        _task_out(
+            t,
+            in_training=((getattr(t, "material_id", "") or "") in
+                         training_materials_by_project.get(getattr(t, "project_id", "") or "", set()))
+        )
+        for t in tasks
+    ], total, page, size, key="tasks")
 
 
 @router.get("/audit/tasks/{task_id}")
@@ -1500,3 +1534,156 @@ def export_works(from_ms: int | None = None, to_ms: int | None = None, status: s
     return StreamingResponse(
         bio, media_type="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
         headers={"Content-Disposition": f"attachment; filename*=UTF-8''{quote(fname)}"})
+
+
+# ── 规则训练(管理员:按项目标注样本 → AI 迭代调优项目规则)──
+def _ts_out(ts) -> dict:
+    return {
+        "id": ts.id, "project_id": ts.project_id, "name": ts.name,
+        "status": ts.status, "max_fp_ratio": ts.max_fp_ratio,
+        "max_iterations": ts.max_iterations,
+        "rule_snapshot": ts.rule_snapshot,
+        "training_result": ts.training_result,
+        "started_at": getattr(ts, "started_at", ""),
+        "completed_at": getattr(ts, "completed_at", ""),
+    }
+
+
+def _te_out(te) -> dict:
+    task_id = ""
+    task_name = ""
+    for t in deps.task_repo.list_all():
+        if getattr(t, "material_id", "") == te.material_id:
+            task_id = t.id
+            task_name = getattr(t, "name", "") or ""
+            break
+    return {
+        "id": te.id, "training_set_id": te.training_set_id,
+        "material_id": te.material_id,
+        "expected_rule_ids": te.expected_rule_ids,
+        "source_note": te.source_note,
+        "source_task_id": task_id,
+        "source_task_name": task_name,
+    }
+
+
+@router.post("/training/projects/{project_id}/examples")
+def add_training_example(project_id: str, body: schemas.TrainingExampleIn,
+                         user: dict = Depends(_user)):
+    """往项目训练集添加一条样本:标注某物料应被哪些规则命中。自动创建训练集(若不存在)。"""
+    _require_perm(user, "audit.rules")
+    try:
+        te = deps.get_training_service().add_example(
+            project_id=project_id, material_id=body.material_id,
+            expected_rule_ids=body.expected_rule_ids,
+            source_note=body.source_note, by=user["id"])
+    except Exception as e:
+        raise HTTPException(400, str(e))
+    return _te_out(te)
+
+
+@router.get("/training/projects/{project_id}/examples")
+def list_training_examples(project_id: str, user: dict = Depends(_user)):
+    """列某项目训练集的所有样本。"""
+    _require_perm(user, "audit.rules")
+    examples = deps.get_training_service().list_examples(project_id)
+    return {"examples": [_te_out(e) for e in examples]}
+
+
+@router.delete("/training/projects/{project_id}/examples/{example_id}")
+def delete_training_example(project_id: str, example_id: str,
+                            user: dict = Depends(_user)):
+    """删除训练集里的一条样本。"""
+    _require_perm(user, "audit.rules")
+    deps.get_training_service().remove_example(example_id, by=user["id"])
+    return {"deleted": example_id}
+
+
+@router.put("/training/projects/{project_id}/examples/{example_id}")
+def update_training_example(project_id: str, example_id: str,
+                            body: schemas.TrainingExampleUpdateIn,
+                            user: dict = Depends(_user)):
+    """编辑训练样本:修改预期命中规则或标注备注。"""
+    _require_perm(user, "audit.rules")
+    try:
+        te = deps.get_training_service().update_example(
+            project_id, example_id,
+            expected_rule_ids=body.expected_rule_ids,
+            source_note=body.source_note, by=user["id"])
+    except Exception as e:
+        raise HTTPException(400, str(e))
+    return _te_out(te)
+
+
+@router.post("/training/projects/{project_id}/train")
+def start_training(project_id: str, body: schemas.TrainingConfigIn | None = None,
+                   user: dict = Depends(_user)):
+    """启动规则训练(异步):快照当前规则 → 逐轮 AI 调优 → 重审 → 直到漏判=0 且多判率≤阈值。"""
+    _require_perm(user, "audit.rules")
+    fp = body.max_fp_ratio if body else None
+    mi = body.max_iterations if body else None
+    try:
+        deps.get_training_service().start_training(
+            project_id, by=user["id"], max_fp_ratio=fp, max_iterations=mi)
+    except Exception as e:
+        raise HTTPException(400, str(e))
+    # 提交到审核线程池后台跑训练
+    deps.audit_pool.submit(_run_training, project_id, user["id"])
+    return {"status": "training", "project_id": project_id}
+
+
+def _run_training(project_id: str, by: str) -> None:
+    """后台执行训练循环。"""
+    import logging
+    _log = logging.getLogger(__name__)
+    try:
+        deps.get_training_service().run_training(project_id, by=by)
+    except Exception as e:
+        _log.exception("训练异常终止: project=%s, error=%s", project_id, e)
+
+
+@router.get("/training/projects/{project_id}/status")
+def get_training_status(project_id: str, user: dict = Depends(_user)):
+    """获取项目训练集状态与结果。"""
+    _require_perm(user, "audit.rules")
+    ts = deps.get_training_service().get_status(project_id)
+    if ts is None:
+        return {"status": "not_created"}
+    return _ts_out(ts)
+
+
+@router.get("/training/sets")
+def list_training_sets(page: int = Query(1, ge=1), size: int = Query(24, ge=1, le=100),
+                      user: dict = Depends(_user)):
+    """列出所有训练集(按创建时间倒序,分页)。"""
+    _require_perm(user, "audit.rules")
+    all_sets = deps.training_set_repo.list()
+    total = len(all_sets)
+    off, lim = _page_args(page, size)
+    page_sets = all_sets[off:off + lim]
+    return _page_out([_ts_out(ts) for ts in page_sets], total, page, size, key="sets")
+
+
+@router.get("/training/sets/{ts_id}")
+def get_training_set_detail(ts_id: str, user: dict = Depends(_user)):
+    """获取训练集详情,含全部样本列表。"""
+    _require_perm(user, "audit.rules")
+    ts = deps.training_set_repo.get(ts_id)
+    if ts is None:
+        raise HTTPException(404, "训练集不存在")
+    examples = deps.training_example_repo.list_for_set(ts.id)
+    return {**_ts_out(ts), "examples": [_te_out(e) for e in examples]}
+
+
+@router.delete("/training/sets/{ts_id}")
+def delete_training_set(ts_id: str, user: dict = Depends(_user)):
+    """删除训练集及其全部样本(软删)。"""
+    _require_perm(user, "audit.rules")
+    ts = deps.training_set_repo.get(ts_id)
+    if ts is None:
+        return {"deleted": ts_id}
+    # 级联软删全部样本
+    for te in deps.training_example_repo.list_for_set(ts.id):
+        deps.training_example_repo.delete(te.id, by=user["id"])
+    deps.training_set_repo.delete(ts_id, by=user["id"])
+    return {"deleted": ts_id}

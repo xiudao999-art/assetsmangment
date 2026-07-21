@@ -13,6 +13,7 @@ uv.lock
 # env / secrets
 .env
 .env.*
+.env-*
 *.local
 
 # BMAD(可由 npx bmad-method install 重装,不入库)
@@ -48,3 +49,14 @@ assetsmangment.zip
 
 # 测试媒体素材(不入库)
 resources/
+
+# IDE
+.idea/
+
+# 本地数据 / 临时文件
+.localdata/
+.tmp/
+.tmp_debug/
+
+# 外部文档
+docs/卡审记录文档.pdf

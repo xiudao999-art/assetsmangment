@@ -13,7 +13,7 @@ class _SlowVision:
         self.delay = delay
         self.calls = 0
 
-    def describe_image(self, url):
+    def describe_image(self, url, hints: str = ""):
         self.calls += 1
         time.sleep(self.delay)
         return "画面描述"

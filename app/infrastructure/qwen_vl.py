@@ -21,9 +21,14 @@ class QwenVLVisionDescriber:
         "以及任何可能涉及违规的风险点(如暴力、色情、政治敏感、违禁品等)。"
         "【重要】请逐字抄录画面中出现的所有文字,包括小字、水印、按钮文案、"
         "免责声明、金额数字、提现门槛、平台名称、下载引导语等。"
-        "即使文字很小或位于边缘,也必须抄录。文字是审核的关键依据。"
+        "即使文字很小或位于边缘,也必须抄录。"
+        "抄录每处文字时,必须同时说明该文字在画面中的具体位置,"
+        "使用「画面顶部/下方/底部/左侧/右侧/左上角/右上角/左下角/右下角/居中/下方居中」等方位词。"
+        "例如:「画面下方居中位置有三行白色小字:第一行'满0.3元能提现'……」。"
+        "文字位置是审核的关键依据,必须逐一标注。"
+        "如果画面中确实没有任何文字,直接描述画面内容即可,无需提及文字的有无。"
         "只客观描述实际看到的内容,不要额外做风险总结或抽象归类;"
-        "不要输出否定句,例如“未见”“没有”“无”“不涉及”这类表述。"
+        "不要输出否定句,例如「未见」「没有」「无」「不涉及」这类表述。"
     )
 
     def __init__(self, api_key: str, model: str = "qwen3-vl-plus") -> None:
@@ -32,15 +37,24 @@ class QwenVLVisionDescriber:
         self._api_key = api_key
         self._model = model
 
-    def describe_image(self, url: str) -> str:
+    def describe_image(self, url: str, hints: str = "") -> str:
         from dashscope import MultiModalConversation
         from app.config import settings
         from app.infrastructure.retry import call_ai
 
+        prompt = self._PROMPT
+        if hints:
+            prompt += (
+                "\n\n【审核特别关注项】以下内容如果出现在画面中,请在描述里明确写出"
+                "（包括具体是什么、在画面的什么位置）,以便后续审核规则能命中;"
+                "如果某项内容确实不在画面中,**严禁编造或强行提及该项**:\n"
+                + hints
+            )
+
         def _call():
             resp = MultiModalConversation.call(
                 api_key=self._api_key, model=self._model,
-                messages=[{"role": "user", "content": [{"image": url}, {"text": self._PROMPT}]}])
+                messages=[{"role": "user", "content": [{"image": url}, {"text": prompt}]}])
             if getattr(resp, "status_code", None) != 200:
                 raise RuntimeError(f"图像反解失败: {getattr(resp, 'status_code', '?')} "
                                    f"{getattr(resp, 'message', '')}")

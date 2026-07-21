@@ -167,6 +167,7 @@ class AuditTask:
     verdict: str = ""               # pass/review/block(done 后)
     report_id: str = ""             # 指向 audit_reports
     created_ms: int = 0
+    report_generated_at: str = ""   # 报告生成时间(ISO 8601)
     error: str = ""
     video_kind: str = "material"    # 视频:material(物料)| work(作品)
     project_id: str = ""            # 作品所属项目(穿到 Material/AuditJob 驱动项目规则)
@@ -180,3 +181,31 @@ class User:
     pwd_hash: str
     role: str = "viewer"
     status: str = "active"
+
+
+# ── 规则训练 ──
+@dataclass
+class TrainingSet:
+    """规则训练集:1:1 关联项目,存放训练配置、规则快照与训练结果。"""
+    id: str
+    project_id: str
+    name: str = ""
+    status: str = "collecting"       # collecting → training → completed / failed
+    rule_snapshot: dict = field(default_factory=dict)    # 训练开始时的规则快照 {rule_id: {no, keywords, ...}}
+    max_fp_ratio: float = 0.20       # 可接受的最大多判率
+    max_iterations: int = 10         # 最大重审迭代次数
+    training_result: dict = field(default_factory=dict)  # 训练结果摘要 {iterations, converged, final_metrics, rule_changes}
+    started_at: str = ""             # 最近一次训练开始时间(ISO 8601)
+    completed_at: str = ""           # 最近一次训练完成时间(ISO 8601)
+    created_by: str = ""
+
+
+@dataclass
+class TrainingExample:
+    """规则训练样本:记录某物料应被哪些规则命中(人工标注的地面真相)。"""
+    id: str
+    training_set_id: str
+    material_id: str
+    expected_rule_ids: list[str] = field(default_factory=list)  # 该物料应该命中的规则 ID 列表
+    source_note: str = ""             # 人工标注备注
+    created_by: str = ""

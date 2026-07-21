@@ -312,7 +312,7 @@ class FakeTranscriber:
 
 
 class FakeVisionDescriber:
-    def describe_image(self, url: str) -> str:
+    def describe_image(self, url: str, hints: str = "") -> str:
         return f"画面内容(假):{url[:40]}"
 
 
@@ -430,9 +430,76 @@ class InMemoryAuditTaskRepo:
     def delete(self, task_id: str) -> None:
         self._tasks.pop(task_id, None)
 
-    def list_for(self, owner_id: str) -> list[AuditTask]:
-        return sorted((t for t in self._tasks.values() if t.owner_id == owner_id),
-                      key=lambda t: t.created_ms, reverse=True)
+    def list_for(self, owner_id: str, project_id: str = "", name: str = "", offset: int = 0, limit: int | None = None) -> list[AuditTask]:
+        tasks = sorted((t for t in self._tasks.values() if t.owner_id == owner_id),
+                       key=lambda t: t.created_ms, reverse=True)
+        if project_id:
+            tasks = [t for t in tasks if getattr(t, "project_id", "") == project_id]
+        if name:
+            tasks = [t for t in tasks if name.lower() in (getattr(t, "name", "") or "").lower()]
+        return tasks if limit is None else tasks[offset:offset + limit]
 
-    def list_all(self) -> list[AuditTask]:
-        return sorted(self._tasks.values(), key=lambda t: t.created_ms, reverse=True)
+    def list_all(self, project_id: str = "", name: str = "", offset: int = 0, limit: int | None = None) -> list[AuditTask]:
+        tasks = sorted(self._tasks.values(), key=lambda t: t.created_ms, reverse=True)
+        if project_id:
+            tasks = [t for t in tasks if getattr(t, "project_id", "") == project_id]
+        if name:
+            tasks = [t for t in tasks if name.lower() in (getattr(t, "name", "") or "").lower()]
+        return tasks if limit is None else tasks[offset:offset + limit]
+
+    def count_for(self, owner_id: str, project_id: str = "", name: str = "") -> int:
+        tasks = [t for t in self._tasks.values() if t.owner_id == owner_id]
+        if project_id:
+            tasks = [t for t in tasks if getattr(t, "project_id", "") == project_id]
+        if name:
+            tasks = [t for t in tasks if name.lower() in (getattr(t, "name", "") or "").lower()]
+        return len(tasks)
+
+    def count_all(self, project_id: str = "", name: str = "") -> int:
+        tasks = list(self._tasks.values())
+        if project_id:
+            tasks = [t for t in tasks if getattr(t, "project_id", "") == project_id]
+        if name:
+            tasks = [t for t in tasks if name.lower() in (getattr(t, "name", "") or "").lower()]
+        return len(tasks)
+
+
+class InMemoryTrainingSetRepo:
+    def __init__(self) -> None:
+        self._ts: dict = {}
+
+    def add(self, ts, by: str = "") -> None:
+        self._ts[ts.id] = ts
+
+    def get(self, ts_id: str):
+        return self._ts.get(ts_id)
+
+    def get_by_project(self, project_id: str):
+        return next((t for t in self._ts.values()
+                     if t.project_id == project_id), None)
+
+    def delete(self, ts_id: str, by: str = "") -> None:
+        self._ts.pop(ts_id, None)
+
+    def list(self) -> list:
+        return list(self._ts.values())
+
+
+class InMemoryTrainingExampleRepo:
+    def __init__(self) -> None:
+        self._te: dict = {}
+
+    def add(self, te, by: str = "") -> None:
+        self._te[te.id] = te
+
+    def get(self, te_id: str):
+        return self._te.get(te_id)
+
+    def delete(self, te_id: str, by: str = "") -> None:
+        self._te.pop(te_id, None)
+
+    def list_for_set(self, training_set_id: str) -> list:
+        return sorted(
+            (e for e in self._te.values()
+             if e.training_set_id == training_set_id),
+            key=lambda e: e.id)

@@ -219,6 +219,12 @@
   .src-opt:hover{background:var(--raise);color:var(--ink)}
   .src-opt:has(input:checked){background:color-mix(in oklab,var(--mint) 8%,var(--panel));color:var(--ink)}
   .src-opt input[type=checkbox]{width:16px;height:16px;flex:none;margin:0;accent-color:var(--mint)}
+  .splitline{display:flex;align-items:center;gap:12px;color:var(--dim);font-size:12px;margin:2px 0 14px}
+  .splitline span{flex:1;height:1px;background:var(--line)}
+  .kpi{display:grid;grid-template-columns:repeat(auto-fit,minmax(132px,1fr));gap:10px;margin:12px 0}
+  .kpi .item{border:1px solid var(--line);border-radius:10px;background:var(--raise);padding:11px 12px}
+  .kpi .item b{display:block;font:600 18px/1 "Fraunces";margin-bottom:4px}
+  .kpi .item span{color:var(--dim);font-size:11.5px}
 </style>
 </head>
 <body>
@@ -302,6 +308,7 @@
         </div>
         <div class="filterbar" id="pending-filter"></div>
         <div id="pending-list"></div>
+        <div class="pager" id="pending-pager"></div>
       </section>
       <section id="sec-search">
         <div class="card" style="margin-bottom:18px"><div class="row" style="align-items:flex-end"><div class="field f-grow" style="margin:0"><label>按含义搜公共物料(情绪 / 氛围 / 内容 / 标签)</label><input id="q" placeholder="例如:温馨治愈 / 紧张刺激的氛围 / 森林 / 某个项目标签 …" onkeydown="if(event.key==='Enter')doSearch()"></div><button class="btn key f-auto" onclick="doSearch()">搜索</button></div></div>
@@ -309,7 +316,7 @@
       </section>
       <section id="sec-review">
         <div class="segbar" id="queue-tabs" style="display:flex;gap:6px;flex-wrap:wrap;margin-bottom:14px"></div>
-        <div id="queue"></div></section>
+        <div id="queue"></div><div class="pager" id="review-pager"></div></section>
       <section id="sec-users"><div class="card" style="max-width:660px"><h3 class="disp">账号与角色</h3>
         <p class="hint">新增 / 删除账号。新账号默认普通用户;admin 是唯一管理员。</p>
         <div class="row" style="align-items:flex-end"><div class="field f-grow" style="margin:0"><label>用户名</label><input id="nu-name" placeholder="新账号用户名"></div><div class="field f-grow" style="margin:0"><label>密码</label><input id="nu-pw" type="password" placeholder="至少 6 位"></div><button class="btn key f-auto" onclick="createUser()">创建账号</button></div>
@@ -351,7 +358,7 @@
           <div id="ru-parsed" style="margin-top:14px"></div>
         </div>
 
-        <div style="display:flex;align-items:center;gap:12px;color:var(--dim);font-size:12px;margin:2px 0 14px"><span style="flex:1;height:1px;background:var(--line)"></span>或手动添加单条<span style="flex:1;height:1px;background:var(--line)"></span></div>
+        <div class="splitline"><span></span>或手动添加单条<span></span></div>
         <div class="row" style="align-items:flex-end;flex-wrap:wrap;gap:12px">
           <div class="field f-fixed" style="margin:0;position:relative"><label>来源类型</label>
             <button type="button" id="ru-src-btn" class="select-btn" aria-haspopup="true" aria-expanded="false" onclick="toggleSrcDropdown()">全部 ▾</button>
@@ -374,6 +381,20 @@
         <a id="ru-cancel" onclick="cancelEdit()" style="display:none;margin-left:12px;color:var(--mint);cursor:pointer">取消编辑</a>
         <div style="margin-top:16px"><label>现有规则</label><div id="rules-list"></div></div></div>
       </section>
+      <section id="sec-rules-training"><div class="card" style="max-width:860px"><h3 class="disp">规则训练</h3>
+          <p class="hint">只收作品样本。请在「待审核」里对作品点「加入规则训练」进行人工标注。训练时固定调优<b>该项目规则 + 全局规则</b>。</p>
+          <div style="border:1px solid var(--line);border-radius:12px;padding:14px;background:var(--panel);margin:6px 0 16px">
+            <div class="row" style="align-items:flex-end;flex-wrap:wrap;gap:12px">
+              <div class="field f-grow" style="margin:0"><label>训练项目</label><select id="tr-project" onchange="loadTrainingPage()"></select></div>
+              <div class="field f-fixed" style="margin:0"><label>最大多判率</label><input id="tr-max-fp" type="number" min="0.01" max="1" step="0.01" value="0.20"></div>
+              <div class="field f-fixed" style="margin:0"><label>最大迭代次数</label><input id="tr-max-iter" type="number" min="1" max="50" step="1" value="10"></div>
+              <button class="btn key f-auto" onclick="startTrainingRun()">开始训练</button>
+            </div>
+            <div id="tr-status" style="margin-top:14px"></div>
+          </div>
+          <div id="tr-context" style="display:none;margin-bottom:16px"></div>
+          <div style="margin-top:16px"><label>当前项目样本</label><div id="tr-examples" style="margin-top:8px"></div></div>
+      </div></section>
       <section id="sec-works">
         <div class="chips" id="works-range">
           <div class="chip on" data-d="1" onclick="pickWorksRange(this,1)">今天</div>
@@ -403,6 +424,12 @@
   <div class="gmhd"><b class="disp" id="gm-title">授权</b><button class="x" onclick="closeGrant()">✕</button></div>
   <div class="gmbody" id="gm-body"></div>
   <div class="gmfoot"><button class="btn" onclick="closeGrant()">取消</button><button class="btn key" onclick="confirmGrant()">确认授权</button></div>
+</div>
+<div class="scrim" id="tscrim" onclick="closeTrainingMark()"></div>
+<div class="gmodal" id="training-modal">
+  <div class="gmhd"><b class="disp" id="tm-title">加入规则训练</b><button class="x" onclick="closeTrainingMark()">✕</button></div>
+  <div class="gmbody" id="tm-body"></div>
+  <div class="gmfoot"><button class="btn" onclick="closeTrainingMark()">取消</button><button class="btn key" id="tm-submit" onclick="confirmTrainingMark()">确认加入</button></div>
 </div>
 <div class="toasts" id="toasts"></div>
 
@@ -457,13 +484,14 @@ const NAV_USER=[['我的','mine','我的物料库','我上传的与我收藏的�
 const NAV_ADMIN=[['管理','all','全部物料','所有用户的物料'],['管理','review','审核队列','人工复核待定物料'],['管理','works','作品审核记录','按项目 + 按天看作品审核记录'],
   ['我的','mine','我的物料库','我上传的与我收藏的物料'],['我的','ingest','内容审核','审核视频/图片/文字/声音'],['我的','pending','待审核','审核任务与状态'],
   ['发现','public','公共物料库','所有人共享的物料'],['发现','search','搜索','在公共物料里检索'],
-  ['治理','projects','项目管理','建作品项目 + 管项目规则'],['治理','rules','审核规则','配置违规判定规则'],['治理','blockwords','绝对禁词','审核第一波,命中即拦'],['治理','whitelist','内容安全白名单','命中即放行,治误伤'],['治理','users','用户','账号与角色'],['治理','roles','功能权限','角色与权限']];
+  ['治理','projects','项目管理','建作品项目 + 管项目规则'],['治理','rules','审核规则','配置违规判定规则'],['治理','rules-training','规则训练','按项目收样本并训练规则'],['治理','blockwords','绝对禁词','审核第一波,命中即拦'],['治理','whitelist','内容安全白名单','命中即放行,治误伤'],['治理','users','用户','账号与角色'],['治理','roles','功能权限','角色与权限']];
 const ICO={mine:'<rect x="3" y="3" width="7" height="7" rx="1"/><rect x="14" y="3" width="7" height="7" rx="1"/><rect x="3" y="14" width="7" height="7" rx="1"/><rect x="14" y="14" width="7" height="7" rx="1"/>',
   ingest:'<path d="M9 12l2 2 4-4"/><path d="M12 3a9 9 0 100 18 9 9 0 000-18z"/>',pending:'<circle cx="12" cy="12" r="9"/><path d="M12 8v4l3 2"/>',public:'<circle cx="12" cy="12" r="9"/><path d="M3 12h18M12 3a15 15 0 010 18M12 3a15 15 0 000 18"/>',
   search:'<circle cx="11" cy="11" r="7"/><path d="M21 21l-4-4"/>',all:'<path d="M4 6h16M4 12h16M4 18h16"/>',review:'<path d="M9 12l2 2 4-4"/><circle cx="12" cy="12" r="9"/>',
   works:'<rect x="5" y="4" width="14" height="17" rx="2"/><path d="M8 9h8M8 13h8M8 17h4"/>',
   projects:'<path d="M3 7l9-4 9 4-9 4-9-4z"/><path d="M3 12l9 4 9-4"/><path d="M3 17l9 4 9-4"/>',
   rules:'<path d="M4 6h16M4 12h10M4 18h7"/><circle cx="18" cy="15" r="3"/>',
+  'rules-training':'<path d="M5 5h8v6H5z"/><path d="M15 13h4v6h-4z"/><path d="M9 11v2h8v-2"/><path d="M9 11V8"/><path d="M17 13v-2"/>',
   blockwords:'<circle cx="12" cy="12" r="9"/><path d="M6 6l12 12"/>',
   whitelist:'<path d="M12 3l7 3v5c0 4-3 7-7 8-4-1-7-4-7-8V6z"/><path d="M9 12l2 2 4-4"/>',
   users:'<circle cx="12" cy="8" r="4"/><path d="M4 20c0-4 4-6 8-6s8 2 8 6"/>',roles:'<path d="M12 3l7 4v5c0 4-3 7-7 9-4-2-7-5-7-9V7z"/>'};
@@ -477,8 +505,9 @@ function go(sec){const navset=(ME.role==='admin'?NAV_ADMIN:NAV_USER);
   const meta=navset.find(x=>x[1]===sec);if(meta){$('#title').textContent=meta[2];$('#sub').textContent=meta[3]}
   location.hash=sec;
   if(sec!=='pending'&&typeof pendingTimer!=='undefined')clearTimeout(pendingTimer);  // 离开待审核→停轮询
+  if(sec!=='rules-training'&&typeof trainingTimer!=='undefined')clearTimeout(trainingTimer);
   if(sec==='ingest'){if(typeof resetAudit==='function')resetAudit();if(typeof resetBatch==='function')resetBatch()}
-  if(sec==='mine')loadMine();if(sec==='public')loadPublic();if(sec==='all')loadAll();if(sec==='review')loadReview();if(sec==='works')loadWorks();if(sec==='roles')loadPerms();if(sec==='users')loadUsers();if(sec==='rules')loadRules();if(sec==='pending')loadPending();if(sec==='whitelist')loadWhitelist();if(sec==='blockwords')loadBlockwords();if(sec==='projects')loadProjects();
+  if(sec==='mine')loadMine();if(sec==='public')loadPublic();if(sec==='all')loadAll();if(sec==='review')loadReview();if(sec==='works')loadWorks();if(sec==='roles')loadPerms();if(sec==='users')loadUsers();if(sec==='rules')loadRules();if(sec==='rules-training')loadTrainingPage();if(sec==='pending')loadPending();if(sec==='whitelist')loadWhitelist();if(sec==='blockwords')loadBlockwords();if(sec==='projects')loadProjects();
   if(window.matchMedia('(max-width:900px)').matches)toggleNavOpen(false)}   // 手机上选完自动收起抽屉
 
 /* ── 折叠导航(桌面,默认收起)/ 手机抽屉 ── */
@@ -515,12 +544,13 @@ function cell(m,ctx){const g=GLYPH[m.type]||'▦';
 function grid(el,items,ctx,emptyTitle,emptyMsg){$(el).innerHTML=items.length?`<div class="sheet">${items.map(m=>cell(m,ctx)).join('')}</div>`:`<div class="empty"><b class="disp">${emptyTitle}</b>${emptyMsg}</div>`}
 
 /* ── 服务端翻页 + 筛选(每视图独立 page/size/total 状态)── */
-const PAGE_SIZE=24;
+const PAGE_SIZE=25;
 const V={mine:{page:1,size:PAGE_SIZE,total:0,type:'',q:'',project:''},
   public:{page:1,size:PAGE_SIZE,total:0,type:'',q:'',project:''},
   all:{page:1,size:PAGE_SIZE,total:0,type:'',q:'',status:'',project:''},
-  search:{page:1,size:PAGE_SIZE,total:0,q:'',type:''}};
-let PENDING_PROJECT='';
+  search:{page:1,size:PAGE_SIZE,total:0,q:'',type:''},
+  pending:{page:1,size:20,total:0,project:'',name:''},
+  review:{page:1,size:10,total:0}};
 function setCnt(sec,n){const e=$('#cnt-'+sec);if(e)e.textContent=n}
 const debounce=(fn,ms=300)=>{let t;return(...a)=>{clearTimeout(t);t=setTimeout(()=>fn(...a),ms)}};
 
@@ -568,7 +598,7 @@ async function loadSearch(){const v=V.search;showSkeleton('#results',v.size);
   const r=await api('GET','/search?'+new URLSearchParams({q:v.q,page:v.page,size:v.size}));
   v.total=r.data.total??(r.data.results||[]).length;
   grid('#results',r.data.results||[],'public','没有命中','换个词。只有审核通过并发布的物料才会被搜到。');renderPager('#search-pager','search')}
-const LOADER={mine:loadMine,public:loadPublic,all:loadAll,search:loadSearch};
+const LOADER={mine:loadMine,public:loadPublic,all:loadAll,search:loadSearch,pending:loadPending,review:loadQueue};
 
 const onMineKw=debounce(()=>{V.mine.q=$('#mine-q').value.trim();V.mine.page=1;loadMine()});
 const onPubKw=debounce(()=>{V.public.q=$('#pub-q').value.trim();V.public.page=1;loadPublic()});
@@ -660,7 +690,7 @@ function trigItem(t){
   return `<div style="border-left:3px solid var(--block);padding:6px 0 8px 10px;margin-bottom:10px">
     <div style="color:var(--block);font-weight:600;font-size:12.5px">⚠ ${src}${tc} · ${act}</div>
     <div style="color:var(--block);font-size:12px;margin-top:2px">${esc(t.reason||'')}</div>${ruleLine}${txt}${rw}${img}</div>`}
-function reportHTML(rep){if(!rep)return '<div class="empty">该任务暂无报告</div>';
+function reportHTML(rep,meta={}){if(!rep)return '<div class="empty">该任务暂无报告</div>';
   const v=rep.verdict;const badge=`<span class="stamp ${v}" style="font-size:13px;padding:5px 12px">${VERDICT_CN[v]||v}</span>`;
   const trig=(rep.triggered||[]).map(trigItem).join('');
   const hitMs=new Set((rep.triggered||[]).filter(t=>t.begin_ms!=null).map(t=>t.begin_ms));
@@ -670,7 +700,8 @@ function reportHTML(rep){if(!rep)return '<div class="empty">该任务暂无报�
     const tc=(s.begin_ms!=null)?`<span class="mono" style="color:${hot?'var(--block)':'var(--mint)'}">${(s.begin_ms/1000).toFixed(1)}s</span> `:'';
     const ruleTags=hot?rules.map(r=>`<span style="color:var(--block);font-weight:600">#${r.rule_no}</span>${r.rule_desc?' <span style="color:var(--dim);font-size:11px">'+esc(r.rule_desc.slice(0,60))+'</span>':''}`).join(' · '):'';
     return `<div class="qrow"${hot?' style="border-color:var(--block);border-left:3px solid var(--block)"':''}><div class="meta"><div class="owner">${SRC_CN[s.source_type]||s.source_type} ${tc}${hot?`<span style="color:var(--block)">· 命中: ${ruleTags}</span>`:''}</div><div style="font-size:12.5px;margin-top:4px;color:${hot?'var(--block)':'var(--ink)'}">${esc((s.text||'').slice(0,180))}</div></div></div>`}).join('');
-  return `<div style="margin-bottom:14px;font-size:14px">审核结果:${badge} <div class="owner" style="margin-top:6px">${esc(rep.summary||'')}</div></div>
+  const generated=meta.reportGeneratedAt?`<div class="owner" style="margin-top:6px">报告生成时间: ${fmtIso(meta.reportGeneratedAt)}</div>`:'';
+  return `<div style="margin-bottom:14px;font-size:14px">审核结果:${badge}${generated} <div class="owner" style="margin-top:6px">${esc(rep.summary||'')}</div></div>
     ${trig?`<div class="card" style="margin-bottom:12px;padding:14px;border-color:color-mix(in oklab,var(--block) 30%,var(--line-2))"><b style="font-size:13px;color:var(--block)">命中详情(标红为被拦截/待复核的具体内容)</b><div style="margin-top:10px">${trig}</div></div>`:''}
     <div style="color:var(--dim);font-size:12px;margin-bottom:8px">文字链路(共 ${(rep.segments||[]).length} 段)</div>${segs||'<div class="empty">无文字内容</div>'}`}
 
@@ -680,19 +711,25 @@ const TASK_ST={pending:'排队中',running:'审核中',done:'已完成',failed:'
 function pendingProjectName(t){
   if(!t.project_id)return '';
   return projName(t.project_id)||t.project_name||t.project_id}
-function buildPendingFilter(tasks){
+function fmtDateTimeSec(v){
+  if(v==null||v==='')return '—';
+  const raw=String(v).trim();
+  if(!raw)return '—';
+  const ms=Number(raw);
+  if(Number.isFinite(ms)&&/^\d+$/.test(raw)&&raw.length>=10){
+    return fmtIso(new Date(raw.length===10?ms*1000:ms).toISOString())}
+  return fmtIso(raw)}
+function buildPendingFilter(){
   const el=$('#pending-filter');if(!el)return;
   const seen=new Set();
   const chips=[{id:'',name:'全部'}];
   PROJECTS.forEach(p=>{if(!seen.has(p.id)){seen.add(p.id);chips.push({id:p.id,name:p.name})}});
-  tasks.forEach(t=>{const pid=t.project_id||'';if(pid&&!seen.has(pid)){seen.add(pid);chips.push({id:pid,name:pendingProjectName(t)})}});
-  if(PENDING_PROJECT&&!chips.some(c=>c.id===PENDING_PROJECT))PENDING_PROJECT='';
-  el.innerHTML=`<span class="lbl">项目</span>`+chips.map(c=>`<span class="pchip ${PENDING_PROJECT===c.id?'on':''}" data-p="${c.id}" tabindex="0" role="button">${esc(c.name)}</span>`).join('');
-  el.querySelectorAll('.pchip').forEach(c=>{const act=()=>{PENDING_PROJECT=c.dataset.p;loadPending()};
-    c.onclick=act;c.onkeydown=e=>{if(e.key==='Enter'||e.key===' '){e.preventDefault();act()}}})}
-function filterPendingTasks(tasks){
-  if(!PENDING_PROJECT)return tasks;
-  return tasks.filter(t=>(t.project_id||'')===PENDING_PROJECT)}
+  if(V.pending.project&&!chips.some(c=>c.id===V.pending.project))V.pending.project='';
+  el.innerHTML=`<span class="lbl">项目</span>`+chips.map(c=>`<span class="pchip ${V.pending.project===c.id?'on':''}" data-p="${c.id}" tabindex="0" role="button">${esc(c.name)}</span>`).join('')
+    +` <input class="inp sm" id="pending-name-search" type="search" placeholder="搜索文件名…" value="${esc(V.pending.name||'')}" style="width:180px;margin-left:12px">`;
+  el.querySelectorAll('.pchip').forEach(c=>{const act=()=>{V.pending.project=c.dataset.p;V.pending.page=1;loadPending()};
+    c.onclick=act;c.onkeydown=e=>{if(e.key==='Enter'||e.key===' '){e.preventDefault();act()}}});
+  const ni=$('#pending-name-search');if(ni){ni.oninput=debounce(()=>{V.pending.name=ni.value.trim();V.pending.page=1;loadPending()},350)}}
 function taskRow(t){
   const st=TASK_ST[t.status]||t.status;
   const vB=(t.verdict&&t.verdict!=='processing')?`<span class="stamp ${t.verdict}">${VERDICT_CN[t.verdict]||t.verdict}</span>`:'';   // 机审中不显裁定徽章,只留「⏳ 审核中」
@@ -705,26 +742,35 @@ function taskRow(t){
   const thumb=previewable
     ? `<button class="thumb" onclick="previewTaskMaterial('${t.material_id}')" title="预览${t.material_type==='video'?'并播放':''}">${GLYPH[t.material_type]||'▦'}</button>`
     : `<div class="thumb">${GLYPH[t.material_type]||'▦'}</div>`;
+  const train=(ME.role==='admin'&&t.material_id&&t.project_id&&!t.in_training)
+    ?`<button class="btn sm" onclick="seedTrainingFromTask('${t.id}','${t.project_id}','${t.material_id}','${encodeURIComponent(t.name||'')}')" title="把这条作品带去规则训练页做人工标注">加入规则训练</button>`:'';
   const recheck=(ME.role==='admin'&&t.status==='done'&&t.report_id)
     ?`<button class="btn sm" onclick="recheckTask('${t.id}')" title="用当前白名单/规则重新判定(不重新抽帧/转写)">重新审核</button>`:'';
   const retry=(ME.role==='admin'&&t.status==='failed'&&t.material_id)
     ?`<button class="btn sm" onclick="retryTask('${t.id}')" title="重新跑完整审核(抽帧/转写/反解)">重试</button>`:'';
   return `<div class="qrow">${thumb}
     <div class="meta"><div>${t.name||'—'} <span class="owner">${LT[t.material_type]||t.material_type}</span>${kind}</div>
-      <div class="k">${active?'⏳ ':''}${st}</div>${err}</div>
-    ${vB}${view}${recheck}${retry}<button class="btn sm" onclick="delTask('${t.id}')" title="移除">✕</button></div>`}
-async function loadPending(){if(!PROJECTS.length)await fetchProjects();const r=await api('GET','/audit/tasks');const ts=r.data.tasks||[];
-  buildPendingFilter(ts);
-  const shown=filterPendingTasks(ts);
-  setCnt('pending',ts.filter(t=>t.status==='pending'||t.status==='running').length);
-  $('#pending-list').innerHTML=shown.length?shown.map(taskRow).join(''):(ts.length?'<div class="empty"><b class="disp">当前筛选下没有任务</b>切换项目筛选,或等新的审核任务进来。</div>':'<div class="empty"><b class="disp">还没有审核任务</b>去「内容审核」提交视频/图片/文字/声音,或批量上传。</div>');
+      <div class="k">${active?'⏳ ':''}${st}</div>
+      <div class="k">提交时间: ${fmtDateTimeSec(t.created_ms)}${t.report_generated_at?` · 报告生成时间: ${fmtDateTimeSec(t.report_generated_at)}`:''}</div>${err}</div>
+    ${vB}${view}${train}${recheck}${retry}<button class="btn sm" onclick="delTask('${t.id}')" title="移除">✕</button></div>`}
+async function loadPending(){if(!PROJECTS.length)await fetchProjects();
+  const v=V.pending;
+  const qs=new URLSearchParams();qs.set('page',v.page);qs.set('size',v.size);
+  if(v.project)qs.set('project_id',v.project);
+  if(v.name)qs.set('name',v.name);
+  const r=await api('GET','/audit/tasks?'+qs.toString());
+  const ts=r.data.tasks||[];v.total=r.data.total||0;
+  buildPendingFilter();
+  setCnt('pending',v.total);
+  $('#pending-list').innerHTML=ts.length?ts.map(taskRow).join(''):(v.total?'<div class="empty"><b class="disp">当前筛选下没有任务</b>切换项目筛选,或等新的审核任务进来。</div>':'<div class="empty"><b class="disp">还没有审核任务</b>去「内容审核」提交视频/图片/文字/声音,或批量上传。</div>');
+  renderPager('#pending-pager','pending');
   clearTimeout(pendingTimer);
   const activ=ts.some(t=>t.status==='pending'||t.status==='running');
   if(activ&&(location.hash||'').slice(1)==='pending')pendingTimer=setTimeout(loadPending,2500);  // 有进行中→轮询
 }
 async function viewTask(id){const r=await api('GET','/audit/tasks/'+id);if(!r.ok){if(r.status!==401)toast('无法加载报告',true);return}
   $('#scrim').classList.add('on');$('#drawer').classList.add('on');$('#d-title').textContent='审核报告';
-  $('#d-body').innerHTML=reportHTML(r.data.report)}
+  $('#d-body').innerHTML=reportHTML(r.data.report,{reportGeneratedAt:r.data.report_generated_at})}
 function previewTaskMaterial(materialId){
   if(!materialId){toast('该任务暂无可预览文件',true);return}
   $('#d-title').textContent='媒体预览';
@@ -736,6 +782,17 @@ async function recheckTask(id){const r=await api('POST','/audit/tasks/'+id+'/rec
 async function retryTask(id){const r=await api('POST','/audit/tasks/'+id+'/retry');
   if(r.ok){toast('已重新提交审核…');loadPending();setTimeout(loadPending,1600)}
   else toast(r.data.detail||'重试失败',true)}
+async function seedTrainingFromTask(taskId,projectId,materialId,encName){
+  if(!projectId||!materialId){toast('只有归属项目的作品才能加入规则训练',true);return}
+  const taskName=decodeURIComponent(encName||'');
+  TRAINING_PREFILL={project_id:projectId,material_id:materialId,task_id:taskId,task_name:taskName,
+    source_note:'',suggested_rule_ids:[]};
+  const r=await api('GET','/audit/tasks/'+taskId);
+  if(r.ok){
+    TRAINING_PREFILL.suggested_rule_ids=[...new Set(((r.data.report&&r.data.report.triggered)||[])
+      .map(t=>t.rule_id).filter(id=>id&&id!=='blockword'&&id!=='content-safety'))];
+  }
+  openTrainingMark()}
 
 /* ── 作品审核记录:按项目分组 + 按天筛选 + 退回历史 + 导出 Excel ── */
 let WORKS_RANGE=null, WORKS_BY_TASK={};
@@ -873,6 +930,215 @@ function fillCondPresets(){const el=$('#ru-cond-preset');if(!el||el.options.leng
 function applyCondPreset(){const el=$('#ru-cond-preset');if(!el)return;const p=COND_PRESETS[+el.value];
   if(p&&p.cond)$('#ru-cond').value=p.cond}   // 选预设→填入条件(仍可微调);自定义(空)不动
 let RULES_CACHE={}, EDITING_RULE='';
+let trainingTimer=null;
+let TRAINING_STATUS=null,TRAINING_RULES=[],TRAINING_EXAMPLES=[];
+let TRAINING_PREFILL={project_id:'',material_id:'',task_id:'',task_name:'',source_note:'',suggested_rule_ids:[]};
+let TRAINING_MARK=null;
+let TRAINING_AUTO_PROJECT_DONE=false;
+const TRAINING_STATUS_CN={not_created:'未创建',collecting:'样本收集中',training:'训练中',completed:'已完成',failed:'未收敛'};
+function resetTrainingPrefill(){TRAINING_PREFILL={project_id:'',material_id:'',task_id:'',task_name:'',source_note:'',suggested_rule_ids:[]}}
+function currentTrainingProject(){return $('#tr-project')?.value||''}
+function fmtIso(v){
+  if(!v)return '—';
+  const s=String(v).trim();if(!s)return '—';
+  const normalized=s.replace('T',' ').replace(/\.\d+/,'').replace(/\+08:00$/,'').replace(/Z$/,'');
+  return esc(normalized)}
+function fmtPct(v){const n=Number(v);return Number.isFinite(n)?`${(n*100).toFixed(1)}%`:'—'}
+function trainingScopeText(r){return r.project_id?'项目规则':'全局规则'}
+function trainingRuleTitle(r){
+  const act=r.action==='block'?'拦截':'待复核';
+  const lv=r.match_level==='regex'?'正则':(r.match_level==='literal'?'字面':'隐喻');
+  return `${r.no?`规则 ${r.no}`:'未编号'} · ${trainingScopeText(r)} · ${act} · ${lv}`}
+function trainingRuleDesc(r){
+  const kw=(r.keywords||[]).length?`关键词:${r.keywords.join('、')}`:'关键词:—';
+  const cond=r.match_level==='regex'?(r.regex?`正则:${r.regex}`:'正则:—'):`条件:${r.condition||'—'}`;
+  return `${kw} ｜ ${cond}`}
+function trainingRuleNameById(id){
+  const r=TRAINING_RULES.find(x=>x.id===id);
+  return r?(r.no?`#${r.no} ${trainingScopeText(r)}`:id):id}
+function trainingExampleByMaterialId(materialId){
+  return TRAINING_EXAMPLES.find(x=>x.material_id===materialId)}
+function checkedTrainingMarkRuleIds(){return [...document.querySelectorAll('#tm-body input[type=checkbox]:checked')].map(i=>i.value)}
+function trainingRulesForProject(projectId){
+  return Object.values(RULES_CACHE).filter(r=>(r.project_id||'')===''||(r.project_id||'')===projectId).sort((a,b)=>(a.no||0)-(b.no||0))}
+function viewTrainingReport(taskId){
+  if(taskId)return viewTask(taskId);
+  toast('该样本暂无可查看的审核报告',true)}
+async function openTrainingMark(){
+  const ctx=TRAINING_PREFILL;
+  if(!ctx.project_id||!ctx.material_id){toast('缺少训练上下文',true);return}
+  const rulesResp=await api('GET','/audit/rules');
+  if(!rulesResp.ok){toast(rulesResp.data.detail||'加载规则失败',true);return}
+  RULES_CACHE={};(rulesResp.data.rules||[]).forEach(x=>RULES_CACHE[x.id]=x);
+  const rules=trainingRulesForProject(ctx.project_id);
+  TRAINING_MARK={...ctx,rules};
+  const isEdit=!!ctx._editing_example_id;
+  const title=ctx.task_name||ctx.material_id;
+  $('#tm-title').textContent=isEdit?'编辑训练样本':'加入规则训练';
+  const hint=isEdit?`修改「${esc(title)}」的标注备注和应命中规则,保存后立即生效。`:'确认这条作品应该命中的规则,并补一条标注备注。保存后会直接写入项目训练集。';
+  $('#tm-body').innerHTML=`<div class="hint" style="margin-bottom:12px">${hint}</div>
+    <div class="qrow" style="margin-bottom:12px"><div class="thumb">训</div><div class="meta"><div>${esc(title)}</div><div class="k">项目: ${esc(projName(ctx.project_id)||ctx.project_id)}</div></div></div>
+    <div class="field"><label>标注备注</label><textarea id="tm-source-note" rows="3" placeholder="如:应命中规则 #5 和 #9,其中 #9 当前漏判">${esc(ctx.source_note||'')}</textarea></div>
+    <div style="margin-top:14px"><label>应命中规则</label><div style="margin-top:6px">${rules.length?rules.map(r=>`<label class="permrow"><input type="checkbox" value="${r.id}" ${(ctx.suggested_rule_ids||[]).includes(r.id)?'checked':''}><div><div class="pl">${esc(trainingRuleTitle(r))}</div><div class="pd">${esc(trainingRuleDesc(r))}</div></div></label>`).join(''):'<div class="empty"><b class="disp">该项目还没有可训练规则</b>请先去侧边栏「审核规则」补充项目规则或全局规则。</div>'}</div></div>`;
+  $('#tscrim').classList.add('on');$('#training-modal').classList.add('on')}
+function closeTrainingMark(){
+  $('#tscrim').classList.remove('on');$('#training-modal').classList.remove('on');
+  TRAINING_MARK=null}
+async function confirmTrainingMark(){
+  const ctx=TRAINING_MARK;if(!ctx)return;
+  const btn=$('#tm-submit');if(btn)btn.disabled=true;
+  const isEdit=!!ctx._editing_example_id;
+  const ruleIds=checkedTrainingMarkRuleIds();
+  const sourceNote=($('#tm-source-note')?.value||'').trim();
+  if(isEdit){
+    const r=await api('PUT','/training/projects/'+encodeURIComponent(ctx.project_id)+'/examples/'+ctx._editing_example_id,{expected_rule_ids:ruleIds,source_note:sourceNote});
+    if(btn)btn.disabled=false;
+    if(!r.ok){toast(r.data.detail||'编辑失败',true);return}
+    closeTrainingMark();
+    toast('样本已更新');
+    if((location.hash||'').slice(1)==='rules-training')loadTrainingPage();
+  }else{
+    const body={material_id:ctx.material_id,expected_rule_ids:ruleIds,source_note:sourceNote};
+    const r=await api('POST','/training/projects/'+encodeURIComponent(ctx.project_id)+'/examples',body);
+    if(btn)btn.disabled=false;
+    if(!r.ok){toast(r.data.detail||'加入训练集失败',true);return}
+    resetTrainingPrefill();
+    closeTrainingMark();
+    toast('已加入训练集');
+    if((location.hash||'').slice(1)==='rules-training')loadTrainingPage();
+    if((location.hash||'').slice(1)==='pending')loadPending()
+  }}
+function syncTrainingConfigInputs(){
+  const fp=$('#tr-max-fp'),it=$('#tr-max-iter'),ts=TRAINING_STATUS;
+  if(fp)fp.value=String((ts&&ts.max_fp_ratio)||0.2);
+  if(it)it.value=String((ts&&ts.max_iterations)||10)}
+async function loadTrainingPage(){
+  await ensureProjects('#tr-project',false);
+  const sel=$('#tr-project');
+  if(!sel)return;
+  if(TRAINING_PREFILL.project_id&&[...sel.options].some(o=>o.value===TRAINING_PREFILL.project_id))sel.value=TRAINING_PREFILL.project_id;
+  else if(!TRAINING_AUTO_PROJECT_DONE&&sel.options.length){
+    const ids=[...sel.options].map(o=>o.value).filter(Boolean);
+    let picked=ids[0]||'';
+    if(ids.length){
+      const states=await Promise.all(ids.map(async id=>{
+        const [sr,er]=await Promise.all([
+          api('GET','/training/projects/'+encodeURIComponent(id)+'/status'),
+          api('GET','/training/projects/'+encodeURIComponent(id)+'/examples')
+        ]);
+        const status=(sr.ok&&sr.data&&sr.data.status)||'not_created';
+        const count=((er.ok&&er.data&&er.data.examples)||[]).length;
+        return {id,status,count};
+      }));
+      const hit=states.find(x=>x.count>0)||states.find(x=>x.status!=='not_created');
+      if(hit)picked=hit.id||picked;
+    }
+    if(picked)sel.value=picked;
+    TRAINING_AUTO_PROJECT_DONE=true;
+  }else if(!sel.value&&sel.options.length)sel.value=sel.options[0].value;
+  await loadTrainingData()}
+async function loadTrainingData(){
+  clearTimeout(trainingTimer);
+  const pid=currentTrainingProject();
+  const examplesBox=$('#tr-examples'),statusBox=$('#tr-status');
+  if(!pid){
+    TRAINING_STATUS={status:'not_created'};TRAINING_RULES=[];TRAINING_EXAMPLES=[];
+    if(statusBox)statusBox.innerHTML='<div class="empty"><b class="disp">先建作品项目</b>规则训练按项目组织,请先去「项目管理」建一个项目。</div>';
+    if(examplesBox)examplesBox.innerHTML='<div class="empty">当前没有项目可用。</div>';
+    renderTrainingContext();
+    return}
+  const [sr,er,rr]=await Promise.all([
+    api('GET','/training/projects/'+encodeURIComponent(pid)+'/status'),
+    api('GET','/training/projects/'+encodeURIComponent(pid)+'/examples'),
+    api('GET','/audit/rules')
+  ]);
+  TRAINING_STATUS=sr.ok?sr.data:{status:'not_created'};
+  TRAINING_EXAMPLES=(er.ok&&er.data.examples)||[];
+  TRAINING_RULES=((rr.ok&&rr.data.rules)||[])
+    .filter(r=>(r.project_id||'')===''||(r.project_id||'')===pid)
+    .sort((a,b)=>(a.no||0)-(b.no||0));
+  syncTrainingConfigInputs();
+  renderTrainingStatus();
+  renderTrainingExamples();
+  renderTrainingContext();
+  if(TRAINING_STATUS&&TRAINING_STATUS.status==='training'&&(location.hash||'').slice(1)==='rules-training')trainingTimer=setTimeout(loadTrainingData,2500)}
+function renderTrainingContext(){
+  const box=$('#tr-context');if(!box)return;
+  const pid=currentTrainingProject();
+  const same=(TRAINING_PREFILL.project_id||'')===pid;
+  if(!TRAINING_PREFILL.material_id||!same){box.style.display='none';box.innerHTML='';return}
+  const ex=trainingExampleByMaterialId(TRAINING_PREFILL.material_id);
+  if(ex){box.style.display='none';box.innerHTML='';resetTrainingPrefill();return}
+  const sugg=(TRAINING_PREFILL.suggested_rule_ids||[]).length;
+  const projectLabel=projName(TRAINING_PREFILL.project_id)||TRAINING_PREFILL.project_id;
+  box.style.display='block';
+  box.innerHTML=`<div class="qrow" style="margin:0"><div class="thumb">训</div><div class="meta"><div>待审核上下文已带入 <span class="owner">· ${esc(projectLabel)}</span></div><div class="k">${esc(TRAINING_PREFILL.task_name||TRAINING_PREFILL.material_id)}</div><div class="k">material_id: ${esc(TRAINING_PREFILL.material_id)}${sugg?` · 已带入 ${sugg} 条命中建议`:' · 暂无命中建议'}${ex?' · 已入训练集':''}</div></div><button class="btn sm" onclick="viewTrainingReport('${TRAINING_PREFILL.task_id||''}')">查看报告</button><button class="btn sm block" onclick="deleteTrainingContext()">删除</button></div>`}
+function renderTrainingStatus(){
+  const box=$('#tr-status');if(!box)return;
+  const pid=currentTrainingProject();if(!pid){box.innerHTML='';return}
+  const ts=TRAINING_STATUS||{status:'not_created'};
+  const st=TRAINING_STATUS_CN[ts.status]||ts.status;
+  const snapN=Object.keys(ts.rule_snapshot||{}).length;
+  const result=ts.training_result||{};
+  const metrics=result.final_metrics||{};
+  const changes=(result.rule_changes||[]).slice(-8).reverse();
+  const delBtn=ts.id&&ts.status!=='training'?`<button class="btn sm block" onclick="deleteTrainingSetCurrent('${ts.id}')">删除训练集</button>`:'';
+  const main=`<div class="qrow" style="margin:0"><div class="thumb">集</div><div class="meta"><div>${esc(projName(pid)||pid)} <span class="stamp ${ts.status==='completed'?'pass':(ts.status==='failed'?'block':(ts.status==='training'?'review':'processing'))}">${esc(st)}</span></div><div class="k">样本 ${TRAINING_EXAMPLES.length} 条 · 当前可训练规则 ${TRAINING_RULES.length} 条 · 快照 ${snapN} 条</div><div class="k">开始: ${fmtDateTimeSec(ts.started_at)} · 完成: ${fmtDateTimeSec(ts.completed_at)}</div></div><button class="btn sm" onclick="loadTrainingPage()">刷新</button>${delBtn}</div>`;
+  if(ts.status==='not_created'){
+    box.innerHTML=main+`<div class="empty" style="margin-top:12px"><b class="disp">先收样本再训练</b>请先去待审核页,对项目作品点「加入规则训练」完成人工标注。</div>`;
+    return}
+  let extra='';
+  if(ts.status==='collecting'){
+    extra='<div class="empty" style="margin-top:12px"><b class="disp">样本收集中</b>凑够几条有代表性的作品后再开始训练,效果更稳定。</div>'}
+  else{
+    extra=`<div class="kpi"><div class="item"><b>${Array.isArray(result.iterations)?result.iterations.length:(result.iterations||0)}</b><span>迭代轮数</span></div><div class="item"><b>${metrics.total_materials||0}</b><span>训练样本数</span></div><div class="item"><b>${metrics.missed_hits||0}</b><span>漏判次数</span></div><div class="item"><b>${metrics.extra_hits||0}</b><span>多判次数</span></div><div class="item"><b>${fmtPct(metrics.fp_ratio||0)}</b><span>多判率</span></div><div class="item"><b>${result.converged?'已收敛':'未收敛'}</b><span>训练结论</span></div></div>`;
+    extra+=changes.length?`<div style="margin-top:10px"><label>最近规则调整</label><div style="margin-top:8px">${changes.map(c=>`<div class="qrow" style="align-items:flex-start"><div class="meta"><div>${c.rule_no?`规则 ${c.rule_no}`:'规则'} <span class="owner">${esc(c.analysis||'AI 已调整规则边界')}</span></div><div class="k">关键词:${esc((c.keywords||[]).join('、')||'—')}</div><div class="k">条件:${esc(c.condition||'—')}</div><div class="k">尺度:${esc((c.guidance||'—').slice(0,180))}</div></div></div>`).join('')}</div></div>`:'';
+  }
+  box.innerHTML=main+extra}
+function renderTrainingExamples(){
+  const box=$('#tr-examples');if(!box)return;
+  box.innerHTML=TRAINING_EXAMPLES.length?TRAINING_EXAMPLES.map(e=>{
+    const hits=e.expected_rule_ids.length?e.expected_rule_ids.map(trainingRuleNameById).join('、'):'应全部放行';
+    const reportBtn=e.source_task_id?`<button class="btn sm" onclick="viewTrainingReport('${e.source_task_id}')">查看报告</button>`:'';
+    const taskLabel=e.source_task_name||e.material_id;
+    return `<div class="qrow"><button class="thumb" onclick="previewTaskMaterial('${e.material_id}')" title="点击预览并播放">样</button><div class="meta"><div>${esc(e.source_note||taskLabel)}</div><div class="k">物料: ${esc(taskLabel)}</div><div class="k">标注备注: ${esc(e.source_note||'—')}</div><div class="k">标注结果: ${esc(hits)}</div></div>${reportBtn}<button class="btn sm" onclick="editTrainingExample('${e.id}')">编辑</button><button class="btn sm block" onclick="deleteTrainingExample('${e.id}')">删除</button></div>`;
+  }).join(''):'<div class="empty"><b class="disp">当前项目还没有训练样本</b>去待审核里点「加入规则训练」最快。</div>'}
+function editTrainingExample(exampleId){
+  const ex=TRAINING_EXAMPLES.find(e=>e.id===exampleId);
+  if(!ex){toast('样本不存在',true);return}
+  const pid=currentTrainingProject();if(!pid)return;
+  TRAINING_PREFILL={project_id:pid,material_id:ex.material_id,source_note:ex.source_note||'',suggested_rule_ids:ex.expected_rule_ids||[],task_id:ex.source_task_id||'',task_name:ex.source_task_name||'',_editing_example_id:exampleId};
+  openTrainingMark()}
+async function deleteTrainingContext(){
+  const pid=currentTrainingProject(),materialId=TRAINING_PREFILL.material_id;
+  if(!pid||!materialId){resetTrainingPrefill();renderTrainingContext();return}
+  const ex=trainingExampleByMaterialId(materialId);
+  if(ex){
+    const r=await api('DELETE','/training/projects/'+encodeURIComponent(pid)+'/examples/'+ex.id);
+    if(!r.ok){toast(r.data.detail||'删除失败',true);return}
+    toast('已删除训练样本');
+    resetTrainingPrefill();
+    await loadTrainingData();
+    return}
+  resetTrainingPrefill();renderTrainingContext();toast('已删除上下文')}
+async function deleteTrainingExample(id){
+  const pid=currentTrainingProject();if(!pid)return;
+  const r=await api('DELETE','/training/projects/'+encodeURIComponent(pid)+'/examples/'+id);
+  if(r.ok){toast('已删除训练样本');loadTrainingData()}else toast(r.data.detail||'删除失败',true)}
+async function startTrainingRun(){
+  const pid=currentTrainingProject();if(!pid){toast('请先选择训练项目',true);return}
+  const fp=Number($('#tr-max-fp').value||0),it=Number($('#tr-max-iter').value||0);
+  if(!(fp>0&&fp<=1)){toast('最大多判率应在 0~1 之间',true);return}
+  if(!(it>=1&&it<=50)){toast('最大迭代次数应在 1~50 之间',true);return}
+  const r=await api('POST','/training/projects/'+encodeURIComponent(pid)+'/train',{max_fp_ratio:fp,max_iterations:Math.round(it)});
+  if(!r.ok){toast(r.data.detail||'启动训练失败',true);return}
+  toast('已启动规则训练');
+  await loadTrainingData()}
+async function deleteTrainingSetCurrent(id){
+  if(!id)return;
+  if(!confirm('删除训练集会级联删除该项目全部训练样本,确认继续?'))return;
+  const r=await api('DELETE','/training/sets/'+id);
+  if(r.ok){toast('训练集已删除');clearTrainingForm();loadTrainingData()}else toast(r.data.detail||'删除失败',true)}
 async function loadRules(){await ensureProjects('#ru-project',true);fillCondPresets();   // 作用域下拉 + 条件预设
   PARSED=[];renderParsed();   // 切作用域时清掉旧预览,避免把 A 项目解析出的规则误落到 B
   const scope=$('#ru-project')?.value||'';
@@ -910,7 +1176,7 @@ function editRule(id){const x=RULES_CACHE[id];if(!x)return;EDITING_RULE=id;
   const pre=$('#ru-cond-preset');if(pre)pre.value='0';   // 编辑时下拉回「自定义」,条件按实际值展示
   const pj=$('#ru-project');if(pj&&[...pj.options].some(o=>o.value===(x.project_id||'')))pj.value=x.project_id||'';  // 只设值,不触发 loadRules
   $('#ru-save-btn').textContent='保存修改';$('#ru-cancel').style.display='inline';
-  $('#ru-src').scrollIntoView({behavior:'smooth',block:'center'})}
+  $('#ru-src-btn').scrollIntoView({behavior:'smooth',block:'center'})}
 function cancelEdit(){EDITING_RULE='';setSrcType('any');$('#ru-kw').value='';$('#ru-cond').value='';
   const g=$('#ru-guidance');if(g)g.value='';
   const rx=$('#ru-regex');if(rx)rx.value='';
@@ -1072,10 +1338,14 @@ async function loadReview(){await fetchProjects();
   setCnt('review',tabs.reduce((a,t)=>a+(t.count||0),0));
   $('#queue-tabs').innerHTML=tabs.map(t=>`<div class="tab ${t.key===QTAB?'on':''}" onclick="pickQTab('${t.key}')" style="flex:none;padding:8px 14px">${esc(t.label)}${t.count?` <b>${t.count}</b>`:''}</div>`).join('');
   loadQueue()}
-function pickQTab(k){QTAB=k;loadReview()}
-async function loadQueue(){const r=await api('GET','/audit/queue?size=100&project='+encodeURIComponent(QTAB));const it=r.data.items||[];
+function pickQTab(k){QTAB=k;V.review.page=1;loadReview()}
+async function loadQueue(){const v=V.review;
+  const qs=new URLSearchParams({page:String(v.page),size:String(v.size),project:QTAB||''});
+  const r=await api('GET','/audit/queue?'+qs.toString());const it=r.data.items||[];
+  v.total=r.data.total??it.length;
   $('#queue').innerHTML=it.length?it.map(queueCard).join('')
-    :`<div class="empty"><b class="disp">这一栏清空了 ✓</b>${QTAB?'该项目':'物料栏'}暂无待审核内容。</div>`}
+    :`<div class="empty"><b class="disp">这一栏清空了 ✓</b>${QTAB?'该项目':'物料栏'}暂无待审核内容。</div>`;
+  renderPager('#review-pager','review')}
 async function audit(id,status){const body={status};
   if(status==='block'){const reason=prompt('退回原因(记入作品退回历史,可留空):','');if(reason===null)return;body.reason=reason.trim()}
   const r=await api('POST',`/materials/${id}/set-audit`,body);if(r.ok){toast(status==='pass'?'已通过':'已退回');loadReview()}else toast('需要管理员权限',true)}

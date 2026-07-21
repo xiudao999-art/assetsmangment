@@ -21,6 +21,7 @@ from app.infrastructure.fakes import (
     FakeHasher, FakeTokenIssuer, InMemoryRbac, ListAuditLog, InMemoryFavoriteRepo,
     FakeTranscriber, FakeVisionDescriber, FakeLlm, InMemoryAuditRuleRepo, InMemoryAuditReportRepo,
     InMemoryAuditTaskRepo, InMemoryWhitelistRepo, InMemoryProjectRepo, InMemoryBlockwordRepo,
+    InMemoryTrainingSetRepo, InMemoryTrainingExampleRepo,
 )
 
 # ── 进程内单例 ──
@@ -53,6 +54,8 @@ if settings.data_dir:
     whitelist_repo = JsonWhitelistRepo(_store)
     blockword_repo = JsonBlockwordRepo(_store)
     project_repo = JsonProjectRepo(_store)
+    training_set_repo = InMemoryTrainingSetRepo()
+    training_example_repo = InMemoryTrainingExampleRepo()
 else:
     material_repo = InMemoryMaterialRepo()
     user_repo = InMemoryUserRepo()
@@ -64,6 +67,8 @@ else:
     whitelist_repo = InMemoryWhitelistRepo()
     blockword_repo = InMemoryBlockwordRepo()
     project_repo = InMemoryProjectRepo()
+    training_set_repo = InMemoryTrainingSetRepo()
+    training_example_repo = InMemoryTrainingExampleRepo()
 
 # 审核规则:配置了真实 AM_DATABASE_URL → PG 是唯一真源(audit_rule 表,雪花ID+软删基础字段),
 # 覆盖上面的 JSON/内存实现。连接/建表失败 = 启动即报错,**不静默回退 JSON**(回退会分叉真源、
@@ -172,6 +177,24 @@ if _real_db:
     except Exception as _e:
         raise RuntimeError(
             f"AM_DATABASE_URL 已配置但 PG 审计日志表连接/建表失败:{_e}。"
+        ) from _e
+
+    # 规则训练集
+    from app.infrastructure.pg_training_set_repo import PgTrainingSetRepo
+    try:
+        training_set_repo = PgTrainingSetRepo(settings.database_url)
+    except Exception as _e:
+        raise RuntimeError(
+            f"AM_DATABASE_URL 已配置但 PG 训练集表连接/建表失败:{_e}。"
+        ) from _e
+
+    # 规则训练样本
+    from app.infrastructure.pg_training_example_repo import PgTrainingExampleRepo
+    try:
+        training_example_repo = PgTrainingExampleRepo(settings.database_url)
+    except Exception as _e:
+        raise RuntimeError(
+            f"AM_DATABASE_URL 已配置但 PG 训练样本表连接/建表失败:{_e}。"
         ) from _e
 
 # 向量索引:有真 embedding(DashScope)+ 真 pg 连接串 → pgvector 语义近邻;否则内存
@@ -340,6 +363,13 @@ def get_audit_service() -> AuditPipelineService:
                                 storage, material_repo, _embedder, index, _auditor,
                                 blockwords=lambda: blockword_repo.words(), archiver=_archiver,
                                 tavily=_tavily)
+
+
+def get_training_service():
+    from app.service.training_service import TrainingService
+    return TrainingService(training_set_repo, training_example_repo,
+                           rule_repo, material_repo, report_repo,
+                           task_repo, get_audit_service(), _llm)
 
 
 def current_user(authorization: str | None):
