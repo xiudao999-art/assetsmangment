@@ -227,11 +227,35 @@ with psycopg.connect(dsn, autocommit=True) as conn:
 
 **选择原则**：事实性检查（免责声明有无、二维码有无）用 `literal`；语义判断（是否网赚话术、是否拉踩）用 `metaphor`；关键词精确匹配用 `regex`。
 
+### condition 与 guidance 的分工（2026-07-21）
+
+| 字段 | 定位 | 要求 |
+|---|---|---|
+| `condition` | 条件 — 简略达意 | 一句话说清拦截什么，不展开场景/例子/枚举，像法典条文 |
+| `guidance` | 尺度 — 承载细节 | 反例、边界情形、典型场景、易误判情况及处理方式，越详细越好 |
+
+**原则**：condition 定义边界，guidance 消歧义。写规则时先想「这条规则一句话怎么说」，剩下的全放 guidance。AI 训练调优时同样遵循此分工——condition 末尾补半句限定（≤15字），细节展开放在 guidance。
+
+> 2026-07-21 已对库中 12 条冗余规则做了精简（#3 #4 #5 #7 #9 #10 #11 #13 #17 #18 #25 #26），condition 平均缩减 65%，细节全部移入 guidance，零信息丢失。
+
+### 审核判定 prompt（`_RULE_JUDGE_SYS` + `_pack_rules`，2026-07-21 重构）
+
+`_RULE_JUDGE_SYS` 按功能分四段：
+
+| 段落 | 内容 |
+|---|---|
+| **规则解读方式** | 每条规则 = `条件`（一句话核心定义）+ `尺度说明`（权威详细解释）。尺度说明中的反例/放行情景**是硬约束**，不是建议，必须严格遵守，不得自行扩展或收紧。 |
+| **输出格式** | `{findings: [{rule, segment, reason}]}`，只标真实违规 |
+| **判定纪律** | 字面/隐喻两种严格程度区分 + 参考词不硬匹配 |
+| **底线** | 严禁输出"不违规"条目（`_reason_says_pass` 代码兜底），无违规返回空数组 |
+
+`_pack_rules` 格式化每条规则为 `条件:xxx` + `尺度说明:xxx`，与 `_RULE_JUDGE_SYS` 的分工描述一致——LLM 看到的规则清单中条件（简略）和尺度（详细）泾渭分明。
+
 ### 大模型假阳性过滤（`_reason_says_pass`）
 
 大模型有时会在 `findings` 里输出"不违规/符合要求"的条目——不是它判错了，是它**多嘴汇报**。两层防御：
 
-1. **Prompt 收紧**：`_RULE_JUDGE_SYS` 明确禁止输出"不违规"条目
+1. **Prompt 收紧**：`_RULE_JUDGE_SYS`「底线」段明确禁止输出"不违规"条目
 2. **代码兜底**：`_semantic_judge` 里 `_reason_says_pass()` 检查 reason 是否含否定 token（不违规/不应命中/不符合/未违反/不触发/不视为/不命中/不应计入 等），命中直接丢弃
 
 ### 报告 Segment 命中标注
@@ -306,7 +330,7 @@ for i in 1..max_iterations:
 对每条有问题的规则（missed > 0 或 extra > 0）：
 - 收集该规则的漏判/多判物料（最多 10 个），取物料的 `ai_summary` / `description` 作为案例文本
 - 发给 Qwen（`_llm.chat_json`），要求返回 `{analysis, keywords, condition, guidance, match_level}`
-- 漏判 → 放宽覆盖（补关键词、放宽 condition）；多判 → 收紧边界（guidance 加反例）
+- **condition 与 guidance 分工**：prompt 明确要求 condition 简略达意（一句话说清拦截什么），guidance 承载所有细节（反例、边界情形、典型场景）。漏判 → condition 末尾补半句限定（≤15字）+ guidance 展开；多判 → 优先改 guidance 追加反例
 - 单条规则 AI 调用失败不阻塞整体，下轮重试
 
 ### 关键文件
