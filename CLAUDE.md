@@ -49,6 +49,10 @@
 - **每个 BMAD 工作流开新 chat**(防上下文污染);规划期可用 Web Bundles 省 token。
 - 小改走 Quick Flow,不上全套敏捷仪式。
 
+## 日志
+
+`main.py` 启动时 `logging.basicConfig(level=INFO)` 让全部 app logger 输出到控制台（uvicorn 只打自己的 access log，不打业务日志）。训练进度、审核流程等关键日志格式：`2026-07-21 14:32:01 INFO [app.service.training_service] --- 迭代 1/5 ---`。
+
 ## 本地启动
 
 ```powershell
