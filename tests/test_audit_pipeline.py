@@ -533,7 +533,7 @@ def test_recheck_reevaluates_without_reextraction():
             return [TextSegment(TextSourceType.TRANSCRIPT, "对白", begin_ms=0)]
     class _RecVision:
         def __init__(self): self.n = 0
-        def describe_image(self, url):
+        def describe_image(self, url, hints: str = ""):
             self.n += 1
             return f"画面内容-第{self.n}次"
     tx, vi, aud = _RecTx(), _RecVision(), _ToggleAuditor()

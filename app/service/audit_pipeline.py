@@ -228,17 +228,19 @@ class AuditPipelineService:
     def _refresh_visual_segments(self, job: AuditJob, segments: list[TextSegment]) -> list[TextSegment]:
         """对画面类 segment 用当前 vision 模型重新反解(提示词可能已调整);
         口播转写/原文保持不变。单段失败保留原文,不阻塞整体。"""
+        pid = getattr(job, "project_id", "") or ""
+        hints = self._visual_rule_hints(pid)
         refreshed: list[TextSegment] = []
         for seg in segments:
             if seg.source_type == TextSourceType.IMAGE_CONTENT and job.oss_key:
                 try:
-                    new_desc = self._vision.describe_image(self._storage.signed_url(job.oss_key))
+                    new_desc = self._vision.describe_image(self._storage.signed_url(job.oss_key), hints)
                     refreshed.append(TextSegment(TextSourceType.IMAGE_CONTENT, new_desc))
                 except Exception:
                     refreshed.append(seg)   # 反解失败保留原文
             elif seg.source_type == TextSourceType.VIDEO_FRAME and seg.frame_oss_key:
                 try:
-                    new_desc = self._vision.describe_image(self._storage.signed_url(seg.frame_oss_key))
+                    new_desc = self._vision.describe_image(self._storage.signed_url(seg.frame_oss_key), hints)
                     refreshed.append(TextSegment(TextSourceType.VIDEO_FRAME, new_desc,
                                                 begin_ms=seg.begin_ms, frame_oss_key=seg.frame_oss_key))
                 except Exception:
@@ -499,7 +501,9 @@ class AuditPipelineService:
         if t in (MaterialType.CORPUS,) or (t == MaterialType.IMAGE and not job.oss_key):
             return [TextSegment(TextSourceType.ORIGINAL_TEXT, (text or "").strip())]
         if t in (MaterialType.IMAGE, MaterialType.MEME, MaterialType.STYLE):
-            desc = self._vision.describe_image(self._storage.signed_url(job.oss_key))
+            pid = getattr(job, "project_id", "") or ""
+            hints = self._visual_rule_hints(pid)
+            desc = self._vision.describe_image(self._storage.signed_url(job.oss_key), hints)
             return [TextSegment(TextSourceType.IMAGE_CONTENT, desc)]
         if t in (MaterialType.AUDIO, MaterialType.MUSIC):
             return self._transcriber.transcribe(self._storage.signed_url(job.oss_key))
@@ -546,6 +550,28 @@ class AuditPipelineService:
                 lines.append(f"{i}. " + ";".join(parts))
         return "\n".join(lines)
 
+    def _visual_rule_hints(self, project_id: str = "") -> str:
+        """收集所有视觉类审核规则（image_content / video_frame / any）的 keywords/condition，
+        拼成 hints 注入 Qwen-VL 反解 prompt。合并去重，不区分图片还是视频帧。"""
+        seen: set[str] = set()
+        rules: list[AuditRule] = []
+        for st in (TextSourceType.IMAGE_CONTENT.value, TextSourceType.VIDEO_FRAME.value):
+            for r in self._rules.list_for(st, project_id):
+                if r.enabled and r.id not in seen:
+                    seen.add(r.id)
+                    rules.append(r)
+        if not rules:
+            return ""
+        lines: list[str] = []
+        for r in rules:
+            cond = r.condition.strip()
+            kws = [k for k in (r.keywords or []) if k]
+            if kws:
+                lines.append(f"· {cond}（关键词：{'、'.join(kws[:8])}）")
+            elif cond:
+                lines.append(f"· {cond}")
+        return "\n".join(lines) if lines else ""
+
     def _pick_visual_moments(self, transcript: list[TextSegment], project_id: str = "") -> list[int]:
         """规则反推抽帧点(作品用)。有画面规则 → 让 LLM 依据规则在时间轴定位相关画面时刻;
         无画面规则 → 退回通用「可能需结合画面判定」的重点时刻。无转写/异常 → [](交安全网兜底)。"""
@@ -585,7 +611,9 @@ class AuditPipelineService:
         transcript = self._transcriber.transcribe(url)          # 两条链路都转写音轨审核
         dur = self._storage.video_duration_ms(job.oss_key)
         is_work = (job.video_kind == "work")
-        moments = (self._work_moments(transcript, dur, getattr(job, "project_id", ""))
+        pid = getattr(job, "project_id", "") or ""
+        hints = self._visual_rule_hints(pid)
+        moments = (self._work_moments(transcript, dur, pid)
                    if is_work else self._material_moments(dur))
         if dur:  # 钳制在时长内并去重,避免超时长截到同一最后帧
             moments = sorted({min(m, max(0, dur - 100)) for m in moments if m is not None})
@@ -596,7 +624,7 @@ class AuditPipelineService:
             try:
                 if not self._storage.snapshot_frame(job.oss_key, ms, dest):
                     return None
-                fdesc = self._vision.describe_image(self._storage.signed_url(dest))
+                fdesc = self._vision.describe_image(self._storage.signed_url(dest), hints)
                 if not is_work:                              # 仅物料把帧存为可复用素材;作品只核验不入库
                     self._save_frame_material(dest, fdesc, ms / 1000.0, job)
                 return TextSegment(TextSourceType.VIDEO_FRAME, fdesc, begin_ms=ms, frame_oss_key=dest)

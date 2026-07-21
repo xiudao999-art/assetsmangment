@@ -279,6 +279,7 @@ with psycopg.connect(dsn, autocommit=True) as conn:
 - **Rule #10 娱乐小钱**（2026-07-20）：已软删。原 keywords `["奶茶钱", "零食钱", "水钱"]` 不再作为独立规则存在——这些娱乐小钱不视为违规。规则编号 11→10, 12→11 ... 25→24 顺延填补，当前在用 24 条（1~24 连续）
 - **`_reason_says_pass` token 扩充**（2026-07-20）：大模型新学会了"不触发""不视为""不命中""不应计入"等否定表述，原 token 列表没覆盖，导致 Rule #5/#9 的放行 finding 仍出现在 triggered 里。已追加这四个 token
 - **Rule #10 绝对化用语**（2026-07-20，原 #11）：原 condition 和 guidance 均为空，大模型对每条 segment 自由发挥，把"全都能免费唱""再也不用找歌"误判为绝对化承诺。已补 condition「在宣传推广中使用《广告法》禁止的绝对化用语…构成夸大宣传」+ guidance 明确「平台功能描述不构成绝对化承诺」
+- **Qwen-VL 画面反解注入规则 hints**（2026-07-21）：`VisionDescriber.describe_image` 新增 `hints` 参数。`_visual_rule_hints()` 收集所有视觉类规则（`image_content`/`video_frame`/`any`）的 condition/keywords，按 `rule.id` 去重后注入 Qwen-VL prompt 末尾作为「审核特别关注项」。prompt 明确要求「只在画面中确实存在时才写出，严禁编造」。解决了此前 Qwen-VL 不知道规则关心什么、可能漏掉关键内容（如蜡笔小新等 IP 角色）导致规则永远无法命中的问题。纯文字规则（`transcript`/`original_text`）不参与 hints 收集。
 
 ## 规则训练模块（2026-07-21）
 

@@ -312,7 +312,7 @@ class FakeTranscriber:
 
 
 class FakeVisionDescriber:
-    def describe_image(self, url: str) -> str:
+    def describe_image(self, url: str, hints: str = "") -> str:
         return f"画面内容(假):{url[:40]}"
 
 

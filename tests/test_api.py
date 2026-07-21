@@ -462,7 +462,7 @@ def test_failed_audit_keeps_material_for_retry(monkeypatch):
     from app.api import deps
     uh = _user_hdr()
 
-    def _boom(url):
+    def _boom(url, hints=""):
         raise RuntimeError("反解炸了")
     monkeypatch.setattr(deps._vision, "describe_image", _boom)   # 图片反解抛错 → 审核失败
     data = b"fail-then-retry-unique-bytes-43"
@@ -476,7 +476,7 @@ def test_failed_audit_keeps_material_for_retry(monkeypatch):
     assert t["error"]                                            # 失败原因被暴露(待审核页能看到)
     assert client.get(f"/materials/{mid}", headers=uh).status_code == 200   # 物料保留,不删
     # 重试失败任务 → 审核成功(需 admin)
-    monkeypatch.setattr(deps._vision, "describe_image", lambda url: "现在正常了")
+    monkeypatch.setattr(deps._vision, "describe_image", lambda url, hints="": "现在正常了")
     ah = _admin_hdr()
     rr = client.post(f"/audit/tasks/{tid}/retry", headers=ah)
     assert rr.status_code == 200

@@ -37,7 +37,7 @@ def test_batch_audits_run_concurrently(monkeypatch):
     from app.api import deps
 
     class _SlowVision:
-        def describe_image(self, url):
+        def describe_image(self, url, hints: str = ""):
             time.sleep(0.3)
             return "画面"
 

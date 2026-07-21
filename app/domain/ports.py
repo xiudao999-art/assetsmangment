@@ -17,7 +17,7 @@ class Transcriber(Protocol):
 
 class VisionDescriber(Protocol):
     """图像反解端口(Qwen-VL):把图片/关键帧解析成画面内容文字。"""
-    def describe_image(self, url: str) -> str: ...
+    def describe_image(self, url: str, hints: str = "") -> str: ...
 
 
 class Llm(Protocol):
