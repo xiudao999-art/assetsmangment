@@ -125,22 +125,55 @@ class PgAuditTaskRepo:
                 (self._idgen(), tid),
             )
 
-    def list_for(self, owner_id: str) -> list[AuditTask]:
+    def list_for(self, owner_id: str, project_id: str = "", offset: int = 0, limit: int | None = None) -> list[AuditTask]:
+        where = "owner_id = %s AND del_flag = 0"
+        params: list = [owner_id]
+        if project_id:
+            where += " AND project_id = %s"
+            params.append(project_id)
+        sql = f"SELECT {_SELECT_COLS} FROM {self._table} WHERE {where} ORDER BY created_ms DESC, id DESC"
+        if limit is not None:
+            sql += f" LIMIT {int(limit)} OFFSET {int(offset)}"
         with self._conn() as c:
-            rows = c.execute(
-                f"SELECT {_SELECT_COLS} FROM {self._table} "
-                f"WHERE owner_id = %s AND del_flag = 0 ORDER BY created_ms DESC, id DESC",
-                (owner_id,)
-            ).fetchall()
+            rows = c.execute(sql, params).fetchall()
         return [self._to_task(r) for r in rows]
 
-    def list_all(self) -> list[AuditTask]:
+    def list_all(self, project_id: str = "", offset: int = 0, limit: int | None = None) -> list[AuditTask]:
+        where = "del_flag = 0"
+        params: list = []
+        if project_id:
+            where += " AND project_id = %s"
+            params.append(project_id)
+        sql = f"SELECT {_SELECT_COLS} FROM {self._table} WHERE {where} ORDER BY created_ms DESC, id DESC"
+        if limit is not None:
+            sql += f" LIMIT {int(limit)} OFFSET {int(offset)}"
         with self._conn() as c:
-            rows = c.execute(
-                f"SELECT {_SELECT_COLS} FROM {self._table} "
-                f"WHERE del_flag = 0 ORDER BY created_ms DESC, id DESC"
-            ).fetchall()
+            rows = c.execute(sql, params).fetchall()
         return [self._to_task(r) for r in rows]
+
+    def count_for(self, owner_id: str, project_id: str = "") -> int:
+        where = "owner_id = %s AND del_flag = 0"
+        params: list = [owner_id]
+        if project_id:
+            where += " AND project_id = %s"
+            params.append(project_id)
+        with self._conn() as c:
+            row = c.execute(
+                f"SELECT COUNT(*) FROM {self._table} WHERE {where}", params
+            ).fetchone()
+        return row[0] if row else 0
+
+    def count_all(self, project_id: str = "") -> int:
+        where = "del_flag = 0"
+        params: list = []
+        if project_id:
+            where += " AND project_id = %s"
+            params.append(project_id)
+        with self._conn() as c:
+            row = c.execute(
+                f"SELECT COUNT(*) FROM {self._table} WHERE {where}", params
+            ).fetchone()
+        return row[0] if row else 0
 
     @staticmethod
     def _to_task(row) -> AuditTask:

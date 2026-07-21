@@ -333,12 +333,30 @@ class JsonAuditTaskRepo:
         self._s.audit_tasks.pop(task_id, None)
         self._s.save()
 
-    def list_for(self, owner_id: str) -> list[AuditTask]:
-        return sorted((t for t in self._s.audit_tasks.values() if t.owner_id == owner_id),
-                      key=lambda t: t.created_ms, reverse=True)
+    def list_for(self, owner_id: str, project_id: str = "", offset: int = 0, limit: int | None = None) -> list[AuditTask]:
+        tasks = sorted((t for t in self._s.audit_tasks.values() if t.owner_id == owner_id),
+                       key=lambda t: t.created_ms, reverse=True)
+        if project_id:
+            tasks = [t for t in tasks if getattr(t, "project_id", "") == project_id]
+        return tasks if limit is None else tasks[offset:offset + limit]
 
-    def list_all(self) -> list[AuditTask]:
-        return sorted(self._s.audit_tasks.values(), key=lambda t: t.created_ms, reverse=True)
+    def list_all(self, project_id: str = "", offset: int = 0, limit: int | None = None) -> list[AuditTask]:
+        tasks = sorted(self._s.audit_tasks.values(), key=lambda t: t.created_ms, reverse=True)
+        if project_id:
+            tasks = [t for t in tasks if getattr(t, "project_id", "") == project_id]
+        return tasks if limit is None else tasks[offset:offset + limit]
+
+    def count_for(self, owner_id: str, project_id: str = "") -> int:
+        tasks = [t for t in self._s.audit_tasks.values() if t.owner_id == owner_id]
+        if project_id:
+            tasks = [t for t in tasks if getattr(t, "project_id", "") == project_id]
+        return len(tasks)
+
+    def count_all(self, project_id: str = "") -> int:
+        tasks = list(self._s.audit_tasks.values())
+        if project_id:
+            tasks = [t for t in tasks if getattr(t, "project_id", "") == project_id]
+        return len(tasks)
 
 
 # ── 内容安全白名单 ──

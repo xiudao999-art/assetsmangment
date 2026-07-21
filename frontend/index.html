@@ -308,6 +308,7 @@
         </div>
         <div class="filterbar" id="pending-filter"></div>
         <div id="pending-list"></div>
+        <div class="pager" id="pending-pager"></div>
       </section>
       <section id="sec-search">
         <div class="card" style="margin-bottom:18px"><div class="row" style="align-items:flex-end"><div class="field f-grow" style="margin:0"><label>按含义搜公共物料(情绪 / 氛围 / 内容 / 标签)</label><input id="q" placeholder="例如:温馨治愈 / 紧张刺激的氛围 / 森林 / 某个项目标签 …" onkeydown="if(event.key==='Enter')doSearch()"></div><button class="btn key f-auto" onclick="doSearch()">搜索</button></div></div>
@@ -547,8 +548,8 @@ const PAGE_SIZE=25;
 const V={mine:{page:1,size:PAGE_SIZE,total:0,type:'',q:'',project:''},
   public:{page:1,size:PAGE_SIZE,total:0,type:'',q:'',project:''},
   all:{page:1,size:PAGE_SIZE,total:0,type:'',q:'',status:'',project:''},
-  search:{page:1,size:PAGE_SIZE,total:0,q:'',type:''}};
-let PENDING_PROJECT='';
+  search:{page:1,size:PAGE_SIZE,total:0,q:'',type:''},
+  pending:{page:1,size:20,total:0,project:''}};
 function setCnt(sec,n){const e=$('#cnt-'+sec);if(e)e.textContent=n}
 const debounce=(fn,ms=300)=>{let t;return(...a)=>{clearTimeout(t);t=setTimeout(()=>fn(...a),ms)}};
 
@@ -596,7 +597,7 @@ async function loadSearch(){const v=V.search;showSkeleton('#results',v.size);
   const r=await api('GET','/search?'+new URLSearchParams({q:v.q,page:v.page,size:v.size}));
   v.total=r.data.total??(r.data.results||[]).length;
   grid('#results',r.data.results||[],'public','没有命中','换个词。只有审核通过并发布的物料才会被搜到。');renderPager('#search-pager','search')}
-const LOADER={mine:loadMine,public:loadPublic,all:loadAll,search:loadSearch};
+const LOADER={mine:loadMine,public:loadPublic,all:loadAll,search:loadSearch,pending:loadPending};
 
 const onMineKw=debounce(()=>{V.mine.q=$('#mine-q').value.trim();V.mine.page=1;loadMine()});
 const onPubKw=debounce(()=>{V.public.q=$('#pub-q').value.trim();V.public.page=1;loadPublic()});
@@ -708,19 +709,15 @@ const TASK_ST={pending:'排队中',running:'审核中',done:'已完成',failed:'
 function pendingProjectName(t){
   if(!t.project_id)return '';
   return projName(t.project_id)||t.project_name||t.project_id}
-function buildPendingFilter(tasks){
+function buildPendingFilter(){
   const el=$('#pending-filter');if(!el)return;
   const seen=new Set();
   const chips=[{id:'',name:'全部'}];
   PROJECTS.forEach(p=>{if(!seen.has(p.id)){seen.add(p.id);chips.push({id:p.id,name:p.name})}});
-  tasks.forEach(t=>{const pid=t.project_id||'';if(pid&&!seen.has(pid)){seen.add(pid);chips.push({id:pid,name:pendingProjectName(t)})}});
-  if(PENDING_PROJECT&&!chips.some(c=>c.id===PENDING_PROJECT))PENDING_PROJECT='';
-  el.innerHTML=`<span class="lbl">项目</span>`+chips.map(c=>`<span class="pchip ${PENDING_PROJECT===c.id?'on':''}" data-p="${c.id}" tabindex="0" role="button">${esc(c.name)}</span>`).join('');
-  el.querySelectorAll('.pchip').forEach(c=>{const act=()=>{PENDING_PROJECT=c.dataset.p;loadPending()};
+  if(V.pending.project&&!chips.some(c=>c.id===V.pending.project))V.pending.project='';
+  el.innerHTML=`<span class="lbl">项目</span>`+chips.map(c=>`<span class="pchip ${V.pending.project===c.id?'on':''}" data-p="${c.id}" tabindex="0" role="button">${esc(c.name)}</span>`).join('');
+  el.querySelectorAll('.pchip').forEach(c=>{const act=()=>{V.pending.project=c.dataset.p;V.pending.page=1;loadPending()};
     c.onclick=act;c.onkeydown=e=>{if(e.key==='Enter'||e.key===' '){e.preventDefault();act()}}})}
-function filterPendingTasks(tasks){
-  if(!PENDING_PROJECT)return tasks;
-  return tasks.filter(t=>(t.project_id||'')===PENDING_PROJECT)}
 function taskRow(t){
   const st=TASK_ST[t.status]||t.status;
   const vB=(t.verdict&&t.verdict!=='processing')?`<span class="stamp ${t.verdict}">${VERDICT_CN[t.verdict]||t.verdict}</span>`:'';   // 机审中不显裁定徽章,只留「⏳ 审核中」
@@ -743,11 +740,16 @@ function taskRow(t){
     <div class="meta"><div>${t.name||'—'} <span class="owner">${LT[t.material_type]||t.material_type}</span>${kind}</div>
       <div class="k">${active?'⏳ ':''}${st}</div>${err}</div>
     ${vB}${view}${train}${recheck}${retry}<button class="btn sm" onclick="delTask('${t.id}')" title="移除">✕</button></div>`}
-async function loadPending(){if(!PROJECTS.length)await fetchProjects();const r=await api('GET','/audit/tasks');const ts=r.data.tasks||[];
-  buildPendingFilter(ts);
-  const shown=filterPendingTasks(ts);
-  setCnt('pending',ts.filter(t=>t.status==='pending'||t.status==='running').length);
-  $('#pending-list').innerHTML=shown.length?shown.map(taskRow).join(''):(ts.length?'<div class="empty"><b class="disp">当前筛选下没有任务</b>切换项目筛选,或等新的审核任务进来。</div>':'<div class="empty"><b class="disp">还没有审核任务</b>去「内容审核」提交视频/图片/文字/声音,或批量上传。</div>');
+async function loadPending(){if(!PROJECTS.length)await fetchProjects();
+  const v=V.pending;
+  const qs=new URLSearchParams();qs.set('page',v.page);qs.set('size',v.size);
+  if(v.project)qs.set('project_id',v.project);
+  const r=await api('GET','/audit/tasks?'+qs.toString());
+  const ts=r.data.tasks||[];v.total=r.data.total||0;
+  buildPendingFilter();
+  setCnt('pending',v.total);
+  $('#pending-list').innerHTML=ts.length?ts.map(taskRow).join(''):(v.total?'<div class="empty"><b class="disp">当前筛选下没有任务</b>切换项目筛选,或等新的审核任务进来。</div>':'<div class="empty"><b class="disp">还没有审核任务</b>去「内容审核」提交视频/图片/文字/声音,或批量上传。</div>');
+  renderPager('#pending-pager','pending');
   clearTimeout(pendingTimer);
   const activ=ts.some(t=>t.status==='pending'||t.status==='running');
   if(activ&&(location.hash||'').slice(1)==='pending')pendingTimer=setTimeout(loadPending,2500);  // 有进行中→轮询
@@ -916,7 +918,6 @@ function applyCondPreset(){const el=$('#ru-cond-preset');if(!el)return;const p=C
 let RULES_CACHE={}, EDITING_RULE='';
 let trainingTimer=null;
 let TRAINING_STATUS=null,TRAINING_RULES=[],TRAINING_EXAMPLES=[];
-let TRAINING_CANDIDATES=[];
 let TRAINING_PREFILL={project_id:'',material_id:'',task_id:'',task_name:'',source_note:'',suggested_rule_ids:[]};
 let TRAINING_MARK=null;
 let TRAINING_AUTO_PROJECT_DONE=false;
@@ -937,9 +938,6 @@ function trainingRuleDesc(r){
 function trainingRuleNameById(id){
   const r=TRAINING_RULES.find(x=>x.id===id);
   return r?(r.no?`#${r.no} ${trainingScopeText(r)}`:id):id}
-function trainingMaterialLabel(x){
-  const when=x.created_ms?fmtWhen(x.created_ms):'';
-  return `${x.name||x.material_id}${when?` · ${when}`:''} · ${x.status_cn||'—'}`}
 function trainingExampleByMaterialId(materialId){
   return TRAINING_EXAMPLES.find(x=>x.material_id===materialId)}
 function checkedTrainingMarkRuleIds(){return [...document.querySelectorAll('#tm-body input[type=checkbox]:checked')].map(i=>i.value)}
@@ -1012,28 +1010,21 @@ async function loadTrainingData(){
   const pid=currentTrainingProject();
   const examplesBox=$('#tr-examples'),statusBox=$('#tr-status');
   if(!pid){
-    TRAINING_STATUS={status:'not_created'};TRAINING_RULES=[];TRAINING_EXAMPLES=[];TRAINING_CANDIDATES=[];
+    TRAINING_STATUS={status:'not_created'};TRAINING_RULES=[];TRAINING_EXAMPLES=[];
     if(statusBox)statusBox.innerHTML='<div class="empty"><b class="disp">先建作品项目</b>规则训练按项目组织,请先去「项目管理」建一个项目。</div>';
     if(examplesBox)examplesBox.innerHTML='<div class="empty">当前没有项目可用。</div>';
     renderTrainingContext();
     return}
-  const [sr,er,rr,tr]=await Promise.all([
+  const [sr,er,rr]=await Promise.all([
     api('GET','/training/projects/'+encodeURIComponent(pid)+'/status'),
     api('GET','/training/projects/'+encodeURIComponent(pid)+'/examples'),
-    api('GET','/audit/rules'),
-    api('GET','/audit/tasks')
+    api('GET','/audit/rules')
   ]);
   TRAINING_STATUS=sr.ok?sr.data:{status:'not_created'};
   TRAINING_EXAMPLES=(er.ok&&er.data.examples)||[];
   TRAINING_RULES=((rr.ok&&rr.data.rules)||[])
     .filter(r=>(r.project_id||'')===''||(r.project_id||'')===pid)
     .sort((a,b)=>(a.no||0)-(b.no||0));
-  const byMaterial=new Map();
-  ((tr.ok&&tr.data.tasks)||[])
-    .filter(t=>(t.project_id||'')===pid&&t.material_id&&t.video_kind==='work')
-    .sort((a,b)=>(b.created_ms||0)-(a.created_ms||0))
-    .forEach(t=>{if(!byMaterial.has(t.material_id))byMaterial.set(t.material_id,{material_id:t.material_id,task_id:t.id,name:t.name||'',created_ms:t.created_ms||0,status:t.status,status_cn:TASK_ST[t.status]||t.status})});
-  TRAINING_CANDIDATES=[...byMaterial.values()];
   syncTrainingConfigInputs();
   renderTrainingStatus();
   renderTrainingExamples();
@@ -1075,8 +1066,7 @@ function renderTrainingExamples(){
   const box=$('#tr-examples');if(!box)return;
   box.innerHTML=TRAINING_EXAMPLES.length?TRAINING_EXAMPLES.map(e=>{
     const hits=e.expected_rule_ids.length?e.expected_rule_ids.map(trainingRuleNameById).join('、'):'应全部放行';
-    const cand=TRAINING_CANDIDATES.find(x=>x.material_id===e.material_id);
-    return `<div class="qrow"><div class="thumb">样</div><div class="meta"><div>${esc(cand?.name||e.source_note||'未写备注')}</div><div class="k">作品: ${esc(trainingMaterialLabel(cand||{material_id:e.material_id,name:e.material_id,status_cn:'已保存样本'}))}</div><div class="k">标注备注: ${esc(e.source_note||'—')}</div><div class="k">标注结果: ${esc(hits)}</div></div><button class="btn sm" onclick="viewTrainingReport('${cand?.task_id||''}')">查看报告</button><button class="btn sm block" onclick="deleteTrainingExample('${e.id}')">删除</button></div>`;
+    return `<div class="qrow"><div class="thumb">样</div><div class="meta"><div>${esc(e.source_note||e.material_id)}</div><div class="k">物料 ID: ${esc(e.material_id)}</div><div class="k">标注备注: ${esc(e.source_note||'—')}</div><div class="k">标注结果: ${esc(hits)}</div></div><button class="btn sm block" onclick="deleteTrainingExample('${e.id}')">删除</button></div>`;
   }).join(''):'<div class="empty"><b class="disp">当前项目还没有训练样本</b>去待审核里点「加入规则训练」最快。</div>'}
 async function deleteTrainingContext(){
   const pid=currentTrainingProject(),materialId=TRAINING_PREFILL.material_id;

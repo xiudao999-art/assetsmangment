@@ -67,7 +67,7 @@
 | `.venv\Scripts\python app\main.py` | 启动开发服务器 (localhost:8099, hot-reload) |
 | `bash scripts/verify.sh` | 三层闭环验证（架构+代码+产品） |
 | `.venv\Scripts\lint-imports` | 架构契约检查 |
-| `.venv\Scripts\pytest -q` | 单元/集成测试（271 tests） |
+| `.venv\Scripts\pytest -q` | 单元/集成测试（272 tests） |
 | `.venv\Scripts\pytest tests/test_pg_repos.py -q` | PG 仓储集成测试（35 tests，需 `AM_DATABASE_URL`） |
 | `.venv\Scripts\python scripts/migrate_all_to_pg.py` | state.json → PG 全量数据迁移（幂等） |
 | `.venv\Scripts\behave specs/features` | BDD 验收测试 |
@@ -78,7 +78,7 @@
 | 传感器 | 命令 |
 |---|---|
 | ② 架构 | `lint-imports`（3 contracts） |
-| ③ 代码 | `pytest`（271 tests） |
+| ③ 代码 | `pytest`（272 tests） |
 | ① 产品 | `behave`（7 features / 17 scenarios） |
 
 **测试注意**: conftest 已 monkeypatch 全部仓储为内存实现（含 user/favorites/rbac/audit_log），不再依赖 state.json，消除了测试间状态污染和 409 问题。PG 仓储集成测试在 `tests/test_pg_repos.py`（35 tests），用一次性表隔离，需要 `AM_DATABASE_URL` 指向真实 PG。
@@ -183,6 +183,23 @@ with psycopg.connect(dsn, autocommit=True) as conn:
 | 「重试」 | `failed` + 有 `material_id` | `POST /audit/tasks/{id}/retry` | 从零跑**完整**审核（重新抽帧/转写/反解） |
 
 **失败保留物料**：`_fail_task()` 和 TaskJanitor 不再删除失败物料（OSS+元数据），改为降级 `PROCESSING→REVIEW`。同内容重新上传会触发去重提示——应走「重试」按钮。
+
+### 审核任务分页（2026-07-21）
+
+`GET /audit/tasks` 改为服务端分页 + 项目筛选，不再返回全量。
+
+**API**：`GET /audit/tasks?page=1&size=20&project_id=xxx`
+- 返回 `{tasks, total, page, size, count}`（`_page_out` 统一格式）
+- `project_id` 可选，空则不过滤
+- `size` 最大 100
+
+**仓储变更**：`AuditTaskRepo` 协议 `list_for`/`list_all` 增加 `project_id`/`offset`/`limit` 参数，新增 `count_for`/`count_all` 方法。PG/JSON/内存三种实现均已适配，默认值向后兼容。
+
+**前端**：
+- `V.pending` 状态对象（page/size/total/project）替代独立 `PENDING_PROJECT` 变量
+- 项目筛选下沉服务端（chip 点击 → `V.pending.project` + `page=1` → 重新请求）
+- `#pending-pager` 翻页控件，复用 `renderPager`/`LOADER` 机制
+- 训练页不再调用 `/audit/tasks` 构建 `TRAINING_CANDIDATES`（该逻辑已移除）
 
 ## 审核规则系统
 

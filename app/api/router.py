@@ -1004,29 +1004,36 @@ def delete_rule_exception(rule_id: str, index: int, user: dict = Depends(_user))
     return _rule_out(rule)
 
 
-# ── 待审核任务(异步审核状态,统一呈现在「待审核」页;用户看自己的,管理员看全部)──
+# ── 待审核任务(异步审核状态,统一呈现在「待审核」页;用户看自己的,管理员看全部;支持分页+按项目筛选)──
 @router.get("/audit/tasks")
-def list_audit_tasks(user: dict = Depends(_user)):
+def list_audit_tasks(page: int = Query(1, ge=1), size: int = Query(20, ge=1, le=100),
+                    project_id: str = Query(""),
+                    user: dict = Depends(_user)):
     _require_auth(user)
-    tasks = deps.task_repo.list_all() if user["role"] == "admin" else deps.task_repo.list_for(user["id"])
+    off, lim = _page_args(page, size)
+    is_admin = user["role"] == "admin"
+    tasks = (deps.task_repo.list_all(project_id=project_id, offset=off, limit=lim) if is_admin
+             else deps.task_repo.list_for(user["id"], project_id=project_id, offset=off, limit=lim))
+    total = deps.task_repo.count_all(project_id=project_id) if is_admin \
+        else deps.task_repo.count_for(user["id"], project_id=project_id)
     training_materials_by_project: dict[str, set[str]] = {}
     for t in tasks:
-        project_id = getattr(t, "project_id", "") or ""
-        material_id = getattr(t, "material_id", "") or ""
-        if not project_id or not material_id:
+        pid = getattr(t, "project_id", "") or ""
+        mid = getattr(t, "material_id", "") or ""
+        if not pid or not mid:
             continue
-        if project_id in training_materials_by_project:
+        if pid in training_materials_by_project:
             continue
-        examples = deps.get_training_service().list_examples(project_id)
-        training_materials_by_project[project_id] = {e.material_id for e in examples}
-    return {"tasks": [
+        examples = deps.get_training_service().list_examples(pid)
+        training_materials_by_project[pid] = {e.material_id for e in examples}
+    return _page_out([
         _task_out(
             t,
             in_training=((getattr(t, "material_id", "") or "") in
                          training_materials_by_project.get(getattr(t, "project_id", "") or "", set()))
         )
         for t in tasks
-    ]}
+    ], total, page, size, key="tasks")
 
 
 @router.get("/audit/tasks/{task_id}")
