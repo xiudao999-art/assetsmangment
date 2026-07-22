@@ -387,7 +387,7 @@
             <div class="row" style="align-items:flex-end;flex-wrap:wrap;gap:12px">
               <div class="field f-grow" style="margin:0"><label>训练项目</label><select id="tr-project" onchange="loadTrainingPage()"></select></div>
               <div class="field f-fixed" style="margin:0"><label>最大多判率</label><input id="tr-max-fp" type="number" min="0.01" max="1" step="0.01" value="0.20"></div>
-              <div class="field f-fixed" style="margin:0"><label>最大迭代次数</label><input id="tr-max-iter" type="number" min="1" max="50" step="1" value="10"></div>
+              <div class="field f-fixed" style="margin:0"><label>最大迭代次数</label><input id="tr-max-iter" type="number" min="0" max="50" step="1" value="10"></div>
               <button class="btn key f-auto" onclick="startTrainingRun()">开始训练</button>
             </div>
             <div id="tr-status" style="margin-top:14px"></div>
@@ -1011,7 +1011,7 @@ async function confirmTrainingMark(){
 function syncTrainingConfigInputs(){
   const fp=$('#tr-max-fp'),it=$('#tr-max-iter'),ts=TRAINING_STATUS;
   if(fp)fp.value=String((ts&&ts.max_fp_ratio)||0.2);
-  if(it)it.value=String((ts&&ts.max_iterations)||10)}
+  if(it)it.value=String((ts&&ts.max_iterations)??10)}
 async function loadTrainingPage(){
   await ensureProjects('#tr-project',false);
   const sel=$('#tr-project');
