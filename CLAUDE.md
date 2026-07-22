@@ -231,16 +231,16 @@ with psycopg.connect(dsn, autocommit=True) as conn:
 
 **选择原则**：事实性检查（免责声明有无、二维码有无）用 `literal`；语义判断（是否网赚话术、是否拉踩）用 `metaphor`；关键词精确匹配用 `regex`。
 
-### condition 与 guidance 的分工（2026-07-21）
+### condition 与 guidance 的分工（2026-07-21，2026-07-22 修订）
 
 | 字段 | 定位 | 要求 |
 |---|---|---|
-| `condition` | 条件 — 简略达意 | 一句话说清拦截什么，不展开场景/例子/枚举，像法典条文 |
-| `guidance` | 尺度 — 承载细节 | 反例、边界情形、典型场景、易误判情况及处理方式，越详细越好 |
+| `condition` | 条件 — 简略达意 | 一句话说清拦截什么，不展开场景/例子/枚举，像法典条文。**由人工审定，训练不得修改。** |
+| `guidance` | 尺度 — 承载细节 | 反例、边界情形。**≤300 字**，结构：违规情形 + 放行反例。训练可微调。 |
 
-**原则**：condition 定义边界，guidance 消歧义。写规则时先想「这条规则一句话怎么说」，剩下的全放 guidance。AI 训练调优时同样遵循此分工——condition 末尾补半句限定（≤15字），细节展开放在 guidance。
+**原则**：condition 定义边界，guidance 消歧义。guidance 不是越长越好——超过 300 字 LLM attention 覆盖不到，反而发散。反例给原则性判断标准，不要 case-by-case 微边界枚举。
 
-> 2026-07-21 已对库中 12 条冗余规则做了精简（#3 #4 #5 #7 #9 #10 #11 #13 #17 #18 #25 #26），condition 平均缩减 65%，细节全部移入 guidance，零信息丢失。
+> 2026-07-22：规则训练改为**只能改 guidance**（condition/keywords/match_level 锁定），guidance 硬截断 300 字。全部 24 条规则 guidance 已精简到 ≤300 字（平均 140 字）。#7/#25 重置为相同 condition「视频画面下方居中位置未展示『所展示金额为广告创意』的免责提示语」。
 
 ### 审核判定 prompt（`_RULE_JUDGE_SYS` + `_pack_rules`，2026-07-21 重构）
 
@@ -338,12 +338,13 @@ for i in 1..max_iterations:
 
 **`training_result.iterations` 格式**（2026-07-21 修复）：从 `int`（迭代次数）改为 `list[dict]`，每轮记录 `{iteration, metrics, current_materials, converged, rule_changes}`。`current_materials` 为 `{material_id: [rule_id, ...]}`，可追溯每轮 recheck 实际命中。
 
-### AI 规则调优 prompt（`_RULE_ADJUST_SYS`）
+### AI 规则调优 prompt（`_RULE_ADJUST_SYS`，2026-07-22 修订）
 
 对每条有问题的规则（missed > 0 或 extra > 0）：
 - 收集该规则的漏判/多判物料（最多 10 个），取物料的 `ai_summary` / `description` 作为案例文本
-- 发给 Qwen（`_llm.chat_json`），要求返回 `{analysis, keywords, condition, guidance, match_level}`
-- **condition 与 guidance 分工**：prompt 明确要求 condition 简略达意（一句话说清拦截什么），guidance 承载所有细节（反例、边界情形、典型场景）。漏判 → condition 末尾补半句限定（≤15字）+ guidance 展开；多判 → 优先改 guidance 追加反例
+- 发给 Qwen（`_llm.chat_json`），**只返回 `{analysis, guidance}`**（不再返回 keywords/condition/match_level）
+- **guidance ≤300 字**，超长截断。结构：违规情形 + 放行反例
+- `_apply_change` **只写 guidance**，condition/keywords/match_level 代码层面锁定不变
 - 单条规则 AI 调用失败不阻塞整体，下轮重试
 
 ### 关键文件
