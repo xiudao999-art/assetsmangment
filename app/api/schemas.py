@@ -113,4 +113,4 @@ class TrainingExampleUpdateIn(BaseModel):
 
 class TrainingConfigIn(BaseModel):
     max_fp_ratio: float = 0.20              # 可接受的最大多判率(0~1)
-    max_iterations: int = 10                # 最大重审迭代次数(1~50)
+    max_iterations: int = 10                # 最大重审迭代次数(0~50,0=仅校验不调AI)

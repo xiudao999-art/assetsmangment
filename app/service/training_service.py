@@ -143,7 +143,7 @@ class TrainingService:
         # 应用训练配置(可选覆盖)
         if max_fp_ratio is not None and 0 < max_fp_ratio <= 1:
             ts.max_fp_ratio = max_fp_ratio
-        if max_iterations is not None and 1 <= max_iterations <= 50:
+        if max_iterations is not None and 0 <= max_iterations <= 50:
             ts.max_iterations = max_iterations
 
         # 加载待训练规则:该项目的项目规则 + 全部全局规则
@@ -204,6 +204,46 @@ class TrainingService:
         )
 
         try:
+            # ── 校验模式(max_iter=0): 跑一轮 recheck,不调 AI ──
+            if max_iter == 0:
+                logger.info("校验模式: 仅重审,不调整规则")
+                current_results: dict[str, set[str]] = {}
+                for material_id in ground_truth:
+                    triggered = self._reaudit_material(material_id, project_id)
+                    current_results[material_id] = triggered
+                metrics = self._calc_metrics(ground_truth, current_results, rule_by_id)
+                final_metrics = metrics
+                logger.info(
+                    "校验结果: materials=%d, expected_hits=%d, actual_hits=%d, "
+                    "missed=%d, extra=%d, fp_ratio=%.4f",
+                    metrics["total_materials"], metrics["total_expected_hits"],
+                    metrics["actual_hits"], metrics["missed_hits"], metrics["extra_hits"],
+                    metrics["fp_ratio"],
+                )
+                iterations_log.append({
+                    "iteration": 0,
+                    "metrics": metrics,
+                    "current_materials": {
+                        mid: sorted(rids) for mid, rids in current_results.items()
+                    },
+                    "converged": False,
+                    "rule_changes": [],
+                })
+                import datetime
+                ts.training_result = {
+                    "iterations": iterations_log,
+                    "converged": False,
+                    "final_metrics": metrics,
+                    "rule_changes": [],
+                }
+                ts.status = "validated"
+                ts.completed_at = datetime.datetime.now(
+                    datetime.timezone(datetime.timedelta(hours=8))
+                ).isoformat()
+                self._ts_repo.add(ts, by=by)
+                logger.info("校验完成: project=%s", project_id)
+                return ts
+
             for iteration in range(1, max_iter + 1):
                 logger.info("--- 迭代 %d/%d ---", iteration, max_iter)
 

@@ -280,6 +280,11 @@ with psycopg.connect(dsn, autocommit=True) as conn:
 - **`_reason_says_pass` token 扩充**（2026-07-20）：大模型新学会了"不触发""不视为""不命中""不应计入"等否定表述，原 token 列表没覆盖，导致 Rule #5/#9 的放行 finding 仍出现在 triggered 里。已追加这四个 token
 - **Rule #10 绝对化用语**（2026-07-20，原 #11）：原 condition 和 guidance 均为空，大模型对每条 segment 自由发挥，把"全都能免费唱""再也不用找歌"误判为绝对化承诺。已补 condition「在宣传推广中使用《广告法》禁止的绝对化用语…构成夸大宣传」+ guidance 明确「平台功能描述不构成绝对化承诺」
 - **Qwen-VL 画面反解注入规则 hints**（2026-07-21）：`VisionDescriber.describe_image` 新增 `hints` 参数。`_visual_rule_hints()` 收集所有视觉类规则（`image_content`/`video_frame`/`any`）的 condition/keywords，按 `rule.id` 去重后注入 Qwen-VL prompt 末尾作为「审核特别关注项」。prompt 明确要求「只在画面中确实存在时才写出，严禁编造」。解决了此前 Qwen-VL 不知道规则关心什么、可能漏掉关键内容（如蜡笔小新等 IP 角色）导致规则永远无法命中的问题。纯文字规则（`transcript`/`original_text`）不参与 hints 收集。
+- **训练校验模式 max_iterations=0**（2026-07-22）：`POST /training/projects/{pid}/train` 的 `max_iterations` 支持设为 0，跑一轮 recheck + 算指标后直接落库 `status="validated"`，不调 AI。用于人工改规则后快速验证漏判/多判变化，不用跑完整训练。
+- **Rule #3 IP形象**（2026-07-22）：guidance 加硬标准「判定需满足可明确、无争议地识别，任何需猜测、联想或疑似的情形一律不触发」。3D 动画角色"像某知名 IP 但不确定"→ 不触发。放行列表保留 7 条（通用表情包/素人照/界面截图/通用模特/卡通动物/虚拟形象/平台自有IP）。
+- **Rule #7 免责提示语**（2026-07-22）：guidance 补「帧描述中提到免责/提示文字但位置描述不在画面下方居中（如右上角、顶部等）→ 直接判定违规」。此前 Qwen-VL 描述了免责文字但没说位置，模型无法判定。另补「帧描述未提及任何免责文字或其位置时，不推定违规」防多判。
+- **Rule #8 绝对化用语**（2026-07-22）：condition 收紧为「以对比、拉踩、贬损其他平台或产品的方式使用《广告法》禁止的绝对化用语」。不加对比的自家功能描述（"全都能免费唱"）不再触发。guidance 同步改为两要件结构（①存在拉踩表述 + ②使用禁用词），放行平台功能描述无论措辞多绝对。
+- **Rule #21 服装/背景**（2026-07-22）：guidance 加「【硬性前提】仅适用于真人实拍，非真人直接跳过，不得对虚拟角色分析服装/背景/美颜」。此前 3D 动画/二次元角色被误判服装违规。
 
 ## 规则训练模块（2026-07-21）
 
@@ -303,7 +308,7 @@ with psycopg.connect(dsn, autocommit=True) as conn:
 | `GET` | `/training/projects/{pid}/examples` | 列出项目全部样本（含 `source_task_name`） |
 | `PUT` | `/training/projects/{pid}/examples/{eid}` | 编辑样本 `{expected_rule_ids?, source_note?}`（均可选） |
 | `DELETE` | `/training/projects/{pid}/examples/{eid}` | 删除一条样本 |
-| `POST` | `/training/projects/{pid}/train` | 启动训练（可选 `{max_fp_ratio, max_iterations}`） |
+| `POST` | `/training/projects/{pid}/train` | 启动训练（可选 `{max_fp_ratio, max_iterations}`）。`max_iterations=0`=校验模式（只 recheck 不调 AI），1~50=正常训练 |
 | `GET` | `/training/projects/{pid}/status` | 查询训练状态/结果 |
 
 ### 训练流程（`app/service/training_service.py`）
@@ -314,16 +319,21 @@ with psycopg.connect(dsn, autocommit=True) as conn:
 快照项目规则+全局规则 → rule_snapshot
 status = "training", started_at = now
 
+如果 max_iterations = 0（校验模式）：
+    ① 逐物料 recheck → _calc_metrics → 落库 → status = "validated"
+    ② 不调 AI，不修改任何规则 → return
+    （用于人工改规则后快速查看漏判/多判变化）
+
 for i in 1..max_iterations:
     ① 逐物料 recheck（用当前规则重审）→ 同步 audit_task → current_results
     ② _calc_metrics: 对比 ground_truth，算每条规则的 missed / extra
     ③ 每轮迭代后立刻落库 training_result（含 iterations/final_metrics/rule_changes/converged）
        → 前端 2.5s 轮询实时看到 KPI 跳动，不用等全跑完
     ④ 收敛？missed==0 且 fp_ratio≤阈值 → break
-    ⑤ AI 逐规则分析漏判/多判物料 → 调整 keywords/condition/guidance/match_level
+    ⑤ AI 逐规则分析漏判/多判物料 → 只改 guidance（condition/keywords/match_level 锁定）
     ⑥ _apply_change → rule_repo.add 持久化 → 重新加载规则
 
-写 training_result，status = completed/failed，completed_at = now
+写 training_result，status = completed/failed/validated，completed_at = now
 ```
 
 **收敛条件**：漏判 = 0（每个物料命中全部应命中规则）**且** 多判率 ≤ `max_fp_ratio`（默认 20%，多命中数 / 总应命中数）。
