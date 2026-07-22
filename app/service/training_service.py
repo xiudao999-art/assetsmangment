@@ -3,7 +3,7 @@
 流程:
 1. 快照当前项目规则
 2. 用当前规则重审所有训练样本物料 → 与实际命中对比
-3. AI 逐规则分析漏判/多判原因 → 调整 keywords/condition/guidance
+3. AI 逐规则分析漏判/多判原因 → 仅调整 guidance (condition/keywords/match_level 锁定)
 4. 重新审核 → 重复直到 漏判=0 且 多判率≤max_fp_ratio 或达到最大迭代次数
 """
 from __future__ import annotations
@@ -19,28 +19,24 @@ logger = logging.getLogger(__name__)
 _RULE_ADJUST_SYS = (
     "你是审核规则调优引擎。你会收到一条审核规则的当前配置，以及它在实际审核中的表现数据"
     "（哪些物料漏判了——应该命中但没命中；哪些物料多判了——不应该命中却命中了）。"
-    "你的任务是分析原因并给出微调后的规则配置，使规则能准确命中该命中的物料、避免误命中不该命中的物料。\n\n"
-    "核心原则：**最小改动**。规则已经过人工精心配置，你只需要做最少量的调整来修复具体问题，"
-    "不要推翻重写、不要改变规则的核心意图。\n\n"
-    "## condition 与 guidance 的分工\n"
-    "- **condition（条件）**：简略达意，一句话说清这条规则要拦截什么。只写核心判定逻辑，"
-    "不展开列举场景、不写例子、不写「包括但不限于」式的枚举。像法典条文——定义边界，不啰嗦。\n"
-    "- **guidance（尺度）**：承载所有细节。反例（什么不算违规）、边界情形（模糊地带怎么判）、"
-    "典型场景举例、容易误判的情况及处理方式——全部放在 guidance 里。尺度越详细，大模型判定越准。\n\n"
+    "你的任务是分析原因并优化规则的**尺度说明(guidance)**，使大模型判定更准。\n\n"
+    "## 硬约束（必须遵守）\n"
+    "**你只能修改 guidance（尺度说明），严禁修改 condition（条件）、keywords（关键词）、match_level（严格程度）。**"
+    "condition 是规则的核心定义，由人工审定，机器不得染指。你的全部工作就是在 guidance 里把"
+    "「什么算违规、什么不算」讲清楚。\n\n"
+    "## guidance 编写要求\n"
+    "- **≤300 字**。超过会被截断，把最重要的放前面。\n"
+    "- 结构：先写「什么算违规」（正面示例），再写「什么不算违规」（反例/放行情景）。\n"
+    "- 反例要具体，给大模型明确的「看到这些就放行」信号。\n"
+    "- 不要列举 case-by-case 的微边界——大模型记不住。给原则性判断标准。\n"
+    "- 如果分析后认为规则本身没问题、只是案例特殊，返回原有 guidance 不变，在 analysis 中说明原因。\n\n"
     "微调策略:\n"
-    "- 漏判 → 在现有 keywords 末尾追加 1-3 个漏判物料中出现的同义词/近义表述（保留全部原有关键词）；"
-    "如果漏判是因为 condition 没覆盖到漏判物料的典型表述，在 condition 末尾补半句限定（≤15字），"
-    "同时在 guidance 里展开说明新增覆盖的场景。不要改写整段 condition。\n"
-    "- 多判 → 在 guidance 末尾追加 1-2 条反例（什么不算违规、什么情况应放行），不要改动原有的 guidance 内容。"
-    "如果多判暴露出 condition 措辞过于宽泛，可以收紧 condition（删减冗余限定词），但优先改 guidance。\n"
-    "- match_level 尽量保持原值不变，除非明确判断出严格程度确实用错了才改。\n"
-    "- 如果分析后认为规则本身没问题、只是案例特殊，返回原有配置不变，在 analysis 中说明原因。\n\n"
+    "- 漏判 → 在 guidance 中补充：什么情况下该命中但当前描述没覆盖到（如特定表述模式、画面元素）。\n"
+    "- 多判 → 在 guidance 中追加反例：什么情况下不该命中却被误判了（如正常功能描述、合法场景）。\n"
+    "- 如果既有漏判又有多判，优先修复漏判，再修多判——宁可多判也不要漏判。\n\n"
     "只返回一个合法 JSON 对象,不要 markdown、不要多余解释,字段:\n"
     "analysis(中文,简要分析漏判/多判的原因,≤150字),\n"
-    "keywords(在原有 keywords 基础上微调后的关键词数组,尽量保留原有、末尾追加少量新词),\n"
-    "condition(微调后的条件,简略达意,一句话说清拦截什么,不展开场景/例子/枚举),\n"
-    "guidance(微调后的尺度说明,承载所有细节:反例、边界情形、典型场景、易误判情况及处理方式),\n"
-    "match_level(保持原值,仅当严格程度明显用错时才建议修改:literal/metaphor/regex)。"
+    "guidance(优化后的尺度说明,≤300字,结构清晰:违规情形 + 放行反例)。"
 )
 
 
@@ -147,7 +143,7 @@ class TrainingService:
         # 应用训练配置(可选覆盖)
         if max_fp_ratio is not None and 0 < max_fp_ratio <= 1:
             ts.max_fp_ratio = max_fp_ratio
-        if max_iterations is not None and 1 <= max_iterations <= 50:
+        if max_iterations is not None and 0 <= max_iterations <= 50:
             ts.max_iterations = max_iterations
 
         # 加载待训练规则:该项目的项目规则 + 全部全局规则
@@ -208,6 +204,46 @@ class TrainingService:
         )
 
         try:
+            # ── 校验模式(max_iter=0): 跑一轮 recheck,不调 AI ──
+            if max_iter == 0:
+                logger.info("校验模式: 仅重审,不调整规则")
+                current_results: dict[str, set[str]] = {}
+                for material_id in ground_truth:
+                    triggered = self._reaudit_material(material_id, project_id)
+                    current_results[material_id] = triggered
+                metrics = self._calc_metrics(ground_truth, current_results, rule_by_id)
+                final_metrics = metrics
+                logger.info(
+                    "校验结果: materials=%d, expected_hits=%d, actual_hits=%d, "
+                    "missed=%d, extra=%d, fp_ratio=%.4f",
+                    metrics["total_materials"], metrics["total_expected_hits"],
+                    metrics["actual_hits"], metrics["missed_hits"], metrics["extra_hits"],
+                    metrics["fp_ratio"],
+                )
+                iterations_log.append({
+                    "iteration": 0,
+                    "metrics": metrics,
+                    "current_materials": {
+                        mid: sorted(rids) for mid, rids in current_results.items()
+                    },
+                    "converged": False,
+                    "rule_changes": [],
+                })
+                import datetime
+                ts.training_result = {
+                    "iterations": iterations_log,
+                    "converged": False,
+                    "final_metrics": metrics,
+                    "rule_changes": [],
+                }
+                ts.status = "validated"
+                ts.completed_at = datetime.datetime.now(
+                    datetime.timezone(datetime.timedelta(hours=8))
+                ).isoformat()
+                self._ts_repo.add(ts, by=by)
+                logger.info("校验完成: project=%s", project_id)
+                return ts
+
             for iteration in range(1, max_iter + 1):
                 logger.info("--- 迭代 %d/%d ---", iteration, max_iter)
 
@@ -478,7 +514,7 @@ class TrainingService:
     def _ai_adjust_rule(self, rule: AuditRule,
                         missed_cases: list[dict],
                         extra_cases: list[dict]) -> dict | None:
-        """AI 分析一条规则的漏判/多判案例,返回调整建议。无漏判无多判→None。"""
+        """AI 分析一条规则的漏判/多判案例,只返回 guidance 调整建议。无漏判无多判→None。"""
         if not missed_cases and not extra_cases:
             return None
 
@@ -488,17 +524,16 @@ class TrainingService:
 
         rule_desc = (
             f"规则编号:{getattr(rule, 'no', 0)}\n"
-            f"来源类型:{rule.source_type}\n"
-            f"当前关键词:{rule.keywords}\n"
-            f"当前条件(简略):{rule.condition}\n"
-            f"当前尺度(详细):{getattr(rule, 'guidance', '')}\n"
-            f"当前严格程度:{getattr(rule, 'match_level', 'metaphor')}"
+            f"条件(不可修改):{rule.condition}\n"
+            f"当前尺度(可修改):{getattr(rule, 'guidance', '')}\n"
         )
 
         user = (
             f"【当前规则】\n{rule_desc}\n\n"
             f"{missed_text}\n{extra_text}\n\n"
-            "请分析原因并给出调整后的规则配置(JSON)。"
+            "请分析原因并给出优化后的 guidance（≤300字）。\n"
+            "严格按以下 JSON 格式返回，不要输出其他字段：\n"
+            '{"analysis":"简要分析漏判/多判的原因","guidance":"优化后的尺度说明"}'
         )
 
         try:
@@ -512,24 +547,19 @@ class TrainingService:
         if not isinstance(out, dict) or not out:
             return None
 
+        guidance = str(out.get("guidance", "")).strip()
+        if not guidance:
+            return None   # AI 返回空 guidance,跳过(不清空现有)
+
         return {
             "analysis": str(out.get("analysis", ""))[:200],
-            "keywords": self._norm_strlist(out.get("keywords")),
-            "condition": str(out.get("condition", "")).strip(),
-            "guidance": str(out.get("guidance", "")).strip(),
-            "match_level": self._norm_match_level(str(out.get("match_level", ""))),
+            "guidance": guidance[:300],
         }
 
     def _apply_change(self, rule: AuditRule, change: dict, by: str) -> None:
-        """把 AI 调整应用到规则并持久化。只改 keywords/condition/guidance/match_level。"""
-        if "keywords" in change:
-            rule.keywords = change["keywords"]
-        if "condition" in change:
-            rule.condition = change["condition"]
+        """只接受 guidance 变更并持久化。condition/keywords/match_level 锁定不变。"""
         if "guidance" in change:
-            rule.guidance = change["guidance"]
-        if "match_level" in change:
-            rule.match_level = change["match_level"]
+            rule.guidance = str(change["guidance"]).strip()[:300]
         self._rules.add(rule, by=by)
 
     def _build_cases_text(self, cases: list[dict], label: str) -> str:
@@ -549,20 +579,6 @@ class TrainingService:
             text = (ai_summary or desc)[:300]
             lines.append(f"  {i}. 物料 {mid} [{m.type.value}] {text}")
         return "\n".join(lines)
-
-    @staticmethod
-    def _norm_strlist(v, cap: int = 30) -> list[str]:
-        if isinstance(v, str):
-            v = [v]
-        if not isinstance(v, list):
-            return []
-        out = [str(x).strip() for x in v if isinstance(x, (str, int)) and str(x).strip()]
-        return list(dict.fromkeys(out))[:cap]
-
-    @staticmethod
-    def _norm_match_level(v: str) -> str:
-        return v if v in ("literal", "regex") else "metaphor"
-
 
 class TrainingError(Exception):
     """训练前置条件不满足。"""

@@ -566,5 +566,5 @@ def test_vision_prompt_avoids_negative_safety_conclusions():
     prompt = QwenVLVisionDescriber._PROMPT
     assert "请详细描述这张图片的画面内容" in prompt
     assert "任何可能涉及违规的风险点" in prompt
-    assert "不要输出否定句" in prompt
+    assert "禁止输出否定句" in prompt
     assert "未见" in prompt

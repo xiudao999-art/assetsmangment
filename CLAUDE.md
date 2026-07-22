@@ -231,16 +231,16 @@ with psycopg.connect(dsn, autocommit=True) as conn:
 
 **选择原则**：事实性检查（免责声明有无、二维码有无）用 `literal`；语义判断（是否网赚话术、是否拉踩）用 `metaphor`；关键词精确匹配用 `regex`。
 
-### condition 与 guidance 的分工（2026-07-21）
+### condition 与 guidance 的分工（2026-07-21，2026-07-22 修订）
 
 | 字段 | 定位 | 要求 |
 |---|---|---|
-| `condition` | 条件 — 简略达意 | 一句话说清拦截什么，不展开场景/例子/枚举，像法典条文 |
-| `guidance` | 尺度 — 承载细节 | 反例、边界情形、典型场景、易误判情况及处理方式，越详细越好 |
+| `condition` | 条件 — 简略达意 | 一句话说清拦截什么，不展开场景/例子/枚举，像法典条文。**由人工审定，训练不得修改。** |
+| `guidance` | 尺度 — 承载细节 | 反例、边界情形。**≤300 字**，结构：违规情形 + 放行反例。训练可微调。 |
 
-**原则**：condition 定义边界，guidance 消歧义。写规则时先想「这条规则一句话怎么说」，剩下的全放 guidance。AI 训练调优时同样遵循此分工——condition 末尾补半句限定（≤15字），细节展开放在 guidance。
+**原则**：condition 定义边界，guidance 消歧义。guidance 不是越长越好——超过 300 字 LLM attention 覆盖不到，反而发散。反例给原则性判断标准，不要 case-by-case 微边界枚举。
 
-> 2026-07-21 已对库中 12 条冗余规则做了精简（#3 #4 #5 #7 #9 #10 #11 #13 #17 #18 #25 #26），condition 平均缩减 65%，细节全部移入 guidance，零信息丢失。
+> 2026-07-22：规则训练改为**只能改 guidance**（condition/keywords/match_level 锁定），guidance 硬截断 300 字。全部 24 条规则 guidance 已精简到 ≤300 字（平均 140 字）。#7/#25 重置为相同 condition「视频画面下方居中位置未展示『所展示金额为广告创意』的免责提示语」。
 
 ### 审核判定 prompt（`_RULE_JUDGE_SYS` + `_pack_rules`，2026-07-21 重构）
 
@@ -278,8 +278,22 @@ with psycopg.connect(dsn, autocommit=True) as conn:
 - **Rule #9 收益=生活开销**（2026-07-20，覆盖原 #10）：keywords 只保留 `["赚生活费", "买菜钱"]`，condition「用于描述网赚收益可覆盖基本生活开销（如买菜、生活费、房租等），暗示稳定收入来源」。guidance 明确「奶茶钱、零食钱、水钱等轻度娱乐消费不算基本生活开销，不触发此规则。音乐/视频/阅读等平台内听歌看视频赚小额金币属于正常运营活动，不在此列」
 - **Rule #10 娱乐小钱**（2026-07-20）：已软删。原 keywords `["奶茶钱", "零食钱", "水钱"]` 不再作为独立规则存在——这些娱乐小钱不视为违规。规则编号 11→10, 12→11 ... 25→24 顺延填补，当前在用 24 条（1~24 连续）
 - **`_reason_says_pass` token 扩充**（2026-07-20）：大模型新学会了"不触发""不视为""不命中""不应计入"等否定表述，原 token 列表没覆盖，导致 Rule #5/#9 的放行 finding 仍出现在 triggered 里。已追加这四个 token
+- **`_reason_says_pass` token 再扩充**（2026-07-22）：大模型学会了在 reason 里写"符合放行情形""一律不算违规"——明明是放行结论却被当成了命中。追加「符合放行」「放行情形」「放行条款」「不在此列」「不属于此」「不算违规」「一律不算」「应放行」8 个 token。当前完整 token 列表：`["不违规", "不构成违规", "不应命中", "不纳入", "不判违规", "符合要求", "未违反", "可以放行", "不算命中", "不符合", "不构成", "不属于", "不涉及", "不触发", "不视为", "不命中", "不应计入", "符合放行", "放行情形", "放行条款", "不在此列", "不属于此", "不算违规", "一律不算", "应放行"]`
 - **Rule #10 绝对化用语**（2026-07-20，原 #11）：原 condition 和 guidance 均为空，大模型对每条 segment 自由发挥，把"全都能免费唱""再也不用找歌"误判为绝对化承诺。已补 condition「在宣传推广中使用《广告法》禁止的绝对化用语…构成夸大宣传」+ guidance 明确「平台功能描述不构成绝对化承诺」
 - **Qwen-VL 画面反解注入规则 hints**（2026-07-21）：`VisionDescriber.describe_image` 新增 `hints` 参数。`_visual_rule_hints()` 收集所有视觉类规则（`image_content`/`video_frame`/`any`）的 condition/keywords，按 `rule.id` 去重后注入 Qwen-VL prompt 末尾作为「审核特别关注项」。prompt 明确要求「只在画面中确实存在时才写出，严禁编造」。解决了此前 Qwen-VL 不知道规则关心什么、可能漏掉关键内容（如蜡笔小新等 IP 角色）导致规则永远无法命中的问题。纯文字规则（`transcript`/`original_text`）不参与 hints 收集。
+- **训练校验模式 max_iterations=0**（2026-07-22）：`POST /training/projects/{pid}/train` 的 `max_iterations` 支持设为 0，跑一轮 recheck + 算指标后直接落库 `status="validated"`，不调 AI。用于人工改规则后快速验证漏判/多判变化，不用跑完整训练。
+- **Rule #3 IP形象**（2026-07-22）：guidance 加硬标准「判定需满足可明确、无争议地识别，任何需猜测、联想或疑似的情形一律不触发」。3D 动画角色"像某知名 IP 但不确定"→ 不触发。放行列表保留 7 条（通用表情包/素人照/界面截图/通用模特/卡通动物/虚拟形象/平台自有IP）。
+- **Rule #7 免责提示语**（2026-07-22）：guidance 补「帧描述中提到免责/提示文字但位置描述不在画面下方居中（如右上角、顶部等）→ 直接判定违规」。此前 Qwen-VL 描述了免责文字但没说位置，模型无法判定。另补「帧描述未提及任何免责文字或其位置时，不推定违规」防多判。
+- **Rule #8 绝对化用语**（2026-07-22）：condition 收紧为「以对比、拉踩、贬损其他平台或产品的方式使用《广告法》禁止的绝对化用语」。不加对比的自家功能描述（"全都能免费唱"）不再触发。guidance 同步改为两要件结构（①存在拉踩表述 + ②使用禁用词），放行平台功能描述无论措辞多绝对。
+- **Rule #21 服装/背景**（2026-07-22）：guidance 加「【硬性前提】仅适用于真人实拍，非真人直接跳过，不得对虚拟角色分析服装/背景/美颜」。此前 3D 动画/二次元角色被误判服装违规。
+- **Rule #13 拉踩**（2026-07-22）：guidance 明确「抖音同款」「XX同款推荐」等表述一律放行——「同款」是正向关联非贬损。不得从非贬损性表述中推断隐性对比。此前"抖音同款推荐算法"被误判为暗示优于抖音。
+- **Rule #7 免责提示语 match_level**（2026-07-22）：从 `metaphor` 改为 `literal`——免责声明位置检查属事实性判断，应按「宁可漏不可误伤」原则。guidance 同步加「若帧描述未提及任何文字或其位置→不推定违规，直接放行」，防 VL 未描述位置时模型猜测触发。
+- **Rule #5 虚假声称**（2026-07-22）：guidance 明确排除 App UI 截图中正常展示的付费选项/会员价格/支付按钮——「本规则不审视 App UI」。另排除「免费听歌」「新人送会员」等获客话术（属正常运营手段非虚假声称）。此前 LLM 把界面截图里的"月费25元"和口播"免费听歌"对立起来判 #5 违规。
+- **Rule #3 IP形象第二轮**（2026-07-22）：guidance 进一步明确「可明确识别 = 能说出具体是谁（如"这是 Taylor Swift"），仅能描述外貌特征（如"黑人男性光头"）不算可识别」。加⑧「经模糊/滤镜/风格化处理的通用人像——无法辨认具体个人身份的，视为通用装饰元素」。此前黑人男性面部特写被描述为"可明确识别"。
+- **Rule #7 免责提示语第三轮**（2026-07-22）：guidance 补「免责文字内容完整可辨，即使与其他说明文字并列展示在同一区域 → 视为合规，不触发」。此前 LLM 把"多行小字混排"的合规免责文字判为违规。
+- **Qwen-VL 防否定清单**（2026-07-22）：原 prompt「如果某项内容确实不在画面中,严禁编造」被 VL 误解为需要逐条对照规则声明「未出现XX」「无XX」。改为「关注项只用于指引注意力——只描述实际看到的,关注项不在画面中的保持沉默不提及」。根除 VL 输出大段"画面未出现…无…未见…"否定罗列。
+- **Qwen-VL 防幻觉强化**（2026-07-22）：VL 从图标/UI 风格推测出画面中不存在的"QQ音乐"水印。prompt 追加「抄录必须逐字确认,看不清标注为『文字模糊不可辨』,不得猜测内容;平台名称只有清晰可辨时才写出,不得从图标或UI风格推测」。
+- **Qwen-VL prompt 合并精简**（2026-07-22）：原 prompt 的【重要】【防幻觉】【严禁】三块分散约束合并为一段连贯文字，精简约 30%，信息量不变。hints 注入段同步精简。
 
 ## 规则训练模块（2026-07-21）
 
@@ -303,7 +317,7 @@ with psycopg.connect(dsn, autocommit=True) as conn:
 | `GET` | `/training/projects/{pid}/examples` | 列出项目全部样本（含 `source_task_name`） |
 | `PUT` | `/training/projects/{pid}/examples/{eid}` | 编辑样本 `{expected_rule_ids?, source_note?}`（均可选） |
 | `DELETE` | `/training/projects/{pid}/examples/{eid}` | 删除一条样本 |
-| `POST` | `/training/projects/{pid}/train` | 启动训练（可选 `{max_fp_ratio, max_iterations}`） |
+| `POST` | `/training/projects/{pid}/train` | 启动训练（可选 `{max_fp_ratio, max_iterations}`）。`max_iterations=0`=校验模式（只 recheck 不调 AI），1~50=正常训练 |
 | `GET` | `/training/projects/{pid}/status` | 查询训练状态/结果 |
 
 ### 训练流程（`app/service/training_service.py`）
@@ -314,16 +328,21 @@ with psycopg.connect(dsn, autocommit=True) as conn:
 快照项目规则+全局规则 → rule_snapshot
 status = "training", started_at = now
 
+如果 max_iterations = 0（校验模式）：
+    ① 逐物料 recheck → _calc_metrics → 落库 → status = "validated"
+    ② 不调 AI，不修改任何规则 → return
+    （用于人工改规则后快速查看漏判/多判变化）
+
 for i in 1..max_iterations:
     ① 逐物料 recheck（用当前规则重审）→ 同步 audit_task → current_results
     ② _calc_metrics: 对比 ground_truth，算每条规则的 missed / extra
     ③ 每轮迭代后立刻落库 training_result（含 iterations/final_metrics/rule_changes/converged）
        → 前端 2.5s 轮询实时看到 KPI 跳动，不用等全跑完
     ④ 收敛？missed==0 且 fp_ratio≤阈值 → break
-    ⑤ AI 逐规则分析漏判/多判物料 → 调整 keywords/condition/guidance/match_level
+    ⑤ AI 逐规则分析漏判/多判物料 → 只改 guidance（condition/keywords/match_level 锁定）
     ⑥ _apply_change → rule_repo.add 持久化 → 重新加载规则
 
-写 training_result，status = completed/failed，completed_at = now
+写 training_result，status = completed/failed/validated，completed_at = now
 ```
 
 **收敛条件**：漏判 = 0（每个物料命中全部应命中规则）**且** 多判率 ≤ `max_fp_ratio`（默认 20%，多命中数 / 总应命中数）。
@@ -338,12 +357,15 @@ for i in 1..max_iterations:
 
 **`training_result.iterations` 格式**（2026-07-21 修复）：从 `int`（迭代次数）改为 `list[dict]`，每轮记录 `{iteration, metrics, current_materials, converged, rule_changes}`。`current_materials` 为 `{material_id: [rule_id, ...]}`，可追溯每轮 recheck 实际命中。
 
-### AI 规则调优 prompt（`_RULE_ADJUST_SYS`）
+### AI 规则调优 prompt（`_RULE_ADJUST_SYS`，2026-07-22 修订）
 
 对每条有问题的规则（missed > 0 或 extra > 0）：
 - 收集该规则的漏判/多判物料（最多 10 个），取物料的 `ai_summary` / `description` 作为案例文本
-- 发给 Qwen（`_llm.chat_json`），要求返回 `{analysis, keywords, condition, guidance, match_level}`
-- **condition 与 guidance 分工**：prompt 明确要求 condition 简略达意（一句话说清拦截什么），guidance 承载所有细节（反例、边界情形、典型场景）。漏判 → condition 末尾补半句限定（≤15字）+ guidance 展开；多判 → 优先改 guidance 追加反例
+- 发给 Qwen（`_llm.chat_json`），**只返回 `{analysis, guidance}`**（不再返回 keywords/condition/match_level）
+- **guidance ≤300 字**，超长截断。结构：违规情形 + 放行反例
+- user prompt 末尾带 JSON 格式示例 `{"analysis":"...","guidance":"..."}`，防 AI 幻觉输出旧字段
+- AI 返回空 guidance → `_ai_adjust_rule` 返回 `None`，跳过该条规则（不清空现有 guidance）
+- `_apply_change` **只写 guidance**，condition/keywords/match_level 代码层面锁定不变
 - 单条规则 AI 调用失败不阻塞整体，下轮重试
 
 ### 关键文件

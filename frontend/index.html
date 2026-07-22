@@ -387,7 +387,7 @@
             <div class="row" style="align-items:flex-end;flex-wrap:wrap;gap:12px">
               <div class="field f-grow" style="margin:0"><label>训练项目</label><select id="tr-project" onchange="loadTrainingPage()"></select></div>
               <div class="field f-fixed" style="margin:0"><label>最大多判率</label><input id="tr-max-fp" type="number" min="0.01" max="1" step="0.01" value="0.20"></div>
-              <div class="field f-fixed" style="margin:0"><label>最大迭代次数</label><input id="tr-max-iter" type="number" min="1" max="50" step="1" value="10"></div>
+              <div class="field f-fixed" style="margin:0"><label>最大迭代次数</label><input id="tr-max-iter" type="number" min="0" max="50" step="1" value="10"></div>
               <button class="btn key f-auto" onclick="startTrainingRun()">开始训练</button>
             </div>
             <div id="tr-status" style="margin-top:14px"></div>
@@ -935,7 +935,7 @@ let TRAINING_STATUS=null,TRAINING_RULES=[],TRAINING_EXAMPLES=[];
 let TRAINING_PREFILL={project_id:'',material_id:'',task_id:'',task_name:'',source_note:'',suggested_rule_ids:[]};
 let TRAINING_MARK=null;
 let TRAINING_AUTO_PROJECT_DONE=false;
-const TRAINING_STATUS_CN={not_created:'未创建',collecting:'样本收集中',training:'训练中',completed:'已完成',failed:'未收敛'};
+const TRAINING_STATUS_CN={not_created:'未创建',collecting:'样本收集中',training:'训练中',completed:'已完成',failed:'未收敛',validated:'已校验'};
 function resetTrainingPrefill(){TRAINING_PREFILL={project_id:'',material_id:'',task_id:'',task_name:'',source_note:'',suggested_rule_ids:[]}}
 function currentTrainingProject(){return $('#tr-project')?.value||''}
 function fmtIso(v){
@@ -1011,7 +1011,7 @@ async function confirmTrainingMark(){
 function syncTrainingConfigInputs(){
   const fp=$('#tr-max-fp'),it=$('#tr-max-iter'),ts=TRAINING_STATUS;
   if(fp)fp.value=String((ts&&ts.max_fp_ratio)||0.2);
-  if(it)it.value=String((ts&&ts.max_iterations)||10)}
+  if(it)it.value=String((ts&&ts.max_iterations)??10)}
 async function loadTrainingPage(){
   await ensureProjects('#tr-project',false);
   const sel=$('#tr-project');
@@ -1083,7 +1083,7 @@ function renderTrainingStatus(){
   const metrics=result.final_metrics||{};
   const changes=(result.rule_changes||[]).slice(-8).reverse();
   const delBtn=ts.id&&ts.status!=='training'?`<button class="btn sm block" onclick="deleteTrainingSetCurrent('${ts.id}')">删除训练集</button>`:'';
-  const main=`<div class="qrow" style="margin:0"><div class="thumb">集</div><div class="meta"><div>${esc(projName(pid)||pid)} <span class="stamp ${ts.status==='completed'?'pass':(ts.status==='failed'?'block':(ts.status==='training'?'review':'processing'))}">${esc(st)}</span></div><div class="k">样本 ${TRAINING_EXAMPLES.length} 条 · 当前可训练规则 ${TRAINING_RULES.length} 条 · 快照 ${snapN} 条</div><div class="k">开始: ${fmtDateTimeSec(ts.started_at)} · 完成: ${fmtDateTimeSec(ts.completed_at)}</div></div><button class="btn sm" onclick="loadTrainingPage()">刷新</button>${delBtn}</div>`;
+  const main=`<div class="qrow" style="margin:0"><div class="thumb">集</div><div class="meta"><div>${esc(projName(pid)||pid)} <span class="stamp ${ts.status==='completed'||ts.status==='validated'?'pass':(ts.status==='failed'?'block':(ts.status==='training'?'review':'processing'))}">${esc(st)}</span></div><div class="k">样本 ${TRAINING_EXAMPLES.length} 条 · 当前可训练规则 ${TRAINING_RULES.length} 条 · 快照 ${snapN} 条</div><div class="k">开始: ${fmtDateTimeSec(ts.started_at)} · 完成: ${fmtDateTimeSec(ts.completed_at)}</div></div><button class="btn sm" onclick="loadTrainingPage()">刷新</button>${delBtn}</div>`;
   if(ts.status==='not_created'){
     box.innerHTML=main+`<div class="empty" style="margin-top:12px"><b class="disp">先收样本再训练</b>请先去待审核页,对项目作品点「加入规则训练」完成人工标注。</div>`;
     return}
@@ -1101,7 +1101,7 @@ function renderTrainingExamples(){
     const hits=e.expected_rule_ids.length?e.expected_rule_ids.map(trainingRuleNameById).join('、'):'应全部放行';
     const reportBtn=e.source_task_id?`<button class="btn sm" onclick="viewTrainingReport('${e.source_task_id}')">查看报告</button>`:'';
     const taskLabel=e.source_task_name||e.material_id;
-    return `<div class="qrow"><button class="thumb" onclick="previewTaskMaterial('${e.material_id}')" title="点击预览并播放">样</button><div class="meta"><div>${esc(e.source_note||taskLabel)}</div><div class="k">物料: ${esc(taskLabel)}</div><div class="k">标注备注: ${esc(e.source_note||'—')}</div><div class="k">标注结果: ${esc(hits)}</div></div>${reportBtn}<button class="btn sm" onclick="editTrainingExample('${e.id}')">编辑</button><button class="btn sm block" onclick="deleteTrainingExample('${e.id}')">删除</button></div>`;
+    return `<div class="qrow"><button class="thumb" onclick="previewTaskMaterial('${e.material_id}')" title="点击预览并播放">样</button><div class="meta"><div>${esc(taskLabel)}</div><div class="k">物料: ${esc(taskLabel)}</div><div class="k">标注备注: ${esc(e.source_note||'—')}</div><div class="k">标注结果: ${esc(hits)}</div></div>${reportBtn}<button class="btn sm" onclick="editTrainingExample('${e.id}')">编辑</button><button class="btn sm block" onclick="deleteTrainingExample('${e.id}')">删除</button></div>`;
   }).join(''):'<div class="empty"><b class="disp">当前项目还没有训练样本</b>去待审核里点「加入规则训练」最快。</div>'}
 function editTrainingExample(exampleId){
   const ex=TRAINING_EXAMPLES.find(e=>e.id===exampleId);
@@ -1129,7 +1129,7 @@ async function startTrainingRun(){
   const pid=currentTrainingProject();if(!pid){toast('请先选择训练项目',true);return}
   const fp=Number($('#tr-max-fp').value||0),it=Number($('#tr-max-iter').value||0);
   if(!(fp>0&&fp<=1)){toast('最大多判率应在 0~1 之间',true);return}
-  if(!(it>=1&&it<=50)){toast('最大迭代次数应在 1~50 之间',true);return}
+  if(!(it>=0&&it<=50)){toast('最大迭代次数应在 0~50 之间（0=仅校验不调AI）',true);return}
   const r=await api('POST','/training/projects/'+encodeURIComponent(pid)+'/train',{max_fp_ratio:fp,max_iterations:Math.round(it)});
   if(!r.ok){toast(r.data.detail||'启动训练失败',true);return}
   toast('已启动规则训练');
