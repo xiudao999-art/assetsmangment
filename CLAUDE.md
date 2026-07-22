@@ -344,6 +344,8 @@ for i in 1..max_iterations:
 - 收集该规则的漏判/多判物料（最多 10 个），取物料的 `ai_summary` / `description` 作为案例文本
 - 发给 Qwen（`_llm.chat_json`），**只返回 `{analysis, guidance}`**（不再返回 keywords/condition/match_level）
 - **guidance ≤300 字**，超长截断。结构：违规情形 + 放行反例
+- user prompt 末尾带 JSON 格式示例 `{"analysis":"...","guidance":"..."}`，防 AI 幻觉输出旧字段
+- AI 返回空 guidance → `_ai_adjust_rule` 返回 `None`，跳过该条规则（不清空现有 guidance）
 - `_apply_change` **只写 guidance**，condition/keywords/match_level 代码层面锁定不变
 - 单条规则 AI 调用失败不阻塞整体，下轮重试
 
