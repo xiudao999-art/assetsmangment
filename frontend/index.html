@@ -935,7 +935,7 @@ let TRAINING_STATUS=null,TRAINING_RULES=[],TRAINING_EXAMPLES=[];
 let TRAINING_PREFILL={project_id:'',material_id:'',task_id:'',task_name:'',source_note:'',suggested_rule_ids:[]};
 let TRAINING_MARK=null;
 let TRAINING_AUTO_PROJECT_DONE=false;
-const TRAINING_STATUS_CN={not_created:'未创建',collecting:'样本收集中',training:'训练中',completed:'已完成',failed:'未收敛'};
+const TRAINING_STATUS_CN={not_created:'未创建',collecting:'样本收集中',training:'训练中',completed:'已完成',failed:'未收敛',validated:'已校验'};
 function resetTrainingPrefill(){TRAINING_PREFILL={project_id:'',material_id:'',task_id:'',task_name:'',source_note:'',suggested_rule_ids:[]}}
 function currentTrainingProject(){return $('#tr-project')?.value||''}
 function fmtIso(v){
@@ -1083,7 +1083,7 @@ function renderTrainingStatus(){
   const metrics=result.final_metrics||{};
   const changes=(result.rule_changes||[]).slice(-8).reverse();
   const delBtn=ts.id&&ts.status!=='training'?`<button class="btn sm block" onclick="deleteTrainingSetCurrent('${ts.id}')">删除训练集</button>`:'';
-  const main=`<div class="qrow" style="margin:0"><div class="thumb">集</div><div class="meta"><div>${esc(projName(pid)||pid)} <span class="stamp ${ts.status==='completed'?'pass':(ts.status==='failed'?'block':(ts.status==='training'?'review':'processing'))}">${esc(st)}</span></div><div class="k">样本 ${TRAINING_EXAMPLES.length} 条 · 当前可训练规则 ${TRAINING_RULES.length} 条 · 快照 ${snapN} 条</div><div class="k">开始: ${fmtDateTimeSec(ts.started_at)} · 完成: ${fmtDateTimeSec(ts.completed_at)}</div></div><button class="btn sm" onclick="loadTrainingPage()">刷新</button>${delBtn}</div>`;
+  const main=`<div class="qrow" style="margin:0"><div class="thumb">集</div><div class="meta"><div>${esc(projName(pid)||pid)} <span class="stamp ${ts.status==='completed'||ts.status==='validated'?'pass':(ts.status==='failed'?'block':(ts.status==='training'?'review':'processing'))}">${esc(st)}</span></div><div class="k">样本 ${TRAINING_EXAMPLES.length} 条 · 当前可训练规则 ${TRAINING_RULES.length} 条 · 快照 ${snapN} 条</div><div class="k">开始: ${fmtDateTimeSec(ts.started_at)} · 完成: ${fmtDateTimeSec(ts.completed_at)}</div></div><button class="btn sm" onclick="loadTrainingPage()">刷新</button>${delBtn}</div>`;
   if(ts.status==='not_created'){
     box.innerHTML=main+`<div class="empty" style="margin-top:12px"><b class="disp">先收样本再训练</b>请先去待审核页,对项目作品点「加入规则训练」完成人工标注。</div>`;
     return}
@@ -1129,7 +1129,7 @@ async function startTrainingRun(){
   const pid=currentTrainingProject();if(!pid){toast('请先选择训练项目',true);return}
   const fp=Number($('#tr-max-fp').value||0),it=Number($('#tr-max-iter').value||0);
   if(!(fp>0&&fp<=1)){toast('最大多判率应在 0~1 之间',true);return}
-  if(!(it>=1&&it<=50)){toast('最大迭代次数应在 1~50 之间',true);return}
+  if(!(it>=0&&it<=50)){toast('最大迭代次数应在 0~50 之间（0=仅校验不调AI）',true);return}
   const r=await api('POST','/training/projects/'+encodeURIComponent(pid)+'/train',{max_fp_ratio:fp,max_iterations:Math.round(it)});
   if(!r.ok){toast(r.data.detail||'启动训练失败',true);return}
   toast('已启动规则训练');
