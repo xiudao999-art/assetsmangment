@@ -491,7 +491,9 @@ class TrainingService:
         user = (
             f"【当前规则】\n{rule_desc}\n\n"
             f"{missed_text}\n{extra_text}\n\n"
-            "请分析原因并给出优化后的 guidance（≤300字，只返回 JSON）。"
+            "请分析原因并给出优化后的 guidance（≤300字）。\n"
+            "严格按以下 JSON 格式返回，不要输出其他字段：\n"
+            '{"analysis":"简要分析漏判/多判的原因","guidance":"优化后的尺度说明"}'
         )
 
         try:
