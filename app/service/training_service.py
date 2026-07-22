@@ -507,9 +507,13 @@ class TrainingService:
         if not isinstance(out, dict) or not out:
             return None
 
+        guidance = str(out.get("guidance", "")).strip()
+        if not guidance:
+            return None   # AI 返回空 guidance,跳过(不清空现有)
+
         return {
             "analysis": str(out.get("analysis", ""))[:200],
-            "guidance": str(out.get("guidance", "")).strip()[:300],
+            "guidance": guidance[:300],
         }
 
     def _apply_change(self, rule: AuditRule, change: dict, by: str) -> None:
