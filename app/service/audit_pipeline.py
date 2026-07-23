@@ -93,6 +93,20 @@ def _reason_says_pass(reason: str) -> bool:
     return any(tok in reason for tok in _FALSE_POSITIVE_TOKENS)
 
 
+_EMPTY_SEGMENT_CLAIMS = ["无任何画面描述", "无具体描述", "后无具体描述",
+                         "无任何描述内容", "未有画面描述", "无画面描述内容"]
+
+
+def _hallucinated_empty(seg, reason: str) -> bool:
+    """LLM 声称某段「无画面描述」, 但实际段有文字(>20 字) → 幻觉, 该 finding 应丢弃。"""
+    if seg is None:
+        return False
+    txt = (seg.text or "").strip()
+    if len(txt) < 20:          # 确实几乎没内容, 不是幻觉
+        return False
+    return any(c in reason for c in _EMPTY_SEGMENT_CLAIMS)
+
+
 def _norm_level(v) -> str:
     """严格程度归一:literal=字面、regex=正则(不走大模型)保留原值;其余(缺省/非法)→ metaphor(隐喻,安全默认)。"""
     return v if v in ("literal", "regex") else "metaphor"
@@ -757,6 +771,8 @@ class AuditPipelineService:
             reason = str(f.get("reason") or "命中规则").strip()
             if _reason_says_pass(reason):
                 continue   # 大模型自己说没违规 → 不纳入 triggered
+            if _hallucinated_empty(seg, reason):
+                continue   # 大模型声称段无内容但实际有文字 → 幻觉, 丢弃
             rule_desc = (rule.condition or "").strip()[:80] or "（见参考词）"   # 报告显示「因哪条规则」
             if seg is not None:
                 item = {"rule_id": rule.id, "rule_no": getattr(rule, "no", 0), "rule_desc": rule_desc,
