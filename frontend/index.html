@@ -7,10 +7,10 @@
 <link rel="preconnect" href="https://fonts.googleapis.com"><link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
 <link href="https://fonts.googleapis.com/css2?family=Fraunces:opsz,wght@9..144,500;9..144,600;9..144,700&family=Inter:wght@400;500;600&family=IBM+Plex+Mono:wght@400;500&display=swap" rel="stylesheet">
 <style>
-  /* 白底黑字 + 葡萄紫单一强调色(无渐变);标题 Fraunces,正文 Inter */
-  :root{--bg:#ffffff;--panel:#faf9fc;--raise:#f5f2f9;--line:#eceaf1;--line-2:#ded8e8;
-    --ink:#1c1526;--dim:#6b6478;--faint:#a49dae;--mint:#6c2ba0;--mint-ink:#ffffff;--grape-soft:#f4edfb;
-    --pass:#1f9d57;--review:#b8781a;--block:#c22b52;--r:12px;--rail-w:60px}
+  /* 暖白底 + 橘红主色;标题 Fraunces,正文 Inter */
+  :root{--bg:#fff8f5;--panel:#fffdfb;--raise:#fff1ea;--line:#f2ddd6;--line-2:#e9c8bc;
+    --ink:#2d140f;--dim:#7f5a52;--faint:#b9948b;--mint:#e1391a;--mint-ink:#fffaf8;--grape-soft:#ffe7df;
+    --pass:#1f9d57;--review:#c9781d;--block:#b42318;--r:12px;--rail-w:60px}
   *{box-sizing:border-box}
   body{margin:0;background:var(--bg);color:var(--ink);font:400 14px/1.55 Inter,system-ui,"PingFang SC",sans-serif;-webkit-font-smoothing:antialiased}
   .mono{font-family:"IBM Plex Mono",monospace} .disp{font-family:"Fraunces",sans-serif;letter-spacing:-.01em}
@@ -18,7 +18,7 @@
   .app{display:grid;grid-template-columns:var(--rail-w) 1fr;min-height:100vh}
   .app.nav-expanded{--rail-w:238px}
   /* 左栏(默认收成图标窄栏,几乎不占 PC 宽;点箭头展开;手机上抽屉滑出)*/
-  .rail{background:var(--panel);border-right:1px solid var(--line);padding:22px 14px;display:flex;flex-direction:column;gap:5px;position:sticky;top:0;height:100vh;overflow:hidden;transition:padding .18s}
+  .rail{background:linear-gradient(180deg,color-mix(in oklab,var(--raise) 72%,var(--panel)),var(--panel));border-right:1px solid var(--line);padding:22px 14px;display:flex;flex-direction:column;gap:5px;position:sticky;top:0;height:100vh;overflow:hidden;transition:padding .18s}
   .app:not(.nav-expanded) .rail{padding:22px 9px}
   .app:not(.nav-expanded) .nav{justify-content:center;gap:0;padding:9px 0}
   .app:not(.nav-expanded) .nav-t,.app:not(.nav-expanded) .nav .cnt,
@@ -37,7 +37,7 @@
   .brand b{font:600 17px/1 "Fraunces";letter-spacing:-.02em}.brand small{display:block;color:var(--faint);font-size:10.5px;letter-spacing:.14em;margin-top:3px}
   .navgroup{margin-top:12px}.navgroup>span{display:block;color:var(--faint);font-size:10px;letter-spacing:.16em;text-transform:uppercase;padding:0 10px 6px;font-weight:600}
   .nav{position:relative;display:flex;align-items:center;gap:10px;padding:9px 10px;border-radius:9px;color:var(--dim);cursor:pointer;font-weight:500;border:1px solid transparent;user-select:none}
-  .nav:hover{background:var(--raise);color:var(--ink)}.nav.on{background:var(--raise);color:var(--ink);border-color:var(--line-2)}.nav.on .ico{color:var(--mint)}
+  .nav:hover{background:color-mix(in oklab,var(--mint) 7%,var(--panel));color:var(--ink)}.nav.on{background:color-mix(in oklab,var(--mint) 10%,var(--panel));color:var(--ink);border-color:color-mix(in oklab,var(--mint) 24%,var(--line-2))}.nav.on .ico{color:var(--mint)}
   .nav.on::before{content:"";position:absolute;left:2px;top:8px;bottom:8px;width:3px;border-radius:2px;background:var(--mint)}
   .nav-t{white-space:nowrap;overflow:hidden}
   .ico{width:17px;height:17px;flex:none;stroke:currentColor;fill:none;stroke-width:1.7}
@@ -52,21 +52,21 @@
   .led{width:7px;height:7px;border-radius:50%;background:var(--faint)}.led.ok{background:var(--pass);box-shadow:0 0 0 3px color-mix(in oklab,var(--pass) 25%,transparent)}
   /* 主区 */
   main{min-width:0}
-  .topbar{display:flex;align-items:flex-end;justify-content:space-between;gap:16px;padding:26px 32px 18px;border-bottom:1px solid var(--line);position:sticky;top:0;background:linear-gradient(var(--bg),color-mix(in oklab,var(--bg) 84%,transparent));backdrop-filter:blur(6px);z-index:5}
+  .topbar{display:flex;align-items:flex-end;justify-content:space-between;gap:16px;padding:26px 32px 18px;border-bottom:1px solid var(--line);position:sticky;top:0;background:linear-gradient(180deg,color-mix(in oklab,var(--raise) 48%,var(--bg)),color-mix(in oklab,var(--bg) 86%,transparent));backdrop-filter:blur(6px);z-index:5}
   .topbar h1{font:600 24px/1.1 "Fraunces";margin:0}.topbar p{margin:5px 0 0;color:var(--dim);font-size:13px}
   .wrap{padding:24px 32px 60px;max-width:1160px}
   section{display:none}section.on{display:block;animation:fade .22s ease}
   @keyframes fade{from{opacity:0;transform:translateY(4px)}to{opacity:1;transform:none}}
   @media (prefers-reduced-motion:reduce){section.on,.toast{animation:none}}
   /* 控件 */
-  .btn{display:inline-flex;align-items:center;gap:7px;border:1px solid var(--line-2);background:var(--raise);color:var(--ink);padding:9px 15px;border-radius:9px;font:600 13px Inter;cursor:pointer}
-  .btn:hover{border-color:var(--faint)}.btn.key{background:var(--mint);color:var(--mint-ink);border-color:var(--mint)}.btn.key:hover{filter:brightness(1.07)}
+  .btn{display:inline-flex;align-items:center;gap:7px;border:1px solid var(--line-2);background:var(--raise);color:var(--ink);padding:9px 15px;border-radius:9px;font:600 13px Inter;cursor:pointer;transition:border-color .15s,background .15s,transform .15s,box-shadow .15s}
+  .btn:hover{border-color:var(--faint)}.btn.key{background:var(--mint);color:var(--mint-ink);border-color:var(--mint);box-shadow:0 10px 22px color-mix(in oklab,var(--mint) 28%,transparent)}.btn.key:hover{filter:brightness(1.05);transform:translateY(-1px)}
   .btn.sm{padding:6px 11px;font-size:12px}.btn.pass{border-color:color-mix(in oklab,var(--pass) 45%,transparent);color:var(--pass)}.btn.block{border-color:color-mix(in oklab,var(--block) 45%,transparent);color:var(--block)}
   input,select,textarea{width:100%;background:var(--panel);border:1px solid var(--line-2);color:var(--ink);padding:10px 12px;border-radius:9px;font:400 14px Inter}
   textarea{line-height:1.55;resize:vertical;min-height:96px}
   input:focus,select:focus{outline:2px solid color-mix(in oklab,var(--mint) 60%,transparent);border-color:var(--mint)}
   label{display:block;color:var(--dim);font-size:12px;margin:0 0 6px}.field{margin-bottom:13px}.row{display:flex;gap:12px}.row>*{flex:1}
-  .card{background:var(--panel);border:1px solid var(--line);border-radius:var(--r);padding:20px}
+  .card{background:var(--panel);border:1px solid var(--line);border-radius:var(--r);padding:20px;box-shadow:0 10px 30px rgba(225,57,26,.04)}
   .card h3{font:600 15px "Fraunces";margin:0 0 3px}.card .hint{color:var(--dim);font-size:12.5px;margin:0 0 16px}
   /* 胶片投放区 */
   .drop{border:2px dashed var(--line-2);border-radius:14px;background:repeating-linear-gradient(90deg,transparent 0 26px,color-mix(in oklab,var(--raise) 60%,transparent) 26px 30px),var(--panel);padding:44px 24px;text-align:center;cursor:pointer;transition:.15s}
@@ -76,7 +76,7 @@
   /* 样张网格 */
   .sheet{display:grid;grid-template-columns:repeat(auto-fill,minmax(190px,1fr));gap:16px}
   .cell{background:var(--panel);border:1px solid var(--line);border-radius:11px;overflow:hidden;transition:.15s}
-  .cell:hover{border-color:color-mix(in oklab,var(--mint) 32%,var(--line-2));transform:translateY(-2px);box-shadow:0 8px 22px rgba(28,21,38,.06)}
+  .cell:hover{border-color:color-mix(in oklab,var(--mint) 32%,var(--line-2));transform:translateY(-2px);box-shadow:0 12px 28px rgba(225,57,26,.10)}
   .frame{position:relative;aspect-ratio:4/3;background:radial-gradient(120% 90% at 50% 0%,var(--raise),var(--panel));display:flex;align-items:center;justify-content:center;border-bottom:1px solid var(--line);cursor:pointer}
   .frame::before,.frame::after{content:none}
   .frame img{position:absolute;inset:0;width:100%;height:100%;object-fit:cover}.glyph{font:600 30px "Fraunces";color:var(--faint)}
@@ -118,7 +118,7 @@
   .qrow button.thumb:hover{border-color:color-mix(in oklab,var(--mint) 32%,var(--line-2));color:var(--mint);transform:translateY(-1px)}
   .qrow .meta{flex:1;min-width:0}.qrow .meta .k{font:500 12px "IBM Plex Mono";color:var(--dim);word-break:break-all}
   /* 审核决策卡(队列内直接看直接判) */
-  .qcard{background:var(--panel);border:1px solid var(--line);border-radius:14px;padding:16px;margin-bottom:14px}
+  .qcard{background:var(--panel);border:1px solid var(--line);border-radius:14px;padding:16px;margin-bottom:14px;box-shadow:0 10px 28px rgba(225,57,26,.05)}
   .qcard .qhd{display:flex;align-items:center;gap:12px;margin-bottom:12px}
   .qcard .qglyph{width:44px;height:36px;border-radius:8px;border:1px solid var(--line);background:radial-gradient(var(--raise),var(--panel));display:flex;align-items:center;justify-content:center;flex:none;color:var(--faint);font:600 16px "Fraunces"}
   .qcard .qhi{flex:1;min-width:0}.qcard .qtt{font:600 14px Inter}.qcard .qhi .k{font:500 11.5px "IBM Plex Mono";color:var(--dim);word-break:break-all;margin-top:2px}
@@ -144,21 +144,21 @@
   .empty{text-align:center;color:var(--dim);padding:54px 20px;border:1px dashed var(--line-2);border-radius:12px}.empty b{display:block;color:var(--ink);font:600 15px "Fraunces";margin-bottom:6px}
   /* 抽屉 */
   .scrim{position:fixed;inset:0;background:rgba(0,0,0,.5);opacity:0;pointer-events:none;transition:.2s;z-index:40}.scrim.on{opacity:1;pointer-events:auto}
-  .drawer{position:fixed;top:0;right:0;height:100vh;width:800px;max-width:92vw;background:var(--panel);border-left:1px solid var(--line);transform:translateX(100%);transition:.25s;z-index:41;display:flex;flex-direction:column}.drawer.on{transform:none}
+  .drawer{position:fixed;top:0;right:0;height:100vh;width:800px;max-width:92vw;background:linear-gradient(180deg,color-mix(in oklab,var(--raise) 28%,var(--panel)),var(--panel));border-left:1px solid var(--line);transform:translateX(100%);transition:.25s;z-index:41;display:flex;flex-direction:column;box-shadow:-24px 0 48px rgba(45,20,15,.12)}.drawer.on{transform:none}
   .drawer .dh{display:flex;align-items:center;justify-content:space-between;padding:18px 20px;border-bottom:1px solid var(--line)}.drawer .db{padding:20px;overflow:auto;flex:1}
   .preview{aspect-ratio:16/10;border-radius:10px;border:1px solid var(--line);overflow:hidden;background:radial-gradient(var(--raise),var(--panel));display:flex;align-items:center;justify-content:center;margin-bottom:16px}.preview img,.preview video{width:100%;height:100%;object-fit:contain}.preview video{background:#0d0b12}.preview audio{width:88%}.preview .txt{max-height:100%;overflow:auto;padding:14px;font-size:13px;line-height:1.6;white-space:pre-wrap;word-break:break-word;color:var(--ink)}
   .kv{display:flex;justify-content:space-between;gap:12px;padding:9px 0;border-bottom:1px solid var(--line)}.kv .kk{color:var(--dim)}.kv .vv{font-family:"IBM Plex Mono";font-size:12px;text-align:right;word-break:break-all}
   .toasts{position:fixed;right:20px;bottom:20px;display:flex;flex-direction:column;gap:8px;z-index:60}
-  .toast{background:var(--raise);border:1px solid var(--line-2);border-left:3px solid var(--mint);padding:11px 15px;border-radius:9px;font-size:13px;min-width:200px;box-shadow:0 10px 30px rgba(0,0,0,.35);animation:slidein .2s}.toast.bad{border-left-color:var(--block)}
+  .toast{background:var(--panel);border:1px solid var(--line-2);border-left:3px solid var(--mint);padding:11px 15px;border-radius:9px;font-size:13px;min-width:200px;box-shadow:0 14px 34px rgba(45,20,15,.16);animation:slidein .2s}.toast.bad{border-left-color:var(--block)}
   @keyframes slidein{from{opacity:0;transform:translateX(12px)}to{opacity:1;transform:none}}
   .x{cursor:pointer;color:var(--dim);background:none;border:none;font-size:18px}
   /* 登录门 */
   .gate{position:fixed;inset:0;background:var(--bg);display:flex;align-items:center;justify-content:center;z-index:80}
-  .gate .box{width:380px;max-width:92vw;background:var(--panel);border:1px solid var(--line);border-radius:16px;padding:30px}
-  .gate .bar{display:flex;gap:6px;margin:16px 0 20px}.tab{flex:1;text-align:center;padding:9px;border-radius:9px;border:1px solid var(--line-2);color:var(--dim);cursor:pointer;font-weight:600;font-size:13px}.tab.on{background:var(--raise);color:var(--ink)}
+  .gate .box{width:380px;max-width:92vw;background:linear-gradient(180deg,color-mix(in oklab,var(--raise) 30%,var(--panel)),var(--panel));border:1px solid var(--line);border-radius:16px;padding:30px;box-shadow:0 22px 48px rgba(45,20,15,.10)}
+  .gate .bar{display:flex;gap:6px;margin:16px 0 20px}.tab{flex:1;text-align:center;padding:9px;border-radius:9px;border:1px solid var(--line-2);color:var(--dim);cursor:pointer;font-weight:600;font-size:13px}.tab.on{background:color-mix(in oklab,var(--mint) 11%,var(--panel));color:var(--ink);border-color:color-mix(in oklab,var(--mint) 30%,var(--line-2))}
   .quick{display:flex;gap:8px;margin-top:14px}.quick .btn{flex:1;justify-content:center}
   /* 授权弹窗 */
-  .gmodal{position:fixed;left:50%;top:50%;transform:translate(-50%,-47%);width:470px;max-width:92vw;max-height:86vh;background:var(--panel);border:1px solid var(--line-2);border-radius:16px;z-index:81;display:none;flex-direction:column;box-shadow:0 30px 80px rgba(0,0,0,.32)}
+  .gmodal{position:fixed;left:50%;top:50%;transform:translate(-50%,-47%);width:470px;max-width:92vw;max-height:86vh;background:linear-gradient(180deg,color-mix(in oklab,var(--raise) 26%,var(--panel)),var(--panel));border:1px solid var(--line-2);border-radius:16px;z-index:81;display:none;flex-direction:column;box-shadow:0 30px 80px rgba(45,20,15,.20)}
   .gmodal.on{display:flex}
   .gmhd{display:flex;justify-content:space-between;align-items:center;padding:18px 20px;border-bottom:1px solid var(--line)}
   .gmbody{padding:16px 20px;overflow:auto}
@@ -212,17 +212,17 @@
   }
   .select-btn{width:100%;min-height:42px;display:flex;align-items:center;justify-content:space-between;gap:10px;padding:10px 12px;border:1px solid var(--line-2);border-radius:9px;background:var(--panel);color:var(--ink);cursor:pointer;font:400 14px/1.35 Inter;text-align:left;white-space:nowrap;overflow:hidden;text-overflow:ellipsis;transition:border-color .15s,background .15s,color .15s}
   .select-btn:hover{border-color:var(--faint)}
-  .select-btn.open{border-color:var(--mint);background:var(--panel)}
+  .select-btn.open{border-color:var(--mint);background:color-mix(in oklab,var(--mint) 7%,var(--panel))}
   .select-btn:focus-visible{outline:2px solid color-mix(in oklab,var(--mint) 60%,transparent);outline-offset:2px}
   .src-dropdown{position:absolute;top:calc(100% + 4px);left:0;z-index:50;min-width:100%;max-width:min(320px,calc(100vw - 40px));border:1px solid var(--line-2);border-radius:9px;background:var(--panel);box-shadow:0 10px 24px rgba(28,21,38,.08);padding:6px;display:grid;gap:2px}
   .src-opt{display:flex;align-items:center;gap:10px;padding:8px 10px;border-radius:7px;font:400 14px/1.4 Inter;color:var(--dim);cursor:pointer;transition:background .12s,color .12s,border-color .12s;border:1px solid transparent}
   .src-opt:hover{background:var(--raise);color:var(--ink)}
-  .src-opt:has(input:checked){background:color-mix(in oklab,var(--mint) 8%,var(--panel));color:var(--ink)}
+  .src-opt:has(input:checked){background:color-mix(in oklab,var(--mint) 12%,var(--panel));color:var(--ink);border-color:color-mix(in oklab,var(--mint) 28%,var(--line-2))}
   .src-opt input[type=checkbox]{width:16px;height:16px;flex:none;margin:0;accent-color:var(--mint)}
   .splitline{display:flex;align-items:center;gap:12px;color:var(--dim);font-size:12px;margin:2px 0 14px}
   .splitline span{flex:1;height:1px;background:var(--line)}
   .kpi{display:grid;grid-template-columns:repeat(auto-fit,minmax(132px,1fr));gap:10px;margin:12px 0}
-  .kpi .item{border:1px solid var(--line);border-radius:10px;background:var(--raise);padding:11px 12px}
+  .kpi .item{border:1px solid var(--line);border-radius:10px;background:linear-gradient(180deg,color-mix(in oklab,var(--raise) 84%,var(--panel)),var(--panel));padding:11px 12px}
   .kpi .item b{display:block;font:600 18px/1 "Fraunces";margin-bottom:4px}
   .kpi .item span{color:var(--dim);font-size:11.5px}
 </style>
