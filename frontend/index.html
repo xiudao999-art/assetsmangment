@@ -387,7 +387,7 @@
             <div class="row" style="align-items:flex-end;flex-wrap:wrap;gap:12px">
               <div class="field f-grow" style="margin:0"><label>训练项目</label><select id="tr-project" onchange="loadTrainingPage()"></select></div>
               <div class="field f-fixed" style="margin:0"><label>最大多判率</label><input id="tr-max-fp" type="number" min="0.01" max="1" step="0.01" value="0.20"></div>
-              <div class="field f-fixed" style="margin:0"><label>最大迭代次数 <span style="font-weight:400;color:var(--faint)">（0=仅校验不调AI）</span></label><input id="tr-max-iter" type="number" min="0" max="50" step="1" value="10"></div>
+              <div class="field f-fixed" style="margin:0"><label>最大迭代次数 <span style="font-weight:400;color:var(--faint)">（0=仅校验不调整规则）</span></label><input id="tr-max-iter" type="number" min="0" max="50" step="1" value="10"></div>
               <button class="btn key f-auto" onclick="startTrainingRun()">开始训练</button>
             </div>
             <div id="tr-status" style="margin-top:14px"></div>
@@ -1129,7 +1129,7 @@ async function startTrainingRun(){
   const pid=currentTrainingProject();if(!pid){toast('请先选择训练项目',true);return}
   const fp=Number($('#tr-max-fp').value||0),it=Number($('#tr-max-iter').value||0);
   if(!(fp>0&&fp<=1)){toast('最大多判率应在 0~1 之间',true);return}
-  if(!(it>=0&&it<=50)){toast('最大迭代次数应在 0~50 之间（0=仅校验不调AI）',true);return}
+  if(!(it>=0&&it<=50)){toast('最大迭代次数应在 0~50 之间（0=仅校验不调整规则）',true);return}
   const r=await api('POST','/training/projects/'+encodeURIComponent(pid)+'/train',{max_fp_ratio:fp,max_iterations:Math.round(it)});
   if(!r.ok){toast(r.data.detail||'启动训练失败',true);return}
   toast('已启动规则训练');
