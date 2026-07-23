@@ -387,7 +387,7 @@
             <div class="row" style="align-items:flex-end;flex-wrap:wrap;gap:12px">
               <div class="field f-grow" style="margin:0"><label>训练项目</label><select id="tr-project" onchange="loadTrainingPage()"></select></div>
               <div class="field f-fixed" style="margin:0"><label>最大多判率</label><input id="tr-max-fp" type="number" min="0.01" max="1" step="0.01" value="0.20"></div>
-              <div class="field f-fixed" style="margin:0"><label>最大迭代次数</label><input id="tr-max-iter" type="number" min="0" max="50" step="1" value="10"></div>
+              <div class="field f-fixed" style="margin:0"><label>最大迭代次数 <span style="font-weight:400;color:var(--faint)">（0=仅校验不调AI）</span></label><input id="tr-max-iter" type="number" min="0" max="50" step="1" value="10"></div>
               <button class="btn key f-auto" onclick="startTrainingRun()">开始训练</button>
             </div>
             <div id="tr-status" style="margin-top:14px"></div>
@@ -1091,7 +1091,7 @@ function renderTrainingStatus(){
   if(ts.status==='collecting'){
     extra='<div class="empty" style="margin-top:12px"><b class="disp">样本收集中</b>凑够几条有代表性的作品后再开始训练,效果更稳定。</div>'}
   else{
-    extra=`<div class="kpi"><div class="item"><b>${Array.isArray(result.iterations)?result.iterations.length:(result.iterations||0)}</b><span>迭代轮数</span></div><div class="item"><b>${metrics.total_materials||0}</b><span>训练样本数</span></div><div class="item"><b>${metrics.missed_hits||0}</b><span>漏判次数</span></div><div class="item"><b>${metrics.extra_hits||0}</b><span>多判次数</span></div><div class="item"><b>${fmtPct(metrics.fp_ratio||0)}</b><span>多判率</span></div><div class="item"><b>${result.converged?'已收敛':'未收敛'}</b><span>训练结论</span></div></div>`;
+    extra=`<div class="kpi"><div class="item"><b>${Array.isArray(result.iterations)?result.iterations.length:(result.iterations||0)}</b><span>迭代轮数</span></div><div class="item"><b>${metrics.total_materials||0}</b><span>训练样本数</span></div><div class="item"><b>${metrics.total_expected_hits||0}</b><span>应判次数</span></div><div class="item"><b>${metrics.missed_hits||0}</b><span>漏判次数</span></div><div class="item"><b>${metrics.extra_hits||0}</b><span>多判次数</span></div><div class="item"><b>${fmtPct(metrics.fp_ratio||0)}</b><span>多判率</span></div><div class="item"><b>${result.converged?'已收敛':'未收敛'}</b><span>训练结论</span></div></div>`;
     extra+=changes.length?`<div style="margin-top:10px"><label>最近规则调整</label><div style="margin-top:8px">${changes.map(c=>`<div class="qrow" style="align-items:flex-start"><div class="meta"><div>${c.rule_no?`规则 ${c.rule_no}`:'规则'} <span class="owner">${esc(c.analysis||'AI 已调整规则边界')}</span></div><div class="k">关键词:${esc((c.keywords||[]).join('、')||'—')}</div><div class="k">条件:${esc(c.condition||'—')}</div><div class="k">尺度:${esc((c.guidance||'—').slice(0,180))}</div></div></div>`).join('')}</div></div>`:'';
   }
   box.innerHTML=main+extra}
