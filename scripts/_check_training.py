@@ -49,7 +49,7 @@ rows = conn.execute("""
            p.name as project_name
     FROM rule_training_set ts
     LEFT JOIN project p ON p.id = ts.project_id AND p.del_flag = 0
-    WHERE ts.del_flag = 0 AND ts.status IN ('completed','failed')
+    WHERE ts.del_flag = 0 AND ts.status IN ('completed','failed','validated')
     ORDER BY ts.id
 """).fetchall()
 
@@ -104,7 +104,7 @@ print("3. 样本 → Ground Truth vs 最新报告触发")
 print("=" * 80)
 for ts_row in conn.execute("""
     SELECT id, project_id, status FROM rule_training_set
-    WHERE del_flag = 0 AND status IN ('completed','failed')
+    WHERE del_flag = 0 AND status IN ('completed','failed','validated')
     ORDER BY id
 """).fetchall():
     ts_id = ts_row['id']
@@ -187,6 +187,8 @@ if tr and isinstance(tr, dict):
         rc = it.get('rule_changes', {})
         if not rc:
             print("  (无规则变更)")
+        if isinstance(rc, list):
+            rc = {ch.get('rule_id', f'unknown_{i}'): ch for i, ch in enumerate(rc)}
         for rid, ch in rc.items():
             if isinstance(ch, dict):
                 old = ch.get('old', {}) or {}
