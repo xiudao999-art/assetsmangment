@@ -57,6 +57,9 @@ class Settings(BaseSettings):
     # 内容安全严格度:strict(严重类全硬拦)/ balanced(适中:只色情政治暴恐硬拦,其余转人工)/ loose(从不硬拦,全转人工)
     content_safety_mode: str = "balanced"
 
+    # 日志目录（容器内 /logs → 宿主机 logs/assetsmangment）
+    log_dir: str = "/logs"
+
     # 数据库(RDS PostgreSQL + pgvector)
     database_url: str = "postgresql://user:pass@localhost:5432/assets"
 

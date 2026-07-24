@@ -53,6 +53,15 @@
 
 `main.py` 启动时 `logging.basicConfig(level=INFO)` 让全部 app logger 输出到控制台（uvicorn 只打自己的 access log，不打业务日志）。训练进度、审核流程等关键日志格式：`2026-07-21 14:32:01 INFO [app.service.training_service] --- 迭代 1/5 ---`。
 
+**持久化日志（2026-07-24）**：除控制台外，`main.py` 在 `basicConfig` 后追加两个 `_DailySizeRotatingHandler`（继承 `TimedRotatingFileHandler`，加 10MB 大小兜底切分），写入 `AM_LOG_DIR`（默认 `/logs`，docker-compose 挂载到宿主机 `logs/assetsmangment/`）：
+
+| 文件 | 级别 | 切分策略 | 保留 |
+|---|---|---|---|
+| `app.log` | INFO+ | 每天午夜 + 单文件超 10MB | 30 天 |
+| `app.error.log` | ERROR+ | 同上 | 30 天 |
+
+`AM_LOG_DIR=""` 可跳过文件写入（本地开发无需落盘）。`_DailySizeRotatingHandler.shouldRollover` 先检查文件大小再委托父类时间检查——当日内多次大小触发会覆盖同名备份（单日 >20MB 才出现，当前规模不影响）。
+
 ## 本地启动
 
 ```powershell
