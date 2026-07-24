@@ -234,10 +234,11 @@ if settings.dashscope_api_key:
     from app.infrastructure.dashscope_embed import DashScopeEmbedder, DashScopeQueryEmbedder
     _embedder = DashScopeEmbedder(settings.dashscope_api_key, settings.embedding_model)
     _query_embedder = DashScopeQueryEmbedder(settings.dashscope_api_key, settings.embedding_model)
-    from app.infrastructure.dashscope_llm import DashScopeLlm
     from app.infrastructure.dashscope_asr import DashScopeTranscriber
     from app.infrastructure.qwen_vl import QwenVLVisionDescriber
-    _llm = DashScopeLlm(settings.dashscope_api_key, settings.qwen_llm_model)
+    from app.infrastructure.openai_llm import OpenAILlm
+    _llm = OpenAILlm(settings.audit_llm_api_key or settings.dashscope_api_key,
+                     settings.audit_llm_model, settings.audit_llm_base_url)
     _vision = QwenVLVisionDescriber(settings.dashscope_api_key, settings.qwen_vl_model)
     _transcriber = DashScopeTranscriber(settings.dashscope_api_key, settings.asr_model)
     from app.infrastructure.aliyun_oss import OssStorage as _Oss

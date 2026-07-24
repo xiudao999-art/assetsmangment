@@ -717,7 +717,9 @@ function fmtDateTimeSec(v){
   if(!raw)return '—';
   const ms=Number(raw);
   if(Number.isFinite(ms)&&/^\d+$/.test(raw)&&raw.length>=10){
-    return fmtIso(new Date(raw.length===10?ms*1000:ms).toISOString())}
+    const d=new Date(raw.length===10?ms*1000:ms);
+    d.setTime(d.getTime()+8*3600000);
+    return fmtIso(d.toISOString())}
   return fmtIso(raw)}
 function buildPendingFilter(){
   const el=$('#pending-filter');if(!el)return;
