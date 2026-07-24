@@ -3,8 +3,12 @@
 三波级联判定:① 绝对禁词硬拦 ② 阿里云内容安全通用拦截 ③ 语义整篇审核(物料+规则各打包成文本交大模型整判) → 报告。
 视频链路里截出的帧顺带自动存为可复用物料。"""
 from __future__ import annotations
+import logging
+import time
 import uuid
 from typing import Optional
+
+logger = logging.getLogger(__name__)
 
 from app.domain.models import (
     MaterialType, AuditStatus, JobStatus, TextSourceType,
@@ -182,7 +186,7 @@ _RULE_JUDGE_SYS = (
     "自检:若你写命中理由时用到了『结合上下文/语境』『暗示』『隐含』『引申』『延伸』『可理解为』『属…类(表达)』这类措辞,就说明它并非字面直接违规 —— 放行。"
     "举例:规则禁『躺赚』,字面命中是话里直接宣称『躺着/不劳动就能赚到钱』这类主张;而只是描述一个『躺床上听歌、金币自己涨』的产品场景、需要你推断『这可理解为躺赚』的,属引申,放行。"
     "字面判定宁可漏、不可误伤(它也判「表面意思」而非机械逐字匹配参考词,但表面意思必须自身就违规)。\n"
-    "【隐喻判定】= 除字面直接违反外,【影射、暗示、隐喻、谐音、代称、擦边、结合语境的引申】等间接表达也要揪出来算命中(仅用于国家政治/领导人/民族宗教/国家标志等严重项,隐晦也不放过)。\n\n"
+    "【隐喻判定】= 除字面直接违反外,【影射、暗示、隐喻、谐音、代称、擦边、结合语境的引申】等间接表达也要揪出来算命中。\n\n"
     "## 尺度说明的使用\n"
     "尺度说明中的反例和放行情景**不是建议,是硬约束**——若物料情形与尺度说明中列出的放行情况一致,"
     "必须放行,不得以其他理由判违规。尺度说明中明确排除的情形,不要自作主张纳入。"
@@ -280,15 +284,21 @@ class AuditPipelineService:
         ③ 前两波都放行 → 语义整篇审核(全局∪项目规则 vs 打包物料),最细。
         机器只出 pass / review(发现任何问题都转人工),**永不直接 block**;block 只由人工拒绝产生。
         作品(job.project_id 非空)吃「全局 ∪ 该项目」规则;物料只吃全局。"""
+        t0 = time.perf_counter()
+        name = getattr(job, "oss_key", "") or getattr(job, "material_id", "") or "?"
         # 第一波:绝对禁词(管理员精选、非常确定不能讲)——命中即转人工,停
         bw = self._blockword_scan(segments)
         if bw:
+            logger.info("审核耗时 %.1fs [%s] wave1=禁词(%d条) → review", time.perf_counter() - t0, name, len(bw))
             return AuditReport(verdict=AuditStatus.REVIEW, segments=segments,
                                triggered=bw, summary=self._summary(AuditStatus.REVIEW, bw))
         # 第二波:阿里云内容安全(普通模式)通用拦截——发现问题即停
+        t1 = time.perf_counter()
         cs = self._content_safety(job, segments)
         if cs:
             v = self._combine(cs)
+            logger.info("审核耗时 %.1fs [%s] wave2=云安全(%.1fs,%d条) → %s",
+                        time.perf_counter() - t0, name, time.perf_counter() - t1, len(cs), v.value)
             return AuditReport(verdict=v, segments=segments, triggered=cs, summary=self._summary(v, cs))
         # 第三波:规则判定。按严格程度拆两支——
         #   正则规则(match_level=="regex")→ 纯正则精确命中,**零大模型**;
@@ -298,8 +308,17 @@ class AuditPipelineService:
                       if r.enabled and (r.project_id == "" or r.project_id == pid)]
         regex_rules = [r for r in applicable if _norm_level(getattr(r, "match_level", "metaphor")) == "regex"]
         sem_rules = [r for r in applicable if _norm_level(getattr(r, "match_level", "metaphor")) != "regex"]
-        trig = self._regex_scan(segments, regex_rules, job) + self._semantic_judge(segments, sem_rules, job)
+        t2 = time.perf_counter()
+        regex_hits = self._regex_scan(segments, regex_rules, job)
+        t3 = time.perf_counter()
+        sem_hits = self._semantic_judge(segments, sem_rules, job)
+        t4 = time.perf_counter()
+        trig = regex_hits + sem_hits
         v = self._combine(trig)
+        logger.info("审核耗时 %.1fs [%s] regex=%.1fs(%d条/%d命中) semantic=%.1fs(%d条/%d命中) → %s",
+                    time.perf_counter() - t0, name,
+                    t3 - t2, len(regex_rules), len(regex_hits),
+                    t4 - t3, len(sem_rules), len(sem_hits), v.value)
         return AuditReport(verdict=v, segments=segments, triggered=trig, summary=self._summary(v, trig))
 
     def _regex_scan(self, segments: list[TextSegment], rules: list[AuditRule], job: AuditJob) -> list[dict]:
@@ -741,13 +760,17 @@ class AuditPipelineService:
             return []
         material_doc = self._pack_material(segments, job)
         rules_doc = self._pack_rules(rules)
+        t0 = time.perf_counter()
         try:
             out = self._llm.chat_json(
                 _RULE_JUDGE_SYS,
                 f"【物料内容】\n{material_doc}\n\n【审核规则清单】\n{rules_doc}\n\n请以 json 返回 findings。")
         except Exception:
+            logger.warning("语义审核 LLM 调用异常,耗时 %.1fs", time.perf_counter() - t0)
             return [{"rule_id": "", "source_type": "text", "action": "review",
                      "reason": "语义审核异常,转人工复核"}]
+        logger.info("语义审核 LLM 耗时 %.1fs, %d条规则, 物料%d段",
+                    time.perf_counter() - t0, len(rules), len(segments))
         findings = out.get("findings") if isinstance(out, dict) else None
         if not isinstance(findings, list):
             return []
@@ -811,10 +834,10 @@ class AuditPipelineService:
             ms = s.begin_ms
             tc = f"{int(ms) // 60000:02d}:{int(ms) // 1000 % 60:02d}" if ms is not None else "—"
             lab = _MAT_LABEL.get(s.source_type, "文字")
-            txt = (s.text or "").strip().replace("\n", " ")[:600]
+            txt = (s.text or "").strip().replace("\n", " ")
             lines.append(f"〖{i}〗{tc} {lab}  {txt}")
             total += len(txt)
-            if total > 9000:                 # 整体封顶,防超长
+            if total > 9000:                 # 整体封顶,防超长;单段不截断,保留完整描述
                 lines.append("(后续段落略)")
                 break
         return "\n".join(lines)

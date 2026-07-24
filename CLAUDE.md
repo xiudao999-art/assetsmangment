@@ -53,6 +53,15 @@
 
 `main.py` 启动时 `logging.basicConfig(level=INFO)` 让全部 app logger 输出到控制台（uvicorn 只打自己的 access log，不打业务日志）。训练进度、审核流程等关键日志格式：`2026-07-21 14:32:01 INFO [app.service.training_service] --- 迭代 1/5 ---`。
 
+**持久化日志（2026-07-24）**：除控制台外，`main.py` 在 `basicConfig` 后追加两个 `_DailySizeRotatingHandler`（继承 `TimedRotatingFileHandler`，加 10MB 大小兜底切分），写入 `AM_LOG_DIR`（默认 `/logs`，docker-compose 挂载到宿主机 `logs/assetsmangment/`）：
+
+| 文件 | 级别 | 切分策略 | 保留 |
+|---|---|---|---|
+| `app.log` | INFO+ | 每天午夜 + 单文件超 10MB | 30 天 |
+| `app.error.log` | ERROR+ | 同上 | 30 天 |
+
+`AM_LOG_DIR=""` 可跳过文件写入（本地开发无需落盘）。`_DailySizeRotatingHandler.shouldRollover` 先检查文件大小再委托父类时间检查——当日内多次大小触发会覆盖同名备份（单日 >20MB 才出现，当前规模不影响）。
+
 ## 本地启动
 
 ```powershell
@@ -294,6 +303,8 @@ with psycopg.connect(dsn, autocommit=True) as conn:
 - **Qwen-VL 防否定清单**（2026-07-22）：原 prompt「如果某项内容确实不在画面中,严禁编造」被 VL 误解为需要逐条对照规则声明「未出现XX」「无XX」。改为「关注项只用于指引注意力——只描述实际看到的,关注项不在画面中的保持沉默不提及」。根除 VL 输出大段"画面未出现…无…未见…"否定罗列。
 - **Qwen-VL 防幻觉强化**（2026-07-22）：VL 从图标/UI 风格推测出画面中不存在的"QQ音乐"水印。prompt 追加「抄录必须逐字确认,看不清标注为『文字模糊不可辨』,不得猜测内容;平台名称只有清晰可辨时才写出,不得从图标或UI风格推测」。
 - **Qwen-VL prompt 合并精简**（2026-07-22）：原 prompt 的【重要】【防幻觉】【严禁】三块分散约束合并为一段连贯文字，精简约 30%，信息量不变。hints 注入段同步精简。
+- **`_RULE_JUDGE_SYS` 隐喻判定描述修正**（2026-07-24）：隐喻判定的 parenthetical `(仅用于国家政治/领导人/民族宗教/国家标志等严重项,隐晦也不放过)` 让大模型以为标了「隐喻判定」的非政治类规则不适用 → **整条规则被静默跳过**。#7 免责提示语（match_level=metaphor）对"汽水音乐11改.mp4"零命中即根因于此——VL 描述明确写了「免责文字位置:画面顶部」，但规则被标为隐喻判定，大模型看到"仅用于国家政治"的限定后直接不判。已改为 `(从严把握,宁多报不漏报)`。**教训：prompt 里不要给判定级别加「仅用于某场景」的范围限定——级别是判定方式，不是适用范围，适用范围由规则自身的 source_type 和 condition 决定。**
+- **Rule #7 第三次修正**（2026-07-24）：① `match_level` 从 `metaphor` 改为 `literal`（该条目 07-22 已写进 CLAUDE.md 但 **DB 更新从未执行**——CLAUDE.md 不是部署，改规则必须同时改 DB）。② guidance 末句「帧描述未提及免责文字或位置 → 判定违规」改为「→ 不推定违规，直接放行」，与 literal「宁可漏不可误伤」一致。验证：修改后同一物料 recheck，#7 正确命中全部 15 帧画面描述。
 
 ## 规则训练模块（2026-07-21）
 

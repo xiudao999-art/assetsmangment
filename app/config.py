@@ -23,10 +23,13 @@ class Settings(BaseSettings):
     oss_access_key_secret: str = ""
     oss_url_expire_seconds: int = 3600
 
-    # 百炼 DashScope(Qwen-VL + multimodal-embedding + 审核用 LLM/ASR)
+    # 百炼 DashScope(Qwen-VL + multimodal-embedding + ASR)
     dashscope_api_key: str = ""
     qwen_vl_model: str = "qwen3-vl-plus"
-    qwen_llm_model: str = "qwen-plus"           # 规则判定/挑重点时间段
+    # 审核规则判定 LLM —— OpenAI 兼容 API,换模型只改下面三行
+    audit_llm_api_key: str = ""
+    audit_llm_model: str = "qwen-plus"
+    audit_llm_base_url: str = "https://dashscope.aliyuncs.com/compatible-mode/v1"
     asr_model: str = "paraformer-v2"            # 语音转写(带时间轴)
     embedding_model: str = "multimodal-embedding-v1"
     embedding_dim: int = 1024
@@ -40,7 +43,7 @@ class Settings(BaseSettings):
     tavily_api_key: str = ""                                     # .env: AM_TAVILY_API_KEY
     # 审核并发/健壮性:有界工作池上限(单条+批量都提交到它,超出排队=背压);AI 调用超时+重试
     audit_concurrency: int = 6      # 同时在审的最大条数(总线程≈本值×帧池5,别调太高)
-    ai_timeout_s: int = 60          # 单次 AI 调用(Qwen-VL/LLM/ASR轮询)超时秒数,到点降级
+    ai_timeout_s: int = 300         # 单次 AI 调用(Qwen-VL/LLM/ASR轮询)超时秒数,到点降级
     ai_retries: int = 2             # 偶发失败的重试次数(不含首次)
     # Task janitor (定时补偿:重启恢复 + 运行时扫描卡住的任务)
     janitor_scan_interval_s: int = 300       # 扫描间隔(秒),默认 5 分钟
@@ -56,6 +59,9 @@ class Settings(BaseSettings):
     content_safety_region: str = "cn-beijing"
     # 内容安全严格度:strict(严重类全硬拦)/ balanced(适中:只色情政治暴恐硬拦,其余转人工)/ loose(从不硬拦,全转人工)
     content_safety_mode: str = "balanced"
+
+    # 日志目录（容器内 /logs → 宿主机 logs/assetsmangment）
+    log_dir: str = "/logs"
 
     # 数据库(RDS PostgreSQL + pgvector)
     database_url: str = "postgresql://user:pass@localhost:5432/assets"

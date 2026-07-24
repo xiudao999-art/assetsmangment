@@ -2,6 +2,7 @@
 import logging
 import os
 from contextlib import asynccontextmanager
+from logging.handlers import TimedRotatingFileHandler
 from fastapi import FastAPI
 
 logging.basicConfig(
@@ -9,6 +10,43 @@ logging.basicConfig(
     format="%(asctime)s %(levelname)s [%(name)s] %(message)s",
     datefmt="%Y-%m-%d %H:%M:%S",
 )
+
+
+class _DailySizeRotatingHandler(TimedRotatingFileHandler):
+    """按天切分 + 单文件超 10MB 也切，保留 30 天。"""
+
+    def __init__(self, filename: str, max_bytes: int = 10 * 1024 * 1024, **kw):
+        super().__init__(filename, when="midnight", interval=1, backupCount=30, encoding="utf-8", **kw)
+        self.max_bytes = max_bytes
+
+    def shouldRollover(self, record: logging.LogRecord) -> int:
+        if self.stream is not None and self.max_bytes > 0:
+            try:
+                if os.path.getsize(self.baseFilename) >= self.max_bytes:
+                    return 1
+            except OSError:
+                pass
+        return super().shouldRollover(record)
+
+
+# 持久化日志文件（容器内 /logs → 宿主机 logs/assetsmangment）
+from app.config import settings as _cfg
+
+_log_dir = _cfg.log_dir
+if _log_dir:
+    os.makedirs(_log_dir, exist_ok=True)
+    _fmt = logging.getLogger().handlers[0].formatter
+
+    # 全量日志（INFO+），按天 + 10MB 切分，保留 30 天
+    _fh_all = _DailySizeRotatingHandler(os.path.join(_log_dir, "app.log"))
+    _fh_all.setFormatter(_fmt)
+    logging.getLogger().addHandler(_fh_all)
+
+    # 错误日志（ERROR+），按天 + 10MB 切分，保留 30 天
+    _fh_err = _DailySizeRotatingHandler(os.path.join(_log_dir, "app.error.log"))
+    _fh_err.setLevel(logging.ERROR)
+    _fh_err.setFormatter(_fmt)
+    logging.getLogger().addHandler(_fh_err)
 from fastapi.responses import RedirectResponse
 from fastapi.staticfiles import StaticFiles
 from app.api.router import router
