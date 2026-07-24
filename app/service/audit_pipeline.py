@@ -834,10 +834,10 @@ class AuditPipelineService:
             ms = s.begin_ms
             tc = f"{int(ms) // 60000:02d}:{int(ms) // 1000 % 60:02d}" if ms is not None else "—"
             lab = _MAT_LABEL.get(s.source_type, "文字")
-            txt = (s.text or "").strip().replace("\n", " ")[:1000]
+            txt = (s.text or "").strip().replace("\n", " ")
             lines.append(f"〖{i}〗{tc} {lab}  {txt}")
             total += len(txt)
-            if total > 9000:                 # 整体封顶,防超长
+            if total > 9000:                 # 整体封顶,防超长;单段不截断,保留完整描述
                 lines.append("(后续段落略)")
                 break
         return "\n".join(lines)
