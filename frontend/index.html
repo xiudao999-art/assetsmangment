@@ -1723,7 +1723,7 @@ function renderMaterialSubmissionEditForm(s,isNew){
   const x=s||{};
   const rejectKeys=parseSubmissionRejectAttachmentKeys((x.platform_reject_attachments||[]).join('\n'));
   const canUp=Number(x.can_upload_status), pub=Number(x.publish_status);
-  return `<input type="hidden" id="sb-d-id" value="${esc(x.id||'')}">
+  const baseFields=`<input type="hidden" id="sb-d-id" value="${esc(x.id||'')}">
     <input type="hidden" id="sb-d-oss-key" value="${esc(x.oss_key||'')}">
     <div class="sb-section"><h4>基本信息</h4>
     <div class="row" style="align-items:flex-end;flex-wrap:wrap;gap:12px">
@@ -1737,9 +1737,9 @@ function renderMaterialSubmissionEditForm(s,isNew){
       <div class="field f-grow" style="margin:0"><label>标题名</label><input id="sb-d-title" value="${esc(x.title_name||'')}"></div>
       <div class="field f-grow" style="margin:0"><label>集数区间</label><input id="sb-d-episode" value="${esc(x.episode_range||'')}"></div>
     </div>
-    <div class="sb-inline-note">当前视频文件：${x.oss_key?esc(submissionUploadedFileName(x.oss_key)):'还没有上传视频文件'}</div>
-    </div>
-    <div class="sb-section"><h4>处理信息</h4>
+    <div class="sb-inline-note" id="sb-d-file-note">当前视频文件：${x.oss_key?esc(submissionUploadedFileName(x.oss_key)):'还没有上传视频文件'}</div>
+    </div>`;
+  const processFields=`<div class="sb-section"><h4>处理信息</h4>
     <div class="row" style="align-items:flex-end;flex-wrap:wrap;gap:12px">
       <div class="field f-grow" style="margin:0"><label>上传账号</label>${renderSubmissionSuggestInput('sb-p-account-name',x.upload_account_name||'','')}</div>
       <div class="field f-fixed" style="margin:0"><label>可上传状态</label><select id="sb-p-can-upload"><option value="" ${(!canUp||canUp!==1&&canUp!==2)?'selected':''}>空</option><option value="1" ${canUp===1?'selected':''}>可上传</option><option value="2" ${canUp===2?'selected':''}>不可上传</option></select></div>
@@ -1750,7 +1750,8 @@ function renderMaterialSubmissionEditForm(s,isNew){
     <textarea id="sb-p-reject-attachments" style="display:none">${esc(rejectKeys.join('\n'))}</textarea>
     <div class="field" style="margin-top:12px"><label>拒审附件</label><input id="sb-p-reject-files" type="file" multiple onchange="uploadMaterialSubmissionRejectAttachments()"><div id="sb-p-reject-state" class="sb-upload-state" hidden></div></div>
     <div style="margin-top:12px"><div id="sb-p-reject-attachments-list">${renderSubmissionRejectAttachmentItems(rejectKeys)}</div></div>
-    </div>
+    </div>`;
+  return baseFields + (isNew ? '' : processFields) + `
     <div style="display:flex;gap:10px;flex-wrap:wrap;margin-top:18px;padding-top:14px;border-top:1px solid var(--line)">
       <button class="btn key" onclick="saveMaterialSubmissionEdit('${esc(x.id||'')}')">保存</button>
       ${!isNew?`<button class="btn block" onclick="deleteMaterialSubmissionFromDrawer('${esc(x.id)}')">删除</button>`:''}
@@ -1791,6 +1792,7 @@ async function uploadMaterialSubmissionBaseFile(){
   const key=r.data.oss_key||'';
   if($('#sb-d-oss-key')) $('#sb-d-oss-key').value=key;
   if(!($('#sb-d-video-file')?.value||'').trim()) $('#sb-d-video-file').value=r.data.file_name||f.name||'';
+  const note=$('#sb-d-file-note');if(note)note.textContent='当前视频文件：'+(r.data.file_name||f.name||'已上传文件');
   setSubmissionBaseFileState('done','已上传');
   setTimeout(()=>{const el=$('#sb-d-file-state');if(el)el.hidden=true;},2000);
 }
@@ -1832,16 +1834,14 @@ async function uploadMaterialSubmissionRejectAttachments(){
   if($('#sb-p-reject-files')) $('#sb-p-reject-files').value='';
   setTimeout(()=>{const el=$('#sb-p-reject-state');if(el)el.hidden=true;},2000);
 }
-function materialSubmissionDrawerBody(){return {
+function materialSubmissionFullBody(){return {
   team_name:($('#sb-d-team')?.value||'').trim(),
   delivery_time:($('#sb-d-delivery')?.value||'').trim(),
   drama_name:($('#sb-d-drama')?.value||'').trim(),
   oss_key:($('#sb-d-oss-key')?.value||'').trim(),
   video_file_name:($('#sb-d-video-file')?.value||'').trim(),
   title_name:($('#sb-d-title')?.value||'').trim(),
-  episode_range:($('#sb-d-episode')?.value||'').trim()
-}}
-function materialSubmissionProcessBody(){return {
+  episode_range:($('#sb-d-episode')?.value||'').trim(),
   revision_comment:($('#sb-p-revision')?.value||'').trim(),
   can_upload_status:(()=>{const v=$('#sb-p-can-upload')?.value;return v===''?null:Number(v)})(),
   upload_account_name:($('#sb-p-account-name')?.value||'').trim(),
@@ -1898,22 +1898,35 @@ function resetSubmissionFilters(){
   const v=V.submissions;Object.assign(v,{page:1,team_name:'',drama_name:'',video_file_name:'',title_name:'',can_upload_status:'',upload_account_name:'',publish_status:''});
   ['#sb-ft-team','#sb-ft-drama','#sb-ft-video','#sb-ft-title'].forEach(s=>{$(s).value=''});
   $('#sb-ft-can-upload').value='';$('#sb-ft-account-name').value='';$('#sb-ft-publish').value='';loadMaterialSubmissions()}
+function materialSubmissionBaseBody(){return {
+  team_name:($('#sb-d-team')?.value||'').trim(),
+  delivery_time:($('#sb-d-delivery')?.value||'').trim(),
+  drama_name:($('#sb-d-drama')?.value||'').trim(),
+  oss_key:($('#sb-d-oss-key')?.value||'').trim(),
+  video_file_name:($('#sb-d-video-file')?.value||'').trim(),
+  title_name:($('#sb-d-title')?.value||'').trim(),
+  episode_range:($('#sb-d-episode')?.value||'').trim()
+}}
+function materialSubmissionProcessBody(){return {
+  revision_comment:($('#sb-p-revision')?.value||'').trim(),
+  can_upload_status:(()=>{const v=$('#sb-p-can-upload')?.value;return v===''?null:Number(v)})(),
+  upload_account_name:($('#sb-p-account-name')?.value||'').trim(),
+  publish_status:(()=>{const v=$('#sb-p-publish')?.value;return v===''?null:Number(v)})(),
+  platform_reject_reason:($('#sb-p-reject-reason')?.value||'').trim(),
+  platform_reject_attachments:currentSubmissionRejectAttachmentKeys()
+}}
 async function saveMaterialSubmissionEdit(id){
-  const baseBody=materialSubmissionDrawerBody();
-  const processBody=materialSubmissionProcessBody();
   const isNew=!id;
-  let sid=id;
   if(isNew){
-    const r=await api('POST','/admin/material-submissions',baseBody);
-    if(!r.ok){toast(r.data.detail||'创建失败',true);return}
-    sid=r.data.id;
-  } else {
-    const r=await api('PUT','/admin/material-submissions/'+id,baseBody);
-    if(!r.ok){toast(r.data.detail||'更新失败',true);return}
-  }
-  const r2=await api('PUT','/admin/material-submissions/'+sid+'/process',processBody);
-  if(r2.ok){toast(isNew?'素材提报已创建':'素材提报已更新');closeDrawer();loadMaterialSubmissions()}
-  else toast(r2.data.detail||'保存处理信息失败',true)}
+    const r=await api('POST','/admin/material-submissions',materialSubmissionBaseBody());
+    if(r.ok){toast('素材提报已创建');closeDrawer();loadMaterialSubmissions()}
+    else toast(r.data.detail||'创建失败',true);
+  }else{
+    const body=Object.assign({},materialSubmissionBaseBody(),materialSubmissionProcessBody());
+    const r=await api('PUT','/admin/material-submissions/'+id,body);
+    if(r.ok){toast('素材提报已更新');closeDrawer();loadMaterialSubmissions()}
+    else toast(r.data.detail||'更新失败',true);
+  }}
 async function deleteMaterialSubmissions(ids){
   const picked=Array.isArray(ids)?ids.filter(Boolean):[];
   if(!picked.length){toast('缺少要删除的素材提报',true);return}

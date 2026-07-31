@@ -1624,6 +1624,33 @@ def _submission_in_to_model(body: schemas.MaterialSubmissionIn, *, sid: str, by:
     )
 
 
+def _submission_update_to_model(body: schemas.MaterialSubmissionUpdateIn, *, sid: str, by: str) -> MaterialSubmission:
+    can_upload_status = _check_can_upload_status(body.can_upload_status)
+    publish_status = _check_publish_status(body.publish_status)
+    attachments = []
+    for x in body.platform_reject_attachments or []:
+        v = (x or "").strip()
+        if v:
+            attachments.append(v)
+    return MaterialSubmission(
+        id=sid,
+        team_name=(body.team_name or "").strip(),
+        delivery_time=(body.delivery_time or "").strip(),
+        drama_name=(body.drama_name or "").strip(),
+        oss_key=(body.oss_key or "").strip(),
+        video_file_name=(body.video_file_name or "").strip(),
+        title_name=(body.title_name or "").strip(),
+        episode_range=(body.episode_range or "").strip(),
+        revision_comment=(body.revision_comment or "").strip(),
+        can_upload_status=can_upload_status,
+        upload_account_name=(body.upload_account_name or "").strip(),
+        publish_status=publish_status,
+        platform_reject_reason=(body.platform_reject_reason or "").strip(),
+        platform_reject_attachments=attachments,
+        created_by=by,
+    )
+
+
 def _apply_submission_process_fields(
     submission: MaterialSubmission,
     body: schemas.MaterialSubmissionProcessIn,
@@ -1653,19 +1680,29 @@ def create_material_submission(body: schemas.MaterialSubmissionIn, user: dict = 
 
 
 @router.put("/admin/material-submissions/{submission_id}")
-def update_material_submission(submission_id: str, body: schemas.MaterialSubmissionIn,
+def update_material_submission(submission_id: str, body: schemas.MaterialSubmissionUpdateIn,
                                user: dict = Depends(_user)):
     _require_perm(user, "admin.grant")
     cur = deps.material_submission_repo.get(submission_id)
     if cur is None:
         raise HTTPException(404, "素材提报不存在")
-    s = _submission_in_to_model(body, sid=submission_id, by=cur.created_by or user["id"])
-    s.revision_comment = cur.revision_comment
-    s.can_upload_status = cur.can_upload_status
-    s.upload_account_name = cur.upload_account_name
-    s.publish_status = cur.publish_status
-    s.platform_reject_reason = cur.platform_reject_reason
-    s.platform_reject_attachments = list(cur.platform_reject_attachments or [])
+    s = _submission_update_to_model(body, sid=submission_id, by=cur.created_by or user["id"])
+    # 处理字段全为默认值时保留已有值（兼容只更新基本字段的调用方）
+    process_all_default = (
+        not (body.revision_comment or "").strip()
+        and not (body.upload_account_name or "").strip()
+        and body.can_upload_status is None
+        and body.publish_status is None
+        and not (body.platform_reject_reason or "").strip()
+        and not body.platform_reject_attachments
+    )
+    if process_all_default:
+        s.revision_comment = cur.revision_comment
+        s.can_upload_status = cur.can_upload_status
+        s.upload_account_name = cur.upload_account_name
+        s.publish_status = cur.publish_status
+        s.platform_reject_reason = cur.platform_reject_reason
+        s.platform_reject_attachments = list(cur.platform_reject_attachments or [])
     deps.material_submission_repo.add(s, by=user["id"])
     return _submission_out(s)
 

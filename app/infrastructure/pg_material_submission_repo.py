@@ -247,7 +247,7 @@ class PgMaterialSubmissionRepo:
             params.append(publish_status)
         elif publish_status_empty:
             where += " AND publish_status IS NULL"
-        sql = f"SELECT {_SELECT_COLS} FROM {self._table} WHERE {where} ORDER BY id DESC"
+        sql = f"SELECT {_SELECT_COLS} FROM {self._table} WHERE {where} ORDER BY id ASC"
         if limit is not None:
             sql += f" LIMIT {int(limit)} OFFSET {int(offset)}"
         with self._conn() as c:

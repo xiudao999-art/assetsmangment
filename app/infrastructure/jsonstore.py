@@ -373,7 +373,7 @@ class JsonMaterialSubmissionRepo:
              upload_account_name: str = "", publish_status: int | None = None,
              publish_status_empty: bool = False,
              offset: int = 0, limit: int | None = None) -> list[MaterialSubmission]:
-        items = sorted(self._s.material_submissions.values(), key=lambda s: int(s.id), reverse=True)
+        items = sorted(self._s.material_submissions.values(), key=lambda s: int(s.id))
         if team_name:
             items = [s for s in items if team_name.lower() in s.team_name.lower()]
         if drama_name:
