@@ -378,7 +378,7 @@
           </div>
           <div class="row" style="align-items:flex-end;flex-wrap:wrap;gap:12px;margin-top:12px">
             <div class="field f-fixed" style="margin:0"><label>可上传状态</label><select id="sb-ft-can-upload"><option value="">全部</option><option value="__empty__">空</option><option value="1">可上传</option><option value="2">不可上传</option></select></div>
-            <div class="field f-grow" style="margin:0">
+            <div class="field f-fixed" style="margin:0">
               <label>上传账号</label>
               <div class="suggest-wrap">
                 <input id="sb-ft-account-name" placeholder="精准筛选上传账号名称" autocomplete="off" onfocus="openSubmissionSuggest('sb-ft-account-name')" oninput="onSubmissionSuggestInput('sb-ft-account-name')" onblur="scheduleSubmissionSuggestClose('sb-ft-account-name')">
@@ -1639,7 +1639,7 @@ function renderMaterialSubmissionEditForm(s,isNew){
       <div class="field f-grow" style="margin:0"><label>剧名</label>${renderSubmissionSuggestInput('sb-d-drama',x.drama_name||'','')}</div>
     </div>
     <div class="row" style="align-items:flex-end;flex-wrap:wrap;gap:12px;margin-top:12px">
-      <div class="field f-grow" style="margin:0"><label>视频文件</label><div style="display:flex;gap:6px;align-items:flex-end"><input id="sb-d-file" type="file" accept="video/*" onchange="syncMaterialSubmissionSelectedFile()" style="flex:1"><button class="btn sm key" type="button" onclick="uploadMaterialSubmissionBaseFile()">上传</button></div><div id="sb-d-file-state" class="sb-upload-state" hidden></div></div>
+      <div class="field f-grow" style="margin:0"><label>视频文件</label><input id="sb-d-file" type="file" accept="video/*" onchange="handleSubmissionFilePicked()"><div id="sb-d-file-state" class="sb-upload-state" hidden></div></div>
       <div class="field f-grow" style="margin:0"><label>视频文件名</label><input id="sb-d-video-file" value="${esc(x.video_file_name||'')}"></div>
       <div class="field f-grow" style="margin:0"><label>标题名</label><input id="sb-d-title" value="${esc(x.title_name||'')}"></div>
       <div class="field f-grow" style="margin:0"><label>集数区间</label><input id="sb-d-episode" value="${esc(x.episode_range||'')}"></div>
@@ -1677,6 +1677,10 @@ function syncMaterialSubmissionSelectedFile(){
   const f=$('#sb-d-file')?.files?.[0];
   if(!f) return;
   if(!($('#sb-d-video-file')?.value||'').trim()) $('#sb-d-video-file').value=f.name||'';
+}
+async function handleSubmissionFilePicked(){
+  syncMaterialSubmissionSelectedFile();
+  await uploadMaterialSubmissionBaseFile();
 }
 async function uploadMaterialSubmissionBaseFile(){
   const f=$('#sb-d-file')?.files?.[0];
