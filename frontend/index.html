@@ -362,7 +362,7 @@
             <div>
               <h3 class="disp" style="margin-bottom:6px">素材提报</h3>
             </div>
-            <button class="btn key f-auto" onclick="openMaterialSubmissionCreate()">新建</button>
+            <button class="btn key f-auto" onclick="openMaterialSubmissionEdit()">新建</button>
           </div>
           <div class="row" style="align-items:flex-end;flex-wrap:wrap;gap:12px">
             <div class="field f-grow" style="margin:0"><label>团队名称</label><input id="sb-ft-team" placeholder="模糊筛选团队名称"></div>
@@ -1626,52 +1626,53 @@ function openCreateModal(title,html,foot=''){
 function closeCreateModal(){$('#cscrim').classList.remove('on');$('#create-modal').classList.remove('on')}
 function openAdminDrawer(title,html){
   closeCreateModal();$('#scrim').classList.add('on');$('#drawer').classList.add('on');$('#d-title').textContent=title;$('#d-body').innerHTML=html}
-function renderMaterialSubmissionBaseForm(s,mode='detail'){
+function renderMaterialSubmissionEditForm(s,isNew){
   const x=s||{};
+  const rejectKeys=parseSubmissionRejectAttachmentKeys((x.platform_reject_attachments||[]).join('\n'));
+  const canUp=Number(x.can_upload_status), pub=Number(x.publish_status);
   return `<input type="hidden" id="sb-d-id" value="${esc(x.id||'')}">
     <input type="hidden" id="sb-d-oss-key" value="${esc(x.oss_key||'')}">
+    <div class="sb-section"><h4>基本信息</h4>
     <div class="row" style="align-items:flex-end;flex-wrap:wrap;gap:12px">
       <div class="field f-grow" style="margin:0"><label>团队名称</label><input id="sb-d-team" value="${esc(x.team_name||'')}"></div>
       <div class="field f-grow" style="margin:0"><label>视频交付时间</label><input id="sb-d-delivery" value="${esc(x.delivery_time||'')}"></div>
       <div class="field f-grow" style="margin:0"><label>剧名</label>${renderSubmissionSuggestInput('sb-d-drama',x.drama_name||'','')}</div>
-      <div class="field f-grow" style="margin:0"><label>视频文件</label><input id="sb-d-file" type="file" accept="video/*" onchange="handleMaterialSubmissionBaseFileChange()"><div id="sb-d-file-state" class="sb-upload-state" hidden></div></div>
     </div>
     <div class="row" style="align-items:flex-end;flex-wrap:wrap;gap:12px;margin-top:12px">
+      <div class="field f-grow" style="margin:0"><label>视频文件</label><div style="display:flex;gap:6px;align-items:flex-end"><input id="sb-d-file" type="file" accept="video/*" onchange="syncMaterialSubmissionSelectedFile()" style="flex:1"><button class="btn sm key" type="button" onclick="uploadMaterialSubmissionBaseFile()">上传</button></div><div id="sb-d-file-state" class="sb-upload-state" hidden></div></div>
       <div class="field f-grow" style="margin:0"><label>视频文件名</label><input id="sb-d-video-file" value="${esc(x.video_file_name||'')}"></div>
       <div class="field f-grow" style="margin:0"><label>标题名</label><input id="sb-d-title" value="${esc(x.title_name||'')}"></div>
       <div class="field f-grow" style="margin:0"><label>集数区间</label><input id="sb-d-episode" value="${esc(x.episode_range||'')}"></div>
     </div>
     <div class="sb-inline-note">当前视频文件：${x.oss_key?esc(submissionUploadedFileName(x.oss_key)):'还没有上传视频文件'}</div>
-    ${mode==='detail'?`<div class="sb-action-bar"><button class="btn key" onclick="saveMaterialSubmissionDrawer('${esc(x.id||'')}')">保存</button>
-    ${x.id?`<button class="btn block" onclick="deleteMaterialSubmissionFromDrawer('${esc(x.id)}')">删除</button>`:''}</div>`:''}
-    ${mode==='detail'?`<div class="sb-section"><h4 class="disp">处理信息</h4><div class="sb-field-grid">${renderSubmissionFieldGrid(x,'process')}</div></div>`:''}`}
-function renderMaterialSubmissionProcessForm(s){
-  const x=s||{};
-  const rejectKeys=parseSubmissionRejectAttachmentKeys((x.platform_reject_attachments||[]).join('\n'));
-  return `<input type="hidden" id="sb-p-id" value="${esc(x.id||'')}">
+    </div>
+    <div class="sb-section"><h4>处理信息</h4>
     <div class="row" style="align-items:flex-end;flex-wrap:wrap;gap:12px">
       <div class="field f-grow" style="margin:0"><label>上传账号</label>${renderSubmissionSuggestInput('sb-p-account-name',x.upload_account_name||'','')}</div>
-      <div class="field f-fixed" style="margin:0"><label>可上传状态</label><select id="sb-p-can-upload"><option value="" ${(x.can_upload_status===null||x.can_upload_status===undefined||x.can_upload_status==='')?'selected':''}>空</option><option value="1" ${Number(x.can_upload_status)===1?'selected':''}>可上传</option><option value="2" ${Number(x.can_upload_status)===2?'selected':''}>不可上传</option></select></div>
-      <div class="field f-fixed" style="margin:0"><label>发布状态</label><select id="sb-p-publish"><option value="" ${(x.publish_status===null||x.publish_status===undefined||x.publish_status==='')?'selected':''}>空</option><option value="1" ${Number(x.publish_status)===1?'selected':''}>成功</option><option value="2" ${Number(x.publish_status)===2?'selected':''}>失败</option></select></div>
+      <div class="field f-fixed" style="margin:0"><label>可上传状态</label><select id="sb-p-can-upload"><option value="" ${(!canUp||canUp!==1&&canUp!==2)?'selected':''}>空</option><option value="1" ${canUp===1?'selected':''}>可上传</option><option value="2" ${canUp===2?'selected':''}>不可上传</option></select></div>
+      <div class="field f-fixed" style="margin:0"><label>发布状态</label><select id="sb-p-publish"><option value="" ${(!pub||pub!==1&&pub!==2)?'selected':''}>空</option><option value="1" ${pub===1?'selected':''}>成功</option><option value="2" ${pub===2?'selected':''}>失败</option></select></div>
     </div>
     <div class="field" style="margin-top:12px"><label>修改意见</label><textarea id="sb-p-revision" rows="3">${esc(x.revision_comment||'')}</textarea></div>
     <div class="field" style="margin-top:12px"><label>平台拒审理由</label><textarea id="sb-p-reject-reason" rows="3">${esc(x.platform_reject_reason||'')}</textarea></div>
     <textarea id="sb-p-reject-attachments" style="display:none">${esc(rejectKeys.join('\n'))}</textarea>
-    <div class="field" style="margin-top:12px"><label>附件</label><input id="sb-p-reject-files" type="file" multiple onchange="uploadMaterialSubmissionRejectAttachments()"></div>
-    <div style="margin-top:12px"><label>附件</label><div id="sb-p-reject-attachments-list">${renderSubmissionRejectAttachmentItems(rejectKeys)}</div></div>
-    <div style="display:flex;gap:10px;flex-wrap:wrap"><button class="btn key" onclick="saveMaterialSubmissionProcess('${esc(x.id||'')}')">保存处理</button></div>`}
-function createModalFoot(saveFn){
-  return `<button class="btn" onclick="closeCreateModal()">取消</button><button class="btn key" onclick="${saveFn}">保存</button>`}
-async function openMaterialSubmissionCreate(){
-  openCreateModal('新建素材提报',renderMaterialSubmissionBaseForm({},'create'),createModalFoot('saveMaterialSubmissionCreate()'))}
-async function openMaterialSubmissionDetail(id){
+    <div class="field" style="margin-top:12px"><label>拒审附件</label><input id="sb-p-reject-files" type="file" multiple onchange="uploadMaterialSubmissionRejectAttachments()"></div>
+    <div style="margin-top:12px"><div id="sb-p-reject-attachments-list">${renderSubmissionRejectAttachmentItems(rejectKeys)}</div></div>
+    </div>
+    <div style="display:flex;gap:10px;flex-wrap:wrap;margin-top:18px;padding-top:14px;border-top:1px solid var(--line)">
+      <button class="btn key" onclick="saveMaterialSubmissionEdit('${esc(x.id||'')}')">保存</button>
+      ${!isNew?`<button class="btn block" onclick="deleteMaterialSubmissionFromDrawer('${esc(x.id)}')">删除</button>`:''}
+    </div>`}
+async function openMaterialSubmissionEdit(id){
+  closeCreateModal();
+  const isNew=!id;
+  if(isNew){
+    openAdminDrawer('新建素材提报',renderMaterialSubmissionEditForm({},true));
+    return;
+  }
   const r=await api('GET','/admin/material-submissions/'+id);
   if(!r.ok){toast(r.data.detail||'加载提报失败',true);return}
-  openAdminDrawer('素材提报详情',renderMaterialSubmissionBaseForm(r.data||{},'detail'))}
-async function openMaterialSubmissionProcess(id){
-  const r=await api('GET','/admin/material-submissions/'+id);
-  if(!r.ok){toast(r.data.detail||'加载提报失败',true);return}
-  openAdminDrawer('素材提报处理',renderMaterialSubmissionProcessForm(r.data||{}))}
+  openAdminDrawer('编辑素材提报',renderMaterialSubmissionEditForm(r.data||{},false));
+}
 function syncMaterialSubmissionSelectedFile(){
   const f=$('#sb-d-file')?.files?.[0];
   if(!f) return;
@@ -1767,7 +1768,7 @@ async function loadMaterialSubmissions(){
     ['platform_reject_reason','平台拒审理由','cell-wide'],
     ['attachments','拒审附件','cell-wide'],
   ];
-  $('#sb-list').innerHTML=rows.length?`<div class="sb-table-wrap"><table class="sb-table"><thead><tr>${cols.map(([,label,cls])=>`<th class="${cls}">${label}</th>`).join('')}<th class="cell-actions">操作</th></tr></thead><tbody>${rows.map(s=>`<tr>${cols.map(([key,,cls])=>`<td class="${cls}">${renderSubmissionTableCell(key,s)}</td>`).join('')}<td class="cell-actions"><div style="display:flex;gap:8px;flex-wrap:wrap"><button class="btn sm" onclick="openMaterialSubmissionDetail('${s.id}')">详情</button><button class="btn sm key" onclick="openMaterialSubmissionProcess('${s.id}')">处理</button><button class="btn sm block" onclick="deleteMaterialSubmissions(['${s.id}'])">删除</button></div></td></tr>`).join('')}</tbody></table></div>`:'<div class="empty"><b class="disp">还没有素材提报</b>点右上角“新建”创建一条提报记录。</div>';
+  $('#sb-list').innerHTML=rows.length?`<div class="sb-table-wrap"><table class="sb-table"><thead><tr>${cols.map(([,label,cls])=>`<th class="${cls}">${label}</th>`).join('')}<th class="cell-actions">操作</th></tr></thead><tbody>${rows.map(s=>`<tr>${cols.map(([key,,cls])=>`<td class="${cls}">${renderSubmissionTableCell(key,s)}</td>`).join('')}<td class="cell-actions"><div style="display:flex;gap:8px;flex-wrap:wrap"><button class="btn sm key" onclick="openMaterialSubmissionEdit('${s.id}')">编辑</button></div></td></tr>`).join('')}</tbody></table></div>`:'<div class="empty"><b class="disp">还没有素材提报</b>点右上角“新建”创建一条提报记录。</div>';
   renderPager('#sb-pager','submissions');
 }
 function applySubmissionFilters(){
@@ -1784,21 +1785,22 @@ function resetSubmissionFilters(){
   const v=V.submissions;Object.assign(v,{page:1,team_name:'',drama_name:'',video_file_name:'',title_name:'',can_upload_status:'',upload_account_name:'',publish_status:''});
   ['#sb-ft-team','#sb-ft-drama','#sb-ft-video','#sb-ft-title'].forEach(s=>{$(s).value=''});
   $('#sb-ft-can-upload').value='';$('#sb-ft-account-name').value='';$('#sb-ft-publish').value='';loadMaterialSubmissions()}
-async function saveMaterialSubmissionDrawer(id){
-  const body=materialSubmissionDrawerBody();
-  const r=id?await api('PUT','/admin/material-submissions/'+id,body):await api('POST','/admin/material-submissions',body);
-  if(r.ok){toast(id?'素材提报已更新':'素材提报已创建');closeDrawer();loadMaterialSubmissions()}
-  else toast(r.data.detail||'保存失败',true)}
-async function saveMaterialSubmissionCreate(){
-  const body=materialSubmissionDrawerBody();
-  const r=await api('POST','/admin/material-submissions',body);
-  if(r.ok){toast('素材提报已创建');closeCreateModal();loadMaterialSubmissions()}
-  else toast(r.data.detail||'保存失败',true)}
-async function saveMaterialSubmissionProcess(id){
-  const body=materialSubmissionProcessBody();
-  const r=await api('PUT','/admin/material-submissions/'+id+'/process',body);
-  if(r.ok){toast('素材提报处理已更新');closeDrawer();loadMaterialSubmissions()}
-  else toast(r.data.detail||'保存失败',true)}
+async function saveMaterialSubmissionEdit(id){
+  const baseBody=materialSubmissionDrawerBody();
+  const processBody=materialSubmissionProcessBody();
+  const isNew=!id;
+  let sid=id;
+  if(isNew){
+    const r=await api('POST','/admin/material-submissions',baseBody);
+    if(!r.ok){toast(r.data.detail||'创建失败',true);return}
+    sid=r.data.id;
+  } else {
+    const r=await api('PUT','/admin/material-submissions/'+id,baseBody);
+    if(!r.ok){toast(r.data.detail||'更新失败',true);return}
+  }
+  const r2=await api('PUT','/admin/material-submissions/'+sid+'/process',processBody);
+  if(r2.ok){toast(isNew?'素材提报已创建':'素材提报已更新');closeDrawer();loadMaterialSubmissions()}
+  else toast(r2.data.detail||'保存处理信息失败',true)}
 async function deleteMaterialSubmissions(ids){
   const picked=Array.isArray(ids)?ids.filter(Boolean):[];
   if(!picked.length){toast('缺少要删除的素材提报',true);return}
