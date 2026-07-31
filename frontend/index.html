@@ -514,6 +514,12 @@
   <div class="gmbody" id="cm-body"></div>
   <div class="gmfoot" id="cm-foot"></div>
 </div>
+<div class="scrim" id="pscrim" onclick="closeSubmissionPreview()"></div>
+<div class="gmodal" id="preview-modal" style="width:min(860px,94vw)">
+  <div class="gmhd"><b class="disp" id="pv-title">预览</b><button class="x" onclick="closeSubmissionPreview()">✕</button></div>
+  <div class="gmbody" id="pv-body"></div>
+  <div class="gmfoot" id="pv-foot"></div>
+</div>
 <div class="toasts" id="toasts"></div>
 
 <script>
@@ -603,7 +609,7 @@ function toggleNavOpen(force){const app=document.getElementById('app');
   const open=(force===undefined)?!app.classList.contains('nav-open'):!!force;
   app.classList.toggle('nav-open',open);const h=$('#hamburger');if(h)h.setAttribute('aria-expanded',open);
   $('#scrim').classList.toggle('on',open)}
-function closeOverlays(){closeDrawer();closeCreateModal();toggleNavOpen(false)}
+function closeOverlays(){closeDrawer();closeCreateModal();closeSubmissionPreview();toggleNavOpen(false)}
 
 /* ── 卡片(按上下文给不同操作)── */
 function cell(m,ctx){const g=GLYPH[m.type]||'▦';
@@ -1518,7 +1524,48 @@ function submissionAttachmentNames(keys){
 }
 function renderSubmissionAttachmentTags(keys){
   const items=submissionAttachmentNames(keys);
-  return items.length?`<div class="sb-file-tags">${items.map(x=>`<span class="sb-file-tag" title="${esc(x)}">${esc(x)}</span>`).join('')}</div>`:`<span class="k">—</span>`;
+  if(!items.length) return '<span class="k">—</span>';
+  return `<div class="sb-file-tags">${(keys||[]).map((k,i)=>`<span class="sb-file-tag" style="cursor:pointer;text-decoration:underline" title="${esc(items[i])}" onclick="previewSubmissionFile('${esc(k)}')">${esc(items[i])}</span>`).join('')}</div>`;
+}
+function submissionFileExtension(key){
+  const name=String(key||'').trim().replace(/\\/g,'/').split('/').pop()||'';
+  return (name.split('.').pop()||'').toLowerCase();
+}
+function submissionFileIsImage(ext){return /^(jpg|jpeg|png|gif|webp|svg|bmp|ico)$/i.test(ext)}
+function submissionFileIsVideo(ext){return /^(mp4|mov|avi|mkv|webm|flv|wmv|m4v)$/i.test(ext)}
+async function getSubmissionFileUrl(key,dl=0){
+  const r=await api('GET','/admin/uploads/url?'+new URLSearchParams({key,dl:String(dl)}));
+  if(!r.ok){toast('获取文件链接失败',true);return null}
+  return r.data.url||null;
+}
+async function previewSubmissionFile(key){
+  if(!key){return}
+  const ext=submissionFileExtension(key);
+  if(submissionFileIsImage(ext)){
+    const url=await getSubmissionFileUrl(key);
+    if(!url) return;
+    $('#pv-title').textContent=submissionUploadedFileName(key);
+    $('#pv-body').innerHTML=`<img src="${esc(url)}" style="max-width:100%;max-height:70vh;display:block;margin:0 auto" onerror="this.remove();$('#pv-body').innerHTML='<div class=\\'empty\\'>预览失败</div>'">`;
+    $('#pv-foot').innerHTML=`<a href="${esc(url)}" download class="btn sm key" target="_blank">下载</a>`;
+    openSubmissionPreviewModal();
+  }else if(submissionFileIsVideo(ext)){
+    const url=await getSubmissionFileUrl(key);
+    if(!url) return;
+    $('#pv-title').textContent=submissionUploadedFileName(key);
+    $('#pv-body').innerHTML=`<video src="${esc(url)}" controls preload="metadata" style="width:100%;max-height:70vh"></video>`;
+    $('#pv-foot').innerHTML=`<a href="${esc(url)}" download class="btn sm key" target="_blank">下载</a>`;
+    openSubmissionPreviewModal();
+  }else{
+    const url=await getSubmissionFileUrl(key,1);
+    if(url) window.open(url,'_blank');
+  }
+}
+function openSubmissionPreviewModal(){
+  closeDrawer();$('#pscrim').classList.add('on');$('#preview-modal').classList.add('on');
+}
+function closeSubmissionPreview(){
+  $('#pscrim').classList.remove('on');$('#preview-modal').classList.remove('on');
+  const v=$('#pv-body');if(v){v.querySelectorAll('video').forEach(e=>e.pause());v.innerHTML='';}
 }
 function renderSubmissionFieldGrid(s,scope='all'){
   const x=s||{};
@@ -1615,7 +1662,16 @@ function submissionStatusChip(kind,v){
   return txt==='—'?`<span class="k">—</span>`:`<span class="stamp ${v===2?'block':'review'}">${txt}</span>`;
 }
 function renderSubmissionTableCell(kind,s){
-  if(kind==='video') return `<div class="cell-file"><div>${submissionValueHtml(s.video_file_name)}</div><div class="k" style="margin-top:4px">${submissionValueHtml(s.oss_key?submissionUploadedFileName(s.oss_key):'')}</div></div>`;
+  if(kind==='video'){
+    const oss=s.oss_key||'';
+    const name=s.video_file_name||'';
+    const ossName=oss?submissionUploadedFileName(oss):'';
+    const ext=submissionFileExtension(oss);
+    const canPreview=submissionFileIsImage(ext)||submissionFileIsVideo(ext);
+    const clickAttr=canPreview&&oss?` style="cursor:pointer;text-decoration:underline;color:var(--mint)" onclick="previewSubmissionFile('${esc(oss)}')"`:'';
+    const ossHtml=oss?`<div class="k" style="margin-top:4px"${clickAttr}>${esc(ossName)}</div>`:'<div class="k" style="margin-top:4px">—</div>';
+    return `<div class="cell-file"><div>${submissionValueHtml(name)}</div>${ossHtml}</div>`;
+  }
   if(kind==='status_upload') return submissionStatusChip('upload',s.can_upload_status);
   if(kind==='status_publish') return submissionStatusChip('publish',s.publish_status);
   if(kind==='attachments') return renderSubmissionAttachmentTags(s.platform_reject_attachments||[]);

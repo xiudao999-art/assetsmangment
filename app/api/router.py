@@ -1521,6 +1521,20 @@ async def upload_admin_file(file: UploadFile = File(...), scope: str = Form("upl
     return {"oss_key": key, "file_name": safe_name}
 
 
+@router.get("/admin/uploads/url")
+def admin_upload_signed_url(key: str = Query(...), dl: int = Query(0),
+                            user: dict = Depends(_user)):
+    _require_perm(user, "admin.grant")
+    if not key or not key.strip():
+        raise HTTPException(400, "缺少 oss key")
+    k = key.strip()
+    try:
+        url = deps.storage.download_url(k) if dl == 1 else deps.storage.signed_url(k)
+    except Exception:
+        raise HTTPException(404, "获取签名 URL 失败")
+    return {"url": url}
+
+
 @router.get("/admin/material-submissions/upload-account-names")
 def list_material_submission_upload_account_names(
     keyword: str = Query(""),
