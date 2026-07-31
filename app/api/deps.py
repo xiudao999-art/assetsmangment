@@ -21,7 +21,7 @@ from app.infrastructure.fakes import (
     FakeHasher, FakeTokenIssuer, InMemoryRbac, ListAuditLog, InMemoryFavoriteRepo,
     FakeTranscriber, FakeVisionDescriber, FakeLlm, InMemoryAuditRuleRepo, InMemoryAuditReportRepo,
     InMemoryAuditTaskRepo, InMemoryWhitelistRepo, InMemoryProjectRepo, InMemoryBlockwordRepo,
-    InMemoryTrainingSetRepo, InMemoryTrainingExampleRepo,
+    InMemoryTrainingSetRepo, InMemoryTrainingExampleRepo, InMemoryMaterialSubmissionRepo,
 )
 
 # ── 进程内单例 ──
@@ -41,7 +41,7 @@ if settings.data_dir:
     from app.infrastructure.jsonstore import (
         Store, JsonMaterialRepo, JsonUserRepo, JsonFavoriteRepo, JsonRbac,
         JsonAuditRuleRepo, JsonAuditReportRepo, JsonAuditTaskRepo, JsonWhitelistRepo, JsonProjectRepo,
-        JsonBlockwordRepo,
+        JsonBlockwordRepo, JsonMaterialSubmissionRepo,
     )
     _store = Store(f"{settings.data_dir.rstrip('/')}/state.json")
     material_repo = JsonMaterialRepo(_store)
@@ -56,6 +56,7 @@ if settings.data_dir:
     project_repo = JsonProjectRepo(_store)
     training_set_repo = InMemoryTrainingSetRepo()
     training_example_repo = InMemoryTrainingExampleRepo()
+    material_submission_repo = JsonMaterialSubmissionRepo(_store)
 else:
     material_repo = InMemoryMaterialRepo()
     user_repo = InMemoryUserRepo()
@@ -69,6 +70,7 @@ else:
     project_repo = InMemoryProjectRepo()
     training_set_repo = InMemoryTrainingSetRepo()
     training_example_repo = InMemoryTrainingExampleRepo()
+    material_submission_repo = InMemoryMaterialSubmissionRepo()
 
 # 审核规则:配置了真实 AM_DATABASE_URL → PG 是唯一真源(audit_rule 表,雪花ID+软删基础字段),
 # 覆盖上面的 JSON/内存实现。连接/建表失败 = 启动即报错,**不静默回退 JSON**(回退会分叉真源、
@@ -195,6 +197,15 @@ if _real_db:
     except Exception as _e:
         raise RuntimeError(
             f"AM_DATABASE_URL 已配置但 PG 训练样本表连接/建表失败:{_e}。"
+        ) from _e
+
+    # 素材提报相关表
+    from app.infrastructure.pg_material_submission_repo import PgMaterialSubmissionRepo
+    try:
+        material_submission_repo = PgMaterialSubmissionRepo(settings.database_url)
+    except Exception as _e:
+        raise RuntimeError(
+            f"AM_DATABASE_URL 已配置但 PG 素材提报表连接/建表失败:{_e}。"
         ) from _e
 
 # 向量索引:有真 embedding(DashScope)+ 真 pg 连接串 → pgvector 语义近邻;否则内存

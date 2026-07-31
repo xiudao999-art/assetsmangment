@@ -95,6 +95,26 @@ class Project:
 
 
 @dataclass
+class MaterialSubmission:
+    """素材提报记录。"""
+    id: str
+    team_name: str = ""
+    delivery_time: str = ""
+    drama_name: str = ""
+    oss_key: str = ""
+    video_file_name: str = ""
+    title_name: str = ""
+    episode_range: str = ""
+    revision_comment: str = ""
+    can_upload_status: int | None = None
+    upload_account_name: str = ""
+    publish_status: int | None = None
+    platform_reject_reason: str = ""
+    platform_reject_attachments: list[str] = field(default_factory=list)
+    created_by: str = ""
+
+
+@dataclass
 class AuditRule:
     """管理员配置的审核规则:某来源类型的文字,出现关键词或满足自然语言条件 → 定级。"""
     id: str
