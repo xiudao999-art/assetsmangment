@@ -1,7 +1,9 @@
 """领域端口(Protocol 接口)。infra 实现它们,service 依赖它们 —— 依赖倒置。"""
 from __future__ import annotations
 from typing import Protocol, Optional
-from app.domain.models import MaterialCandidate, Material, User, TextSegment, AuditRule, AuditTask, Project, TrainingSet, TrainingExample
+from app.domain.models import (MaterialCandidate, Material, User, TextSegment, AuditRule,
+                               AuditTask, Project, TrainingSet, TrainingExample,
+                               MaterialSubmission)
 from app.domain.query import MaterialQuery
 
 
@@ -53,6 +55,26 @@ class ProjectRepo(Protocol):
     def get_by_name(self, name: str) -> Optional[Project]: ...
     def delete(self, project_id: str) -> None: ...
     def list(self) -> list[Project]: ...
+
+
+class MaterialSubmissionRepo(Protocol):
+    """素材提报仓储。"""
+    def add(self, submission: MaterialSubmission, by: str = "") -> None: ...
+    def get(self, submission_id: str) -> Optional[MaterialSubmission]: ...
+    def delete(self, submission_id: str, by: str = "") -> None: ...
+    def list_upload_account_names(self, keyword: str = "", limit: int | None = None) -> list[str]: ...
+    def list_drama_names(self, keyword: str = "", limit: int | None = None) -> list[str]: ...
+    def list(self, team_name: str = "", drama_name: str = "", video_file_name: str = "",
+             title_name: str = "", can_upload_status: int | None = None,
+             can_upload_status_empty: bool = False,
+             upload_account_name: str = "", publish_status: int | None = None,
+             publish_status_empty: bool = False,
+             offset: int = 0, limit: int | None = None) -> list[MaterialSubmission]: ...
+    def count(self, team_name: str = "", drama_name: str = "", video_file_name: str = "",
+              title_name: str = "", can_upload_status: int | None = None,
+              can_upload_status_empty: bool = False,
+              upload_account_name: str = "", publish_status: int | None = None,
+              publish_status_empty: bool = False) -> int: ...
 
 
 class AuditTaskRepo(Protocol):

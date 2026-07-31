@@ -6,17 +6,22 @@ import hashlib
 import threading
 import zipfile
 import datetime
+import os
+import re
 from fastapi import APIRouter, HTTPException, UploadFile, File, Form, Header, Depends, Query
 from fastapi.concurrency import run_in_threadpool
 from app.api import deps, schemas
 from app.infrastructure.snowflake import next_id_str   # 规则主键:雪花 BIGINT 的字符串形态(PG 规范)
-from app.domain.models import MaterialType, AuditStatus, Material, AuditRule, User, AuditTask, JobStatus, Project, TextSourceType
+from app.domain.models import (MaterialType, AuditStatus, Material, AuditRule, User,
+                               AuditTask, JobStatus, Project, TextSourceType,
+                               MaterialSubmission)
 from app.domain.mp4 import parse_mp4_duration_ms
 from app.service.material import MaterialNotFound
 from app.service.user import InvalidCredentials, DuplicateName
 from app.service.authorization import PermissionDenied
 
 router = APIRouter()
+_UPLOAD_SCOPE_RE = re.compile(r"[^a-z0-9/_-]+")
 
 
 def _user(authorization: str | None = Header(default=None)):
@@ -37,6 +42,18 @@ def _require_perm(user: dict, permission: str) -> None:
         deps.get_authz_service().authorize(u, permission)
     except PermissionDenied:
         raise HTTPException(403, "无权限执行该操作")
+
+
+def _safe_upload_file_name(name: str) -> str:
+    raw = (name or "").strip().replace("\\", "/")
+    safe = os.path.basename(raw) or "upload.bin"
+    return safe
+
+
+def _safe_upload_scope(scope: str) -> str:
+    s = (scope or "").strip().lower().replace("\\", "/")
+    s = _UPLOAD_SCOPE_RE.sub("", s).strip("/")
+    return s or "uploads"
 
 
 def _can_view(user: dict, m) -> bool:
@@ -107,6 +124,55 @@ def _owner_name(owner_id: str) -> str:
         return ""
     u = deps.user_repo.get(owner_id)
     return u.name if u else ""
+
+
+def _check_can_upload_status(status: int | None) -> int | None:
+    if status is None:
+        return None
+    if status not in (1, 2):
+        raise HTTPException(400, "非法可上传状态: 应为 1(可上传) 或 2(不可上传)")
+    return status
+
+
+def _check_publish_status(status: int | None) -> int | None:
+    if status is None:
+        return None
+    if status not in (1, 2):
+        raise HTTPException(400, "非法发布状态: 应为 1(成功) / 2(失败)")
+    return status
+
+
+def _status_filter_arg(raw: str, *, kind: str) -> tuple[int | None, bool]:
+    val = (raw or "").strip()
+    if not val:
+        return None, False
+    if val == "__empty__":
+        return None, True
+    try:
+        num = int(val)
+    except ValueError:
+        raise HTTPException(400, f"非法{kind}筛选值")
+    checked = _check_can_upload_status(num) if kind == "可上传状态" else _check_publish_status(num)
+    return checked, False
+
+
+def _submission_out(s: MaterialSubmission) -> dict:
+    return {
+        "id": s.id,
+        "team_name": s.team_name,
+        "delivery_time": s.delivery_time,
+        "drama_name": s.drama_name,
+        "oss_key": s.oss_key,
+        "video_file_name": s.video_file_name,
+        "title_name": s.title_name,
+        "episode_range": s.episode_range,
+        "revision_comment": s.revision_comment,
+        "can_upload_status": s.can_upload_status,
+        "upload_account_name": s.upload_account_name,
+        "publish_status": s.publish_status,
+        "platform_reject_reason": s.platform_reject_reason,
+        "platform_reject_attachments": list(s.platform_reject_attachments or []),
+    }
 
 
 def _mat_out(m, fav_ids: set | None = None, uid: str | None = None):
@@ -1440,6 +1506,176 @@ def delete_project(project_id: str, user: dict = Depends(_user)):
             deps.rule_repo.delete(r.id, by=user["id"])
     deps.project_repo.delete(project_id)
     return {"deleted": project_id}
+
+
+# ── 上传账号 / 素材提报(管理员) ──
+@router.post("/admin/uploads/file")
+async def upload_admin_file(file: UploadFile = File(...), scope: str = Form("uploads"),
+                            user: dict = Depends(_user)):
+    _require_perm(user, "admin.grant")
+    safe_name = _safe_upload_file_name(file.filename or "")
+    safe_scope = _safe_upload_scope(scope)
+    data = await file.read()
+    key = f"{safe_scope}/{uuid.uuid4().hex}-{safe_name}"
+    await run_in_threadpool(deps.storage.put, key, data)
+    return {"oss_key": key, "file_name": safe_name}
+
+
+@router.get("/admin/material-submissions/upload-account-names")
+def list_material_submission_upload_account_names(
+    keyword: str = Query(""),
+    q: str = Query(""),
+    limit: int = Query(200, ge=1, le=1000),
+    user: dict = Depends(_user),
+):
+    _require_perm(user, "admin.grant")
+    kw = (keyword or q or "").strip()
+    items = deps.material_submission_repo.list_upload_account_names(
+        keyword=kw,
+        limit=limit,
+    )
+    return {"items": items}
+
+
+@router.get("/admin/material-submissions/drama-names")
+def list_material_submission_drama_names(
+    keyword: str = Query(""),
+    q: str = Query(""),
+    limit: int = Query(200, ge=1, le=1000),
+    user: dict = Depends(_user),
+):
+    _require_perm(user, "admin.grant")
+    kw = (keyword or q or "").strip()
+    items = deps.material_submission_repo.list_drama_names(
+        keyword=kw,
+        limit=limit,
+    )
+    return {"items": items}
+
+
+@router.get("/admin/material-submissions")
+def list_material_submissions(page: int = Query(1, ge=1), size: int = Query(20, ge=1, le=100),
+                              team_name: str = Query(""), drama_name: str = Query(""),
+                              video_file_name: str = Query(""), title_name: str = Query(""),
+                              can_upload_status: str = Query(""),
+                              upload_account_name: str = Query(""),
+                              publish_status: str = Query(""),
+                              user: dict = Depends(_user)):
+    _require_perm(user, "admin.grant")
+    can_upload_status, can_upload_status_empty = _status_filter_arg(can_upload_status, kind="可上传状态")
+    publish_status, publish_status_empty = _status_filter_arg(publish_status, kind="发布状态")
+    off, lim = _page_args(page, size)
+    items = deps.material_submission_repo.list(
+        team_name=team_name, drama_name=drama_name,
+        video_file_name=video_file_name, title_name=title_name,
+        can_upload_status=can_upload_status,
+        can_upload_status_empty=can_upload_status_empty,
+        upload_account_name=upload_account_name,
+        publish_status=publish_status,
+        publish_status_empty=publish_status_empty,
+        offset=off, limit=lim,
+    )
+    total = deps.material_submission_repo.count(
+        team_name=team_name, drama_name=drama_name,
+        video_file_name=video_file_name, title_name=title_name,
+        can_upload_status=can_upload_status,
+        can_upload_status_empty=can_upload_status_empty,
+        upload_account_name=upload_account_name,
+        publish_status=publish_status,
+        publish_status_empty=publish_status_empty,
+    )
+    return _page_out([_submission_out(s) for s in items], total, page, size, key="submissions")
+
+
+@router.get("/admin/material-submissions/{submission_id}")
+def get_material_submission_detail(submission_id: str, user: dict = Depends(_user)):
+    _require_perm(user, "admin.grant")
+    s = deps.material_submission_repo.get(submission_id)
+    if s is None:
+        raise HTTPException(404, "素材提报不存在")
+    return _submission_out(s)
+
+
+def _submission_in_to_model(body: schemas.MaterialSubmissionIn, *, sid: str, by: str) -> MaterialSubmission:
+    return MaterialSubmission(
+        id=sid,
+        team_name=(body.team_name or "").strip(),
+        delivery_time=(body.delivery_time or "").strip(),
+        drama_name=(body.drama_name or "").strip(),
+        oss_key=(body.oss_key or "").strip(),
+        video_file_name=(body.video_file_name or "").strip(),
+        title_name=(body.title_name or "").strip(),
+        episode_range=(body.episode_range or "").strip(),
+        created_by=by,
+    )
+
+
+def _apply_submission_process_fields(
+    submission: MaterialSubmission,
+    body: schemas.MaterialSubmissionProcessIn,
+) -> MaterialSubmission:
+    can_upload_status = _check_can_upload_status(body.can_upload_status)
+    publish_status = _check_publish_status(body.publish_status)
+    attachments = []
+    for x in body.platform_reject_attachments or []:
+        v = (x or "").strip()
+        if v:
+            attachments.append(v)
+    submission.revision_comment = (body.revision_comment or "").strip()
+    submission.can_upload_status = can_upload_status
+    submission.upload_account_name = (body.upload_account_name or "").strip()
+    submission.publish_status = publish_status
+    submission.platform_reject_reason = (body.platform_reject_reason or "").strip()
+    submission.platform_reject_attachments = attachments
+    return submission
+
+
+@router.post("/admin/material-submissions")
+def create_material_submission(body: schemas.MaterialSubmissionIn, user: dict = Depends(_user)):
+    _require_perm(user, "admin.grant")
+    s = _submission_in_to_model(body, sid=next_id_str(), by=user["id"])
+    deps.material_submission_repo.add(s, by=user["id"])
+    return _submission_out(s)
+
+
+@router.put("/admin/material-submissions/{submission_id}")
+def update_material_submission(submission_id: str, body: schemas.MaterialSubmissionIn,
+                               user: dict = Depends(_user)):
+    _require_perm(user, "admin.grant")
+    cur = deps.material_submission_repo.get(submission_id)
+    if cur is None:
+        raise HTTPException(404, "素材提报不存在")
+    s = _submission_in_to_model(body, sid=submission_id, by=cur.created_by or user["id"])
+    s.revision_comment = cur.revision_comment
+    s.can_upload_status = cur.can_upload_status
+    s.upload_account_name = cur.upload_account_name
+    s.publish_status = cur.publish_status
+    s.platform_reject_reason = cur.platform_reject_reason
+    s.platform_reject_attachments = list(cur.platform_reject_attachments or [])
+    deps.material_submission_repo.add(s, by=user["id"])
+    return _submission_out(s)
+
+
+@router.put("/admin/material-submissions/{submission_id}/process")
+def process_material_submission(submission_id: str, body: schemas.MaterialSubmissionProcessIn,
+                                user: dict = Depends(_user)):
+    _require_perm(user, "admin.grant")
+    cur = deps.material_submission_repo.get(submission_id)
+    if cur is None:
+        raise HTTPException(404, "素材提报不存在")
+    cur = _apply_submission_process_fields(cur, body)
+    deps.material_submission_repo.add(cur, by=user["id"])
+    return _submission_out(cur)
+
+
+@router.post("/admin/material-submissions/batch/delete")
+def delete_material_submissions(body: schemas.IdsIn, user: dict = Depends(_user)):
+    _require_perm(user, "admin.grant")
+    deleted = []
+    for rid in body.ids:
+        deps.material_submission_repo.delete(rid, by=user["id"])
+        deleted.append(rid)
+    return {"deleted": deleted}
 
 
 # ── 作品审核记录(管理员):只作品,按项目分组,按提交时间(AuditTask.created_ms)区间筛 ──

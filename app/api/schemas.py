@@ -99,6 +99,29 @@ class BlockwordIn(BaseModel):
     words: list[str] = []           # 绝对禁词:加入这些词(审核第一波,命中即拦)
 
 
+class IdsIn(BaseModel):
+    ids: list[str] = []
+
+
+class MaterialSubmissionIn(BaseModel):
+    team_name: str = ""
+    delivery_time: str = ""
+    drama_name: str = ""
+    oss_key: str = ""
+    video_file_name: str = ""
+    title_name: str = ""
+    episode_range: str = ""
+
+
+class MaterialSubmissionProcessIn(BaseModel):
+    revision_comment: str = ""
+    can_upload_status: int | None = None
+    upload_account_name: str = ""
+    publish_status: int | None = None
+    platform_reject_reason: str = ""
+    platform_reject_attachments: list[str] = []
+
+
 # ── 规则训练 ──
 class TrainingExampleIn(BaseModel):
     material_id: str                        # 被标注的物料 ID

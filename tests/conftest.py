@@ -22,6 +22,7 @@ def _hermetic_storage(monkeypatch):
         FakeLlm, InMemoryAuditRuleRepo, InMemoryAuditReportRepo, InMemoryAuditTaskRepo,
         InMemoryProjectRepo, InMemoryBlockwordRepo, InMemoryWhitelistRepo, FakeArchiver, FakeTavily,
         InMemoryTrainingSetRepo, InMemoryTrainingExampleRepo,
+        InMemoryMaterialSubmissionRepo,
         InMemoryUserRepo, InMemoryFavoriteRepo, InMemoryRbac, ListAuditLog,
     )
     _drain_audit_threads()   # 起点:上一个测试的后台线程先跑完,别沾本测试的 deps
@@ -43,6 +44,7 @@ def _hermetic_storage(monkeypatch):
     monkeypatch.setattr(deps, "project_repo", InMemoryProjectRepo())
     monkeypatch.setattr(deps, "training_set_repo", InMemoryTrainingSetRepo())
     monkeypatch.setattr(deps, "training_example_repo", InMemoryTrainingExampleRepo())
+    monkeypatch.setattr(deps, "material_submission_repo", InMemoryMaterialSubmissionRepo())
     monkeypatch.setattr(deps, "blockword_repo", InMemoryBlockwordRepo())
     monkeypatch.setattr(deps, "whitelist_repo", InMemoryWhitelistRepo())
     monkeypatch.setattr(deps, "user_repo", InMemoryUserRepo())

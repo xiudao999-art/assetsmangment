@@ -296,3 +296,27 @@ CREATE TABLE IF NOT EXISTS audit_log (
     event       TEXT NOT NULL,
     create_time TIMESTAMPTZ NOT NULL DEFAULT now()
 );
+
+-- 素材提报表
+CREATE TABLE IF NOT EXISTS material_submission (
+    id                          BIGINT PRIMARY KEY,
+    team_name                   TEXT NOT NULL DEFAULT '',
+    delivery_time               TEXT NOT NULL DEFAULT '',
+    drama_name                  TEXT NOT NULL DEFAULT '',
+    oss_key                     TEXT NOT NULL DEFAULT '',
+    video_file_name             TEXT NOT NULL DEFAULT '',
+    title_name                  TEXT NOT NULL DEFAULT '',
+    episode_range               TEXT NOT NULL DEFAULT '',
+    revision_comment            TEXT NOT NULL DEFAULT '',
+    can_upload_status           SMALLINT NOT NULL DEFAULT 1,
+    upload_account_name         TEXT NOT NULL DEFAULT '',
+    publish_status              SMALLINT NOT NULL DEFAULT 0,
+    platform_reject_reason      TEXT NOT NULL DEFAULT '',
+    platform_reject_attachments JSONB NOT NULL DEFAULT '[]'::jsonb,
+    del_flag                    BIGINT NOT NULL DEFAULT 0,
+    create_by                   TEXT NOT NULL DEFAULT '',
+    create_time                 TIMESTAMPTZ NOT NULL DEFAULT now(),
+    update_by                   TEXT NOT NULL DEFAULT '',
+    update_time                 TIMESTAMPTZ NOT NULL DEFAULT now()
+);
+CREATE INDEX IF NOT EXISTS idx_material_submission_live ON material_submission (del_flag) WHERE del_flag = 0;

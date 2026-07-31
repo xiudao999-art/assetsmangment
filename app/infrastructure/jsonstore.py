@@ -13,7 +13,7 @@ from typing import Optional
 from app.domain.models import (
     Material, MaterialType, AuditStatus, User,
     AuditRule, AuditReport, TextSegment, TextSourceType,
-    AuditTask, JobStatus, Project,
+    AuditTask, JobStatus, Project, MaterialSubmission,
 )
 from app.domain.query import MaterialQuery, paginate
 
@@ -33,6 +33,7 @@ class Store:
         self.blockwords: set[str] = set()            # 绝对禁词(审核第一波,命中即拦)
         self.rules: dict[str, AuditRule] = {}
         self.projects: dict[str, Project] = {}       # 作品项目(每个项目一组审核规则)
+        self.material_submissions: dict[str, MaterialSubmission] = {}
         self.audit_reports: dict[str, AuditReport] = {}
         self.audit_tasks: dict[str, AuditTask] = {}
         self._load()
@@ -119,6 +120,16 @@ class Store:
         for p in d.get("projects", []):
             proj = Project(**p)
             self.projects[proj.id] = proj
+        legacy_accounts = {str(a.get("id") or ""): (a.get("name") or "")
+                           for a in d.get("upload_accounts", []) if isinstance(a, dict)}
+        for s in d.get("material_submissions", []):
+            if "can_upload_status" not in s and "uploadable_status" in s:
+                s["can_upload_status"] = s.pop("uploadable_status")
+            if "upload_account_name" not in s:
+                s["upload_account_name"] = legacy_accounts.get(str(s.get("upload_account_id") or ""), "")
+            s.pop("upload_account_id", None)
+            submission = MaterialSubmission(**s)
+            self.material_submissions[submission.id] = submission
         ar = d.get("audit_reports", {})
         if isinstance(ar, list):   # 兼容早期把 audit_reports 存成列表的老数据(防加载崩溃→静默清库)
             ar = {(r.get("id") or str(i)): r for i, r in enumerate(ar) if isinstance(r, dict)}
@@ -140,6 +151,7 @@ class Store:
                 "blockwords": sorted(self.blockwords),
                 "rules": [asdict(r) for r in self.rules.values()],
                 "projects": [asdict(p) for p in self.projects.values()],
+                "material_submissions": [asdict(s) for s in self.material_submissions.values()],
                 "audit_reports": {rid: self._report_to_dict(rep)
                                   for rid, rep in self.audit_reports.items()},
                 "audit_tasks": [self._task_to_dict(t) for t in self.audit_tasks.values()],
@@ -302,6 +314,98 @@ class JsonProjectRepo:
 
     def list(self) -> list[Project]:
         return sorted(self._s.projects.values(), key=lambda p: p.created_ms)
+
+
+class JsonMaterialSubmissionRepo:
+    def __init__(self, store: Store) -> None:
+        self._s = store
+
+    def add(self, submission: MaterialSubmission, by: str = "") -> None:
+        self._s.material_submissions[submission.id] = submission
+        self._s.save()
+
+    def get(self, submission_id: str) -> Optional[MaterialSubmission]:
+        return self._s.material_submissions.get(submission_id)
+
+    def delete(self, submission_id: str, by: str = "") -> None:
+        self._s.material_submissions.pop(submission_id, None)
+        self._s.save()
+
+    def list_upload_account_names(self, keyword: str = "", limit: int | None = None) -> list[str]:
+        items = []
+        seen: set[str] = set()
+        key = (keyword or "").lower()
+        for s in sorted(self._s.material_submissions.values(), key=lambda x: int(x.id), reverse=True):
+            name = (s.upload_account_name or "").strip()
+            if not name:
+                continue
+            if key and key not in name.lower():
+                continue
+            if name in seen:
+                continue
+            seen.add(name)
+            items.append(name)
+            if limit is not None and len(items) >= limit:
+                break
+        return items
+
+    def list_drama_names(self, keyword: str = "", limit: int | None = None) -> list[str]:
+        items = []
+        seen: set[str] = set()
+        key = (keyword or "").lower()
+        for s in sorted(self._s.material_submissions.values(), key=lambda x: int(x.id), reverse=True):
+            name = (s.drama_name or "").strip()
+            if not name:
+                continue
+            if key and key not in name.lower():
+                continue
+            if name in seen:
+                continue
+            seen.add(name)
+            items.append(name)
+            if limit is not None and len(items) >= limit:
+                break
+        return items
+
+    def list(self, team_name: str = "", drama_name: str = "", video_file_name: str = "",
+             title_name: str = "", can_upload_status: int | None = None,
+             can_upload_status_empty: bool = False,
+             upload_account_name: str = "", publish_status: int | None = None,
+             publish_status_empty: bool = False,
+             offset: int = 0, limit: int | None = None) -> list[MaterialSubmission]:
+        items = sorted(self._s.material_submissions.values(), key=lambda s: int(s.id), reverse=True)
+        if team_name:
+            items = [s for s in items if team_name.lower() in s.team_name.lower()]
+        if drama_name:
+            items = [s for s in items if drama_name.lower() in s.drama_name.lower()]
+        if video_file_name:
+            items = [s for s in items if video_file_name.lower() in s.video_file_name.lower()]
+        if title_name:
+            items = [s for s in items if title_name.lower() in s.title_name.lower()]
+        if can_upload_status is not None:
+            items = [s for s in items if s.can_upload_status == can_upload_status]
+        elif can_upload_status_empty:
+            items = [s for s in items if s.can_upload_status is None]
+        if upload_account_name:
+            items = [s for s in items if s.upload_account_name == upload_account_name]
+        if publish_status is not None:
+            items = [s for s in items if s.publish_status == publish_status]
+        elif publish_status_empty:
+            items = [s for s in items if s.publish_status is None]
+        return items if limit is None else items[offset:offset + limit]
+
+    def count(self, team_name: str = "", drama_name: str = "", video_file_name: str = "",
+              title_name: str = "", can_upload_status: int | None = None,
+              can_upload_status_empty: bool = False,
+              upload_account_name: str = "", publish_status: int | None = None,
+              publish_status_empty: bool = False) -> int:
+        return len(self.list(team_name=team_name, drama_name=drama_name,
+                             video_file_name=video_file_name, title_name=title_name,
+                             can_upload_status=can_upload_status,
+                             can_upload_status_empty=can_upload_status_empty,
+                             upload_account_name=upload_account_name,
+                             publish_status=publish_status,
+                             publish_status_empty=publish_status_empty))
 
 
 # ── 审核报告 ──

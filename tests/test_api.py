@@ -728,6 +728,130 @@ def test_projects_crud_perm_and_dupe():
     empty = client.post("/admin/projects", json={"name": "空项目QC"}, headers=ah).json()["id"]
     assert client.delete(f"/admin/projects/{empty}", headers=ah).status_code == 200               # 空项目可删
 
+def test_material_submissions_crud_filter_and_batch_delete():
+    ah, uh = _admin_hdr(), _user_hdr()
+    assert client.get("/admin/material-submissions").status_code == 401
+    assert client.get("/admin/material-submissions", headers=uh).status_code == 403
+    assert client.get("/admin/material-submissions/upload-account-names", headers=uh).status_code == 403
+    assert client.get("/admin/material-submissions/drama-names", headers=uh).status_code == 403
+    assert client.post("/admin/uploads/file", headers=uh,
+                       data={"scope": "submissions"},
+                       files={"file": ("sub.mp4", b"demo", "video/mp4")}).status_code == 403
+    assert client.put("/admin/material-submissions/1/process", json={}, headers=uh).status_code == 403
+
+    uploaded = client.post("/admin/uploads/file", headers=ah,
+                           data={"scope": "submissions"},
+                           files={"file": ("sub.mp4", b"demo", "video/mp4")})
+    assert uploaded.status_code == 200
+    assert uploaded.json()["file_name"] == "sub.mp4"
+    assert uploaded.json()["oss_key"].startswith("submissions/")
+
+    s1 = client.post("/admin/material-submissions", json={
+        "team_name": "一组团队QC",
+        "delivery_time": "2026-08-01 12:00",
+        "drama_name": "短剧一号QC",
+        "oss_key": uploaded.json()["oss_key"],
+        "video_file_name": "一组-成片A.mp4",
+        "title_name": "标题A-QC",
+        "episode_range": "1-10"
+    }, headers=ah)
+    assert s1.status_code == 200
+    sid1 = s1.json()["id"]
+    assert s1.json()["can_upload_status"] is None
+    assert s1.json()["publish_status"] is None
+    assert s1.json()["upload_account_name"] == ""
+
+    sid2 = client.post("/admin/material-submissions", json={
+        "team_name": "二组团队QC",
+        "delivery_time": "2026-08-02",
+        "drama_name": "爆款短剧二号QC",
+        "oss_key": "submission/b.mp4",
+        "video_file_name": "二组-成片B.mp4",
+        "title_name": "标题B-QC",
+        "episode_range": "11-20"
+    }, headers=ah).json()["id"]
+
+    p1 = client.put(f"/admin/material-submissions/{sid1}/process", json={
+        "revision_comment": "改字幕",
+        "can_upload_status": 1,
+        "upload_account_name": "提报账号A-QC",
+        "platform_reject_reason": "",
+        "platform_reject_attachments": ["oss://reject/a1.png"]
+    }, headers=ah)
+    assert p1.status_code == 200
+
+    p2 = client.put(f"/admin/material-submissions/{sid2}/process", json={
+        "revision_comment": "改封面",
+        "can_upload_status": 2,
+        "upload_account_name": "提报账号B-QC",
+        "publish_status": 2,
+        "platform_reject_reason": "封面违规",
+        "platform_reject_attachments": ["oss://reject/b1.png", "oss://reject/b2.png"]
+    }, headers=ah)
+    assert p2.status_code == 200
+
+    fuzzy = client.get("/admin/material-submissions?team_name=一组&drama_name=一号&video_file_name=成片A&title_name=标题A",
+                       headers=ah).json()
+    assert fuzzy["count"] == 1 and fuzzy["submissions"][0]["id"] == sid1
+
+    exact = client.get("/admin/material-submissions?can_upload_status=2&upload_account_name=提报账号B-QC&publish_status=2",
+                       headers=ah).json()
+    assert exact["count"] == 1 and exact["submissions"][0]["id"] == sid2
+    assert exact["submissions"][0]["upload_account_name"] == "提报账号B-QC"
+    empty_can_upload = client.get("/admin/material-submissions?can_upload_status=__empty__", headers=ah).json()
+    assert empty_can_upload["count"] == 0
+    empty_publish = client.get("/admin/material-submissions?publish_status=__empty__", headers=ah).json()
+    assert empty_publish["count"] == 1 and empty_publish["submissions"][0]["id"] == sid1
+
+    names = client.get("/admin/material-submissions/upload-account-names", headers=ah).json()
+    assert names["items"] == ["提报账号B-QC", "提报账号A-QC"]
+    filtered_names = client.get("/admin/material-submissions/upload-account-names?keyword=账号B", headers=ah).json()
+    assert filtered_names["items"] == ["提报账号B-QC"]
+    drama_names = client.get("/admin/material-submissions/drama-names?keyword=二号", headers=ah).json()
+    assert drama_names["items"] == ["爆款短剧二号QC"]
+
+    detail = client.get(f"/admin/material-submissions/{sid2}", headers=ah)
+    assert detail.status_code == 200 and detail.json()["platform_reject_attachments"] == ["oss://reject/b1.png", "oss://reject/b2.png"]
+
+    up = client.put(f"/admin/material-submissions/{sid1}", json={
+        "team_name": "一组团队QC-更新",
+        "delivery_time": "2026-08-03",
+        "drama_name": "短剧一号QC",
+        "oss_key": "submission/a-v2.mp4",
+        "video_file_name": "一组-成片A-v2.mp4",
+        "title_name": "标题A-QC-更新",
+        "episode_range": "1-12"
+    }, headers=ah)
+    assert up.status_code == 200
+    assert up.json()["team_name"] == "一组团队QC-更新"
+    assert up.json()["upload_account_name"] == "提报账号A-QC"
+    assert up.json()["publish_status"] is None
+
+    process_up = client.put(f"/admin/material-submissions/{sid1}/process", json={
+        "revision_comment": "改旁白",
+        "can_upload_status": 2,
+        "upload_account_name": "提报账号B-QC",
+        "publish_status": 1,
+        "platform_reject_reason": "已修复",
+        "platform_reject_attachments": ["oss://reject/a2.png"]
+    }, headers=ah)
+    assert process_up.status_code == 200
+    assert process_up.json()["upload_account_name"] == "提报账号B-QC"
+    assert process_up.json()["publish_status"] == 1
+    assert process_up.json()["team_name"] == "一组团队QC-更新"
+
+    assert client.put(f"/admin/material-submissions/{sid1}/process", json={
+        "can_upload_status": 9,
+        "upload_account_name": "提报账号A-QC"
+    }, headers=ah).status_code == 400
+    assert client.put(f"/admin/material-submissions/{sid1}/process", json={
+        "publish_status": 0
+    }, headers=ah).status_code == 400
+
+    rm = client.post("/admin/material-submissions/batch/delete", json={"ids": [sid1, sid2]}, headers=ah)
+    assert rm.status_code == 200 and set(rm.json()["deleted"]) == {sid1, sid2}
+    assert client.get(f"/admin/material-submissions/{sid1}", headers=ah).status_code == 404
+
 
 def test_submit_work_requires_existing_project_and_lands_in_project_queue():
     uh, ah = _user_hdr(), _admin_hdr()
