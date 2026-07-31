@@ -1768,7 +1768,7 @@ async function loadMaterialSubmissions(){
     ['platform_reject_reason','平台拒审理由','cell-wide'],
     ['attachments','拒审附件','cell-wide'],
   ];
-  $('#sb-list').innerHTML=rows.length?`<div class="sb-table-wrap"><table class="sb-table"><thead><tr>${cols.map(([,label,cls])=>`<th class="${cls}">${label}</th>`).join('')}<th class="cell-actions">操作</th></tr></thead><tbody>${rows.map(s=>`<tr>${cols.map(([key,,cls])=>`<td class="${cls}">${renderSubmissionTableCell(key,s)}</td>`).join('')}<td class="cell-actions"><div style="display:flex;gap:8px;flex-wrap:wrap"><button class="btn sm key" onclick="openMaterialSubmissionEdit('${s.id}')">编辑</button></div></td></tr>`).join('')}</tbody></table></div>`:'<div class="empty"><b class="disp">还没有素材提报</b>点右上角“新建”创建一条提报记录。</div>';
+  $('#sb-list').innerHTML=rows.length?`<div class="sb-table-wrap"><table class="sb-table"><thead><tr>${cols.map(([,label,cls])=>`<th class="${cls}">${label}</th>`).join('')}<th class="cell-actions">操作</th></tr></thead><tbody>${rows.map(s=>`<tr>${cols.map(([key,,cls])=>`<td class="${cls}">${renderSubmissionTableCell(key,s)}</td>`).join('')}<td class="cell-actions"><div style="display:flex;gap:8px;flex-wrap:wrap"><button class="btn sm key" onclick="openMaterialSubmissionEdit('${s.id}')">编辑</button><button class="btn sm block" onclick="deleteMaterialSubmissions(['${s.id}'])">删除</button></div></td></tr>`).join('')}</tbody></table></div>`:'<div class="empty"><b class="disp">还没有素材提报</b>点右上角“新建”创建一条提报记录。</div>';
   renderPager('#sb-pager','submissions');
 }
 function applySubmissionFilters(){
