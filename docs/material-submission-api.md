@@ -73,7 +73,7 @@ Content-Type: application/json
   "delivery_time": "2026-08-01 12:00",
   "drama_name": "短剧名称",
   "oss_key": "submissions/abc123-我的视频.mp4",
-  "video_file_name": "成片A.mp4",
+  "video_file_name": "傅总，你家灵宝会仙法 1-3集",
   "title_name": "标题A",
   "episode_range": "1-10"
 }
@@ -98,7 +98,7 @@ Content-Type: application/json
   "delivery_time": "2026-08-01 12:00",
   "drama_name": "短剧名称",
   "oss_key": "submissions/abc123-我的视频.mp4",
-  "video_file_name": "成片A.mp4",
+  "video_file_name": "傅总，你家灵宝会仙法 1-3集",
   "title_name": "标题A",
   "episode_range": "1-10",
   "revision_comment": "",
