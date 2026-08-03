@@ -169,6 +169,7 @@ def _submission_out(s: MaterialSubmission) -> dict:
         "revision_comment": s.revision_comment,
         "can_upload_status": s.can_upload_status,
         "upload_account_name": s.upload_account_name,
+        "upload_date": s.upload_date,
         "publish_status": s.publish_status,
         "platform_reject_reason": s.platform_reject_reason,
         "platform_reject_attachments": list(s.platform_reject_attachments or []),
@@ -1620,6 +1621,7 @@ def _submission_in_to_model(body: schemas.MaterialSubmissionIn, *, sid: str, by:
         video_file_name=(body.video_file_name or "").strip(),
         title_name=(body.title_name or "").strip(),
         episode_range=(body.episode_range or "").strip(),
+        upload_date=(body.upload_date or "").strip(),
         created_by=by,
     )
 
@@ -1644,6 +1646,7 @@ def _submission_update_to_model(body: schemas.MaterialSubmissionUpdateIn, *, sid
         revision_comment=(body.revision_comment or "").strip(),
         can_upload_status=can_upload_status,
         upload_account_name=(body.upload_account_name or "").strip(),
+        upload_date=(body.upload_date or "").strip(),
         publish_status=publish_status,
         platform_reject_reason=(body.platform_reject_reason or "").strip(),
         platform_reject_attachments=attachments,
@@ -1665,6 +1668,8 @@ def _apply_submission_process_fields(
     submission.revision_comment = (body.revision_comment or "").strip()
     submission.can_upload_status = can_upload_status
     submission.upload_account_name = (body.upload_account_name or "").strip()
+    if body.upload_date is not None:
+        submission.upload_date = body.upload_date.strip()
     submission.publish_status = publish_status
     submission.platform_reject_reason = (body.platform_reject_reason or "").strip()
     submission.platform_reject_attachments = attachments
@@ -1687,22 +1692,25 @@ def update_material_submission(submission_id: str, body: schemas.MaterialSubmiss
     if cur is None:
         raise HTTPException(404, "素材提报不存在")
     s = _submission_update_to_model(body, sid=submission_id, by=cur.created_by or user["id"])
-    # 处理字段全为默认值时保留已有值（兼容只更新基本字段的调用方）
-    process_all_default = (
-        not (body.revision_comment or "").strip()
-        and not (body.upload_account_name or "").strip()
-        and body.can_upload_status is None
-        and body.publish_status is None
-        and not (body.platform_reject_reason or "").strip()
-        and not body.platform_reject_attachments
-    )
-    if process_all_default:
+    # 只有调用方完全未提交处理字段时才保留旧值；明确提交 null/空串表示清空。
+    fields_set = getattr(body, "model_fields_set", None)
+    if fields_set is None:  # Pydantic v1 compatibility
+        fields_set = getattr(body, "__fields_set__", set())
+    process_fields = {
+        "revision_comment", "can_upload_status", "upload_account_name", "upload_date",
+        "publish_status", "platform_reject_reason", "platform_reject_attachments",
+    }
+    process_fields_omitted = not (set(fields_set) & process_fields)
+    if process_fields_omitted:
         s.revision_comment = cur.revision_comment
         s.can_upload_status = cur.can_upload_status
         s.upload_account_name = cur.upload_account_name
+        s.upload_date = cur.upload_date
         s.publish_status = cur.publish_status
         s.platform_reject_reason = cur.platform_reject_reason
         s.platform_reject_attachments = list(cur.platform_reject_attachments or [])
+    elif "upload_date" not in fields_set:
+        s.upload_date = cur.upload_date
     deps.material_submission_repo.add(s, by=user["id"])
     return _submission_out(s)
 

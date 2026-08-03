@@ -775,10 +775,12 @@ def test_material_submissions_crud_filter_and_batch_delete():
         "revision_comment": "改字幕",
         "can_upload_status": 1,
         "upload_account_name": "提报账号A-QC",
+        "upload_date": "2026-08-03",
         "platform_reject_reason": "",
         "platform_reject_attachments": ["oss://reject/a1.png"]
     }, headers=ah)
     assert p1.status_code == 200
+    assert p1.json()["upload_date"] == "2026-08-03"
 
     p2 = client.put(f"/admin/material-submissions/{sid2}/process", json={
         "revision_comment": "改封面",
@@ -825,6 +827,7 @@ def test_material_submissions_crud_filter_and_batch_delete():
     assert up.status_code == 200
     assert up.json()["team_name"] == "一组团队QC-更新"
     assert up.json()["upload_account_name"] == "提报账号A-QC"
+    assert up.json()["upload_date"] == "2026-08-03"
     assert up.json()["publish_status"] is None
 
     process_up = client.put(f"/admin/material-submissions/{sid1}/process", json={
@@ -839,6 +842,26 @@ def test_material_submissions_crud_filter_and_batch_delete():
     assert process_up.json()["upload_account_name"] == "提报账号B-QC"
     assert process_up.json()["publish_status"] == 1
     assert process_up.json()["team_name"] == "一组团队QC-更新"
+
+    clear_can_upload = client.put(f"/admin/material-submissions/{sid1}", json={
+        "team_name": "一组团队QC-更新",
+        "delivery_time": "2026-08-03",
+        "drama_name": "一号剧-QC",
+        "oss_key": "oss/sub/a.mp4",
+        "video_file_name": "一组-成片A.mp4",
+        "title_name": "标题A-QC-更新",
+        "episode_range": "1-12",
+        "revision_comment": "改旁白",
+        "can_upload_status": None,
+        "upload_account_name": "提报账号B-QC",
+        "upload_date": "2026-08-03",
+        "publish_status": 1,
+        "platform_reject_reason": "已修复",
+        "platform_reject_attachments": ["oss://reject/a2.png"],
+    }, headers=ah)
+    assert clear_can_upload.status_code == 200
+    assert clear_can_upload.json()["can_upload_status"] is None
+    assert clear_can_upload.json()["publish_status"] == 1
 
     assert client.put(f"/admin/material-submissions/{sid1}/process", json={
         "can_upload_status": 9,

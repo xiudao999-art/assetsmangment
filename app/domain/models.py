@@ -108,6 +108,7 @@ class MaterialSubmission:
     revision_comment: str = ""
     can_upload_status: int | None = None
     upload_account_name: str = ""
+    upload_date: str = ""
     publish_status: int | None = None
     platform_reject_reason: str = ""
     platform_reject_attachments: list[str] = field(default_factory=list)

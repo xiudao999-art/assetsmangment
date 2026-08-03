@@ -111,6 +111,7 @@ class MaterialSubmissionIn(BaseModel):
     video_file_name: str = ""
     title_name: str = ""
     episode_range: str = ""
+    upload_date: str | None = None
 
 
 class MaterialSubmissionUpdateIn(BaseModel):
@@ -124,6 +125,7 @@ class MaterialSubmissionUpdateIn(BaseModel):
     revision_comment: str = ""
     can_upload_status: int | None = None
     upload_account_name: str = ""
+    upload_date: str | None = None
     publish_status: int | None = None
     platform_reject_reason: str = ""
     platform_reject_attachments: list[str] = []
@@ -133,6 +135,7 @@ class MaterialSubmissionProcessIn(BaseModel):
     revision_comment: str = ""
     can_upload_status: int | None = None
     upload_account_name: str = ""
+    upload_date: str | None = None
     publish_status: int | None = None
     platform_reject_reason: str = ""
     platform_reject_attachments: list[str] = []
