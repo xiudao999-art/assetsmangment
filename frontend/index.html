@@ -55,6 +55,7 @@
   .topbar{display:flex;align-items:flex-end;justify-content:space-between;gap:16px;padding:26px 32px 18px;border-bottom:1px solid var(--line);position:sticky;top:0;background:linear-gradient(180deg,color-mix(in oklab,var(--raise) 48%,var(--bg)),color-mix(in oklab,var(--bg) 86%,transparent));backdrop-filter:blur(6px);z-index:5}
   .topbar h1{font:600 24px/1.1 "Fraunces";margin:0}.topbar p{margin:5px 0 0;color:var(--dim);font-size:13px}
   .wrap{padding:24px 32px 60px;max-width:1160px}
+  .wrap.submissions-wide{max-width:none;width:100%}
   section{display:none}section.on{display:block;animation:fade .22s ease}
   @keyframes fade{from{opacity:0;transform:translateY(4px)}to{opacity:1;transform:none}}
   @media (prefers-reduced-motion:reduce){section.on,.toast{animation:none}}
@@ -234,6 +235,33 @@
   .sb-file-tag{display:inline-flex;align-items:center;padding:4px 8px;border-radius:999px;background:var(--raise);border:1px solid var(--line);color:var(--dim);font-size:12px;max-width:100%}
   .sb-section{margin-top:14px}
   .sb-section h4{margin:0 0 12px;font:600 14px "Fraunces";color:var(--ink)}
+  .sb-create-intro{position:relative;overflow:hidden;margin-bottom:16px;padding:18px 20px;border:1px solid #d9e5e2;border-radius:14px;background:linear-gradient(135deg,#eef5f3,#f8fbfa);color:#375751}
+  .sb-create-intro::after{content:"";position:absolute;right:-34px;top:-48px;width:132px;height:132px;border-radius:50%;background:rgba(103,143,134,.11)}
+  .sb-create-intro b{display:block;font:600 18px/1.35 "Fraunces";color:#294640;margin-bottom:5px}
+  .sb-create-intro span{display:block;max-width:560px;font-size:12.5px;line-height:1.65;color:#607b75}
+  .sb-create-form{padding:4px 18px 18px;border:1px solid var(--line);border-radius:14px;background:var(--panel);box-shadow:0 12px 30px rgba(45,20,15,.05)}
+  .sb-create-form .sb-section h4{display:flex;align-items:center;gap:8px;margin-bottom:16px;font-size:15px}
+  .sb-create-form .sb-section h4::before{content:"";width:4px;height:16px;border-radius:3px;background:#6f938b}
+  .sb-create-form label{font-weight:600;color:var(--dim)}
+  .sb-create-form input,.sb-create-form select{background:#fff}
+  .sb-edit-form .sb-section{padding:16px;border:1px solid var(--line);border-radius:12px;background:linear-gradient(180deg,color-mix(in oklab,var(--raise) 36%,var(--panel)),var(--panel))}
+  .sb-edit-form .sb-section h4{margin-bottom:16px;font-size:15px}
+  .sb-detail-head{display:flex;align-items:flex-start;justify-content:space-between;gap:16px;margin-bottom:14px}
+  .sb-detail-head h3{margin:0;font:600 20px/1.35 "Fraunces";word-break:break-word}
+  .sb-detail-head p{margin:5px 0 0;color:var(--dim);font-size:12.5px}
+  .sb-detail-media{aspect-ratio:16/9;margin-bottom:18px;border:1px solid var(--line);border-radius:14px;overflow:hidden;background:#140d0b;box-shadow:0 14px 32px rgba(45,20,15,.10);display:flex;align-items:center;justify-content:center}
+  .sb-detail-media video,.sb-detail-media img{width:100%;height:100%;object-fit:contain}
+  .sb-detail-media-block .sb-detail-media{margin-bottom:0;border-radius:14px 14px 0 0}
+  .sb-detail-media-actions{display:flex;align-items:center;gap:14px;margin-bottom:18px;padding:12px 14px;border:1px solid var(--line);border-top:0;border-radius:0 0 14px 14px;background:linear-gradient(90deg,var(--panel),color-mix(in oklab,var(--raise) 42%,var(--panel)))}
+  .sb-detail-media-name{flex:1;min-width:0;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;color:var(--dim);font-size:12.5px;line-height:1.5}
+  .sb-detail-media-actions .btn{flex:0 0 auto;min-width:68px;justify-content:center;white-space:nowrap}
+  .sb-detail-media-empty{display:flex;flex-direction:column;align-items:center;gap:8px;color:var(--faint)}
+  .sb-detail-media-empty b{color:var(--panel);font-size:14px}
+  .sb-detail-card{margin-top:12px;padding:16px;border:1px solid var(--line);border-radius:12px;background:linear-gradient(180deg,color-mix(in oklab,var(--raise) 42%,var(--panel)),var(--panel))}
+  .sb-detail-card h4{margin:0 0 14px;font:600 14px "Fraunces"}
+  .sb-detail-card .sb-field-grid{grid-template-columns:repeat(2,minmax(0,1fr))}
+  .sb-detail-card .sb-field{padding:10px 0;border-bottom:1px solid color-mix(in oklab,var(--line) 72%,transparent)}
+  .sb-detail-card .sb-field:nth-last-child(-n+2){border-bottom:0}
   .sb-action-bar{display:flex;gap:10px;flex-wrap:wrap;margin-top:14px}
   .sb-upload-state{margin-top:8px;display:inline-flex;align-items:center;gap:8px;padding:6px 10px;border-radius:999px;background:var(--raise);border:1px solid var(--line);color:var(--dim);font-size:12px}
   .sb-upload-state[hidden]{display:none}
@@ -242,20 +270,27 @@
   .sb-upload-state.done{color:var(--pass);border-color:color-mix(in oklab,var(--pass) 30%,var(--line-2))}
   .sb-upload-state.error{color:var(--block);border-color:color-mix(in oklab,var(--block) 30%,var(--line-2))}
   @keyframes sbspin{to{transform:rotate(360deg)}}
-  .sb-table-wrap{margin-top:10px;overflow-x:auto;padding-bottom:6px}
-  .sb-table{width:max-content;min-width:1800px;border-collapse:separate;border-spacing:0}
+  #sec-submissions{min-width:0}
+  .sb-table-wrap{width:100%;margin-top:10px;overflow-x:auto;padding-bottom:6px}
+  .sb-table{width:max-content;min-width:max(100%,1100px);border-collapse:separate;border-spacing:0}
   .sb-table th,.sb-table td{padding:12px 14px;border-bottom:1px solid var(--line);vertical-align:top;text-align:left;font-size:13px;background:transparent}
   .sb-table th{position:sticky;top:0;background:var(--bg);z-index:1;font:600 12px Inter;color:var(--dim);white-space:nowrap}
+  .sb-table th.head-content{background:#faf8f6;color:#625650;border-bottom-color:#e7dfda;box-shadow:inset 0 3px #cbbcb3}
+  .sb-table th.head-workflow{background:#f6f9f8;color:#526763;border-bottom-color:#dce6e3;box-shadow:inset 0 3px #a9beb9}
   .sb-table td{color:var(--ink)}
   .sb-table tr:hover td{background:color-mix(in oklab,var(--raise) 55%,transparent)}
   .sb-table .cell-main{min-width:160px}
   .sb-table .cell-file{min-width:180px}
   .sb-table .cell-wide{min-width:220px}
   .sb-table .cell-status{min-width:110px}
-  .sb-table .cell-actions{min-width:160px}
+  .sb-table .cell-actions{min-width:144px}
   .sb-table .k{word-break:break-word}
   .sb-table th.cell-actions,.sb-table td.cell-actions{position:sticky;right:0;z-index:2;background:var(--bg);box-shadow:-10px 0 14px rgba(45,20,15,.05)}
   .sb-table tbody tr:hover td.cell-actions{background:color-mix(in oklab,var(--raise) 55%,transparent)}
+  .sb-title-link{display:inline;padding:0;border:0;background:none;color:var(--mint);font:600 13px/1.55 Inter;text-align:left;cursor:pointer;text-decoration:underline;text-decoration-color:color-mix(in oklab,var(--mint) 35%,transparent);text-underline-offset:3px}
+  .sb-title-link:hover{color:var(--ink);text-decoration-color:var(--mint)}
+  .sb-inline-control{min-width:0;height:34px;padding:6px 9px;border-radius:7px;font-size:12px;background:#fff}
+  .sb-inline-control:disabled{opacity:.6;cursor:wait}
   .sb-thumb{cursor:pointer;transition:opacity .2s}
   .sb-thumb:hover{opacity:.85}
   .sb-thumb img,.sb-thumb video{width:100%;height:100%;object-fit:cover}
@@ -363,14 +398,10 @@
         <div id="queue"></div><div class="pager" id="review-pager"></div></section>
       <section id="sec-submissions">
         <div style="margin-bottom:18px">
-          <div style="display:flex;justify-content:space-between;align-items:center;gap:12px;flex-wrap:wrap">
-            <div>
-              <h3 class="disp" style="margin-bottom:6px">素材提报</h3>
-            </div>
+          <div style="display:flex;justify-content:flex-end;align-items:center;gap:12px;flex-wrap:wrap">
             <button class="btn key f-auto" onclick="openMaterialSubmissionEdit()">新建</button>
           </div>
           <div class="row" style="align-items:flex-end;flex-wrap:wrap;gap:12px">
-            <div class="field f-grow" style="margin:0"><label>团队名称</label><input id="sb-ft-team" placeholder="模糊筛选团队名称"></div>
             <div class="field f-grow" style="margin:0">
               <label>剧名</label>
               <div class="suggest-wrap">
@@ -378,7 +409,6 @@
                 <div id="sb-ft-drama-suggest" class="suggest-dropdown" hidden></div>
               </div>
             </div>
-            <div class="field f-grow" style="margin:0"><label>视频文件名</label><input id="sb-ft-video" placeholder="模糊筛选视频文件名"></div>
             <div class="field f-grow" style="margin:0"><label>标题名</label><input id="sb-ft-title" placeholder="模糊筛选标题名"></div>
           </div>
           <div class="row" style="align-items:flex-end;flex-wrap:wrap;gap:12px;margin-top:12px">
@@ -394,7 +424,6 @@
             <button class="btn key f-auto" onclick="applySubmissionFilters()">查询</button>
             <button class="btn f-auto" onclick="resetSubmissionFilters()">重置</button>
           </div>
-          <div style="margin-top:16px"><label>提报列表</label></div>
           <div id="sb-list"></div>
           <div class="pager" id="sb-pager"></div>
         </div>
@@ -575,7 +604,7 @@ function logout(){localStorage.removeItem('me');ME=null;location.reload()}
 /* ── 导航(按角色)── */
 const NAV_USER=[['我的','mine','我的物料库','我上传的与我收藏的物料'],['我的','ingest','内容审核','审核视频/图片/文字/声音'],['我的','pending','待审核','我提交的审核任务与状态'],
   ['发现','public','公共物料库','所有人共享的物料,可收藏'],['发现','search','搜索','在公共物料里检索']];
-const NAV_ADMIN=[['提报','submissions','素材提报',''],
+const NAV_ADMIN=[['提报','submissions','素材提报','统一管理视频素材的提报、上传与发布状态'],
   ['管理','all','全部物料','所有用户的物料'],['管理','review','审核队列','人工复核待定物料'],['管理','works','作品审核记录','按项目 + 按天看作品审核记录'],
   ['我的','mine','我的物料库','我上传的与我收藏的物料'],['我的','ingest','内容审核','审核视频/图片/文字/声音'],['我的','pending','待审核','审核任务与状态'],
   ['发现','public','公共物料库','所有人共享的物料'],['发现','search','搜索','在公共物料里检索'],
@@ -598,6 +627,7 @@ const SUB={};
 function go(sec){const navset=(ME.role==='admin'?NAV_ADMIN:NAV_USER);
   if(!navset.some(x=>x[1]===sec))sec=(ME.role==='admin'?'all':'mine');  // 角色门控:越权/无效 sec 回落(挡 hashchange 直改 URL)
   $$('.nav').forEach(n=>n.classList.toggle('on',n.dataset.sec===sec));$$('section').forEach(s=>s.classList.toggle('on',s.id==='sec-'+sec));
+  document.querySelector('.wrap')?.classList.toggle('submissions-wide',sec==='submissions');
   const meta=navset.find(x=>x[1]===sec);if(meta){$('#title').textContent=meta[2];$('#sub').textContent=meta[3]}
   location.hash=sec;
   if(sec!=='pending'&&typeof pendingTimer!=='undefined')clearTimeout(pendingTimer);  // 离开待审核→停轮询
@@ -647,7 +677,7 @@ const V={mine:{page:1,size:PAGE_SIZE,total:0,type:'',q:'',project:''},
   search:{page:1,size:PAGE_SIZE,total:0,q:'',type:''},
   pending:{page:1,size:20,total:0,project:'',name:''},
   review:{page:1,size:10,total:0},
-  submissions:{page:1,size:20,total:0,team_name:'',drama_name:'',video_file_name:'',title_name:'',can_upload_status:'',upload_account_name:'',publish_status:''}};
+  submissions:{page:1,size:20,total:0,drama_name:'',title_name:'',can_upload_status:'',upload_account_name:'',publish_status:''}};
 function setCnt(sec,n){const e=$('#cnt-'+sec);if(e)e.textContent=n}
 const debounce=(fn,ms=300)=>{let t;return(...a)=>{clearTimeout(t);t=setTimeout(()=>fn(...a),ms)}};
 
@@ -1513,6 +1543,7 @@ let SUBMISSION_ACCOUNT_NAME_OPTIONS=[];
 let SUBMISSION_DRAMA_NAME_OPTIONS=[];
 const SUBMISSION_SUGGEST_TIMERS={};
 let PREVIEW_KEY='';
+let MATERIAL_SUBMISSION_ROWS={};
 function parseSubmissionRejectAttachmentKeys(raw){
   return String(raw||'').split(/\r?\n|,/).map(s=>s.trim()).filter(Boolean)
 }
@@ -1596,12 +1627,12 @@ async function lazyLoadSubmissionPreviews(){
     if(!url) continue;
     if(kind==='video'){
       el.innerHTML=`<video src="${esc(url)}" muted preload="metadata"></video>`;
-      el.addEventListener('click',(e)=>{e.stopPropagation();previewSubmissionFile(key);});
+      el.addEventListener('click',(e)=>{e.stopPropagation();el.dataset.detailId?openMaterialSubmissionDetail(el.dataset.detailId):previewSubmissionFile(key);});
       el.addEventListener('mouseenter',()=>{const v=el.querySelector('video');if(v)v.play();});
       el.addEventListener('mouseleave',()=>{const v=el.querySelector('video');if(v){v.pause();v.currentTime=0;}});
     }else{
       el.innerHTML=`<img src="${esc(url)}" loading="lazy" onerror="this.parentElement.remove()">`;
-      el.addEventListener('click',(e)=>{e.stopPropagation();previewSubmissionFile(key);});
+      el.addEventListener('click',(e)=>{e.stopPropagation();el.dataset.detailId?openMaterialSubmissionDetail(el.dataset.detailId):previewSubmissionFile(key);});
     }
   }
 }
@@ -1700,19 +1731,46 @@ function submissionStatusChip(kind,v){
   return txt==='—'?`<span class="k">—</span>`:`<span class="stamp ${v===2?'block':'review'}">${txt}</span>`;
 }
 function renderSubmissionTableCell(kind,s){
+  if(kind==='title_name'){
+    const title=String(s.title_name||'').trim();
+    if(!title) return '<span class="k">—</span>';
+    return `<button class="sb-title-link" type="button" onclick="openMaterialSubmissionDetail('${s.id}')">${esc(title)}</button>`;
+  }
   if(kind==='video_oss'){
     const oss=s.oss_key||'';
     if(!oss) return '<span class="k">—</span>';
     const ext=submissionFileExtension(oss);
     const canPreview=submissionFileIsImage(ext)||submissionFileIsVideo(ext);
-    if(!canPreview) return `<span class="k">${esc(submissionUploadedFileName(oss))}</span>`;
-    return `<div class="sb-thumb" data-key="${esc(oss)}" data-kind="${submissionFileIsVideo(ext)?'video':'image'}" style="width:160px;height:90px;border-radius:8px;overflow:hidden;background:var(--raise);border:1px solid var(--line);display:flex;align-items:center;justify-content:center;color:var(--dim);font-size:12px;cursor:pointer">▶</div>`;
+    if(!canPreview) return `<button class="sb-title-link" type="button" onclick="openMaterialSubmissionDetail('${s.id}')">${esc(submissionUploadedFileName(oss))}</button>`;
+    return `<div class="sb-thumb" data-key="${esc(oss)}" data-kind="${submissionFileIsVideo(ext)?'video':'image'}" data-detail-id="${s.id}" title="查看提报详情" style="width:160px;height:90px;border-radius:8px;overflow:hidden;background:var(--raise);border:1px solid var(--line);display:flex;align-items:center;justify-content:center;color:var(--dim);font-size:12px;cursor:pointer">▶</div>`;
   }
   if(kind==='video_file_name') return submissionValueHtml(s.video_file_name);
-  if(kind==='status_upload') return submissionStatusChip('upload',s.can_upload_status);
-  if(kind==='status_publish') return submissionStatusChip('publish',s.publish_status);
+  if(kind==='status_upload') return `<select class="sb-inline-control" id="sb-inline-upload-${s.id}" onchange="saveMaterialSubmissionInline('${s.id}')"><option value="" ${s.can_upload_status==null?'selected':''}></option><option value="1" ${Number(s.can_upload_status)===1?'selected':''}>可上传</option><option value="2" ${Number(s.can_upload_status)===2?'selected':''}>不可上传</option></select>`;
+  if(kind==='upload_account_name') return `<input class="sb-inline-control" id="sb-inline-account-${s.id}" value="${esc(s.upload_account_name||'')}" placeholder="上传账号" onchange="saveMaterialSubmissionInline('${s.id}')" onkeydown="if(event.key==='Enter'){event.preventDefault();this.blur()}">`;
+  if(kind==='status_publish') return `<select class="sb-inline-control" id="sb-inline-publish-${s.id}" onchange="saveMaterialSubmissionInline('${s.id}')"><option value="" ${s.publish_status==null?'selected':''}></option><option value="1" ${Number(s.publish_status)===1?'selected':''}>成功</option><option value="2" ${Number(s.publish_status)===2?'selected':''}>失败</option></select>`;
   if(kind==='attachments') return renderSubmissionAttachmentTags(s.platform_reject_attachments||[]);
   return submissionValueHtml(s[kind]);
+}
+async function saveMaterialSubmissionInline(id){
+  const current=MATERIAL_SUBMISSION_ROWS[id];
+  if(!current){toast('提报数据已过期，请刷新后重试',true);return}
+  const controls=[`#sb-inline-upload-${id}`,`#sb-inline-account-${id}`,`#sb-inline-publish-${id}`].map($).filter(Boolean);
+  controls.forEach(el=>el.disabled=true);
+  const canUpload=$(`#sb-inline-upload-${id}`)?.value||'';
+  const publish=$(`#sb-inline-publish-${id}`)?.value||'';
+  const body={
+    revision_comment:current.revision_comment||'',
+    can_upload_status:canUpload===''?null:Number(canUpload),
+    upload_account_name:($(`#sb-inline-account-${id}`)?.value||'').trim(),
+    publish_status:publish===''?null:Number(publish),
+    platform_reject_reason:current.platform_reject_reason||'',
+    platform_reject_attachments:current.platform_reject_attachments||[]
+  };
+  const r=await api('PUT',`/admin/material-submissions/${id}/process`,body);
+  controls.forEach(el=>el.disabled=false);
+  if(!r.ok){toast(r.data.detail||'更新提报状态失败',true);return}
+  Object.assign(current,r.data||body);
+  toast('提报状态已更新');
 }
 function openCreateModal(title,html,foot=''){
   closeDrawer();$('#cscrim').classList.add('on');$('#create-modal').classList.add('on');$('#cm-title').textContent=title;$('#cm-body').innerHTML=html;$('#cm-foot').innerHTML=foot}
@@ -1739,23 +1797,27 @@ function renderMaterialSubmissionEditForm(s,isNew){
     </div>
     <div class="sb-inline-note" id="sb-d-file-note">当前视频文件：${x.oss_key?esc(submissionUploadedFileName(x.oss_key)):'还没有上传视频文件'}</div>
     </div>`;
-  const processFields=`<div class="sb-section"><h4>处理信息</h4>
+  const processFields=`<div class="sb-section"><h4>上传与发布</h4>
     <div class="row" style="align-items:flex-end;flex-wrap:wrap;gap:12px">
+      <div class="field f-fixed" style="margin:0"><label>可上传状态</label><select id="sb-p-can-upload"><option value="" ${(!canUp||canUp!==1&&canUp!==2)?'selected':''}></option><option value="1" ${canUp===1?'selected':''}>可上传</option><option value="2" ${canUp===2?'selected':''}>不可上传</option></select></div>
       <div class="field f-grow" style="margin:0"><label>上传账号</label>${renderSubmissionSuggestInput('sb-p-account-name',x.upload_account_name||'','')}</div>
-      <div class="field f-fixed" style="margin:0"><label>可上传状态</label><select id="sb-p-can-upload"><option value="" ${(!canUp||canUp!==1&&canUp!==2)?'selected':''}>空</option><option value="1" ${canUp===1?'selected':''}>可上传</option><option value="2" ${canUp===2?'selected':''}>不可上传</option></select></div>
-      <div class="field f-fixed" style="margin:0"><label>发布状态</label><select id="sb-p-publish"><option value="" ${(!pub||pub!==1&&pub!==2)?'selected':''}>空</option><option value="1" ${pub===1?'selected':''}>成功</option><option value="2" ${pub===2?'selected':''}>失败</option></select></div>
+      <div class="field f-fixed" style="margin:0"><label>发布状态</label><select id="sb-p-publish"><option value="" ${(!pub||pub!==1&&pub!==2)?'selected':''}></option><option value="1" ${pub===1?'selected':''}>成功</option><option value="2" ${pub===2?'selected':''}>失败</option></select></div>
     </div>
     <div class="field" style="margin-top:12px"><label>修改意见</label><textarea id="sb-p-revision" rows="3">${esc(x.revision_comment||'')}</textarea></div>
+    </div>
+    <div class="sb-section"><h4>审核反馈</h4>
     <div class="field" style="margin-top:12px"><label>平台拒审理由</label><textarea id="sb-p-reject-reason" rows="3">${esc(x.platform_reject_reason||'')}</textarea></div>
     <textarea id="sb-p-reject-attachments" style="display:none">${esc(rejectKeys.join('\n'))}</textarea>
     <div class="field" style="margin-top:12px"><label>拒审附件</label><input id="sb-p-reject-files" type="file" multiple onchange="uploadMaterialSubmissionRejectAttachments()"><div id="sb-p-reject-state" class="sb-upload-state" hidden></div></div>
     <div style="margin-top:12px"><div id="sb-p-reject-attachments-list">${renderSubmissionRejectAttachmentItems(rejectKeys)}</div></div>
     </div>`;
-  return baseFields + (isNew ? '' : processFields) + `
+  const formContent=baseFields + (isNew ? '' : processFields) + `
     <div style="display:flex;gap:10px;flex-wrap:wrap;margin-top:18px;padding-top:14px;border-top:1px solid var(--line)">
       <button class="btn key" onclick="saveMaterialSubmissionEdit('${esc(x.id||'')}')">保存</button>
       ${!isNew?`<button class="btn block" onclick="deleteMaterialSubmissionFromDrawer('${esc(x.id)}')">删除</button>`:''}
-    </div>`}
+    </div>`;
+  if(!isNew) return `<div class="sb-edit-form">${formContent}</div>`;
+  return `<div class="sb-create-intro"><b>创建一条素材提报</b></div><div class="sb-create-form">${formContent}</div>`}
 async function openMaterialSubmissionEdit(id){
   closeCreateModal();
   const isNew=!id;
@@ -1766,6 +1828,48 @@ async function openMaterialSubmissionEdit(id){
   const r=await api('GET','/admin/material-submissions/'+id);
   if(!r.ok){toast(r.data.detail||'加载提报失败',true);return}
   openAdminDrawer('编辑素材提报',renderMaterialSubmissionEditForm(r.data||{},false));
+}
+async function openMaterialSubmissionDetail(id){
+  openAdminDrawer('素材提报详情','<div class="empty">加载中…</div>');
+  const r=await api('GET','/admin/material-submissions/'+id);
+  if(!r.ok){$('#d-body').innerHTML='<div class="empty"><b class="disp">加载失败</b>请稍后重试。</div>';toast(r.data.detail||'加载提报失败',true);return}
+  const x=r.data||{};
+  const mediaUrl=x.oss_key?await getSubmissionFileUrl(x.oss_key):'';
+  const ext=submissionFileExtension(x.oss_key||'');
+  const media=mediaUrl&&submissionFileIsVideo(ext)
+    ? `<video src="${esc(mediaUrl)}" controls preload="metadata"></video>`
+    : (mediaUrl&&submissionFileIsImage(ext)
+      ? `<img src="${esc(mediaUrl)}" alt="${esc(x.title_name||x.video_file_name||'素材预览')}">`
+      : `<div class="sb-detail-media-empty"><span style="font-size:34px">▶</span><b>${x.oss_key?'该文件暂不支持在线预览':'暂无视频文件'}</b></div>`);
+  const basicFields=[
+    ['团队名称',submissionValueHtml(x.team_name)],['视频交付时间',submissionValueHtml(x.delivery_time)],
+    ['剧名',submissionValueHtml(x.drama_name)],['视频文件名',submissionValueHtml(x.video_file_name)],
+    ['标题名',submissionValueHtml(x.title_name)],['集数区间',submissionValueHtml(x.episode_range)]
+  ];
+  const processFields=[
+    ['可上传状态',submissionStatusChip('upload',x.can_upload_status)],['上传账号',submissionValueHtml(x.upload_account_name)],
+    ['发布状态',submissionStatusChip('publish',x.publish_status)],['修改意见',submissionValueHtml(x.revision_comment)]
+  ];
+  const rejectFields=[
+    ['平台拒审理由',submissionValueHtml(x.platform_reject_reason)],['拒审附件',renderSubmissionAttachmentTags(x.platform_reject_attachments||[])]
+  ];
+  const fieldGrid=fields=>`<div class="sb-field-grid">${fields.map(([k,v])=>`<div class="sb-field"><div class="kk">${k}</div><div class="vv">${v}</div></div>`).join('')}</div>`;
+  const mediaActions=`<div class="sb-detail-media-actions"><span class="sb-detail-media-name" title="${esc(submissionUploadedFileName(x.oss_key||''))}">${esc(submissionUploadedFileName(x.oss_key||'')||'暂无视频文件')}</span><button class="btn sm key" data-key="${encodeURIComponent(x.oss_key||'')}" onclick="downloadMaterialSubmissionFile(decodeURIComponent(this.dataset.key))">下载</button></div>`;
+  const actions=`<div class="sb-action-bar" style="padding-top:14px;border-top:1px solid var(--line)">
+    <button class="btn key" onclick="openMaterialSubmissionEdit('${esc(x.id||id)}')">编辑</button>
+    <button class="btn block" onclick="deleteMaterialSubmissionFromDrawer('${esc(x.id||id)}')">删除</button>
+  </div>`;
+  $('#d-body').innerHTML=`<div class="sb-detail-head"><div><h3>${esc(x.title_name||'未命名素材')}</h3><p>${esc(x.drama_name||'未填写剧名')} · ${esc(x.episode_range||'未填写集数区间')}</p></div>${submissionStatusChip('publish',x.publish_status)}</div>
+    <div class="sb-detail-media-block"><div class="sb-detail-media">${media}</div>${mediaActions}</div>
+    <div class="sb-detail-card"><h4>基本信息</h4>${fieldGrid(basicFields)}</div>
+    <div class="sb-detail-card"><h4>上传与发布</h4>${fieldGrid(processFields)}</div>
+    <div class="sb-detail-card"><h4>审核反馈</h4>${fieldGrid(rejectFields)}</div>${actions}`;
+  lazyLoadSubmissionPreviews();
+}
+async function downloadMaterialSubmissionFile(key){
+  if(!key){toast('该提报暂无可下载的视频文件',true);return}
+  const url=await getSubmissionFileUrl(key,1);
+  if(url) window.open(url,'_blank');
 }
 function syncMaterialSubmissionSelectedFile(){
   const f=$('#sb-d-file')?.files?.[0];
@@ -1851,9 +1955,7 @@ function materialSubmissionFullBody(){return {
 }}
 
 function submissionQuery(v){const qs=new URLSearchParams({page:v.page,size:v.size});
-  if(v.team_name)qs.set('team_name',v.team_name);
   if(v.drama_name)qs.set('drama_name',v.drama_name);
-  if(v.video_file_name)qs.set('video_file_name',v.video_file_name);
   if(v.title_name)qs.set('title_name',v.title_name);
   if(v.can_upload_status!=='')qs.set('can_upload_status',v.can_upload_status);
   if(v.upload_account_name)qs.set('upload_account_name',v.upload_account_name);
@@ -1865,38 +1967,31 @@ async function loadMaterialSubmissions(){
   if(!r.ok){$('#sb-list').innerHTML='<div class="empty"><b class="disp">加载失败</b>请稍后重试。</div>';return}
   v.total=r.data.total??0;setCnt('submissions',v.total);
   const rows=r.data.submissions||[];
+  MATERIAL_SUBMISSION_ROWS=Object.fromEntries(rows.map(s=>[s.id,s]));
   const cols=[
-    ['team_name','团队名称','cell-main'],
-    ['delivery_time','视频交付时间','cell-main'],
-    ['drama_name','剧名','cell-main'],
-    ['video_file_name','视频文件名','cell-main'],
-    ['video_oss','视频文件','cell-file'],
-    ['title_name','标题名','cell-main'],
-    ['episode_range','集数区间','cell-main'],
-    ['revision_comment','修改意见','cell-wide'],
-    ['status_upload','可上传状态','cell-status'],
-    ['upload_account_name','上传账号','cell-main'],
-    ['status_publish','发布状态','cell-status'],
-    ['platform_reject_reason','平台拒审理由','cell-wide'],
-    ['attachments','拒审附件','cell-wide'],
+    ['video_oss','视频文件','cell-file head-content'],
+    ['title_name','标题名','cell-main head-content'],
+    ['drama_name','剧名','cell-main head-content'],
+    ['episode_range','集数区间','cell-main head-content'],
+    ['status_upload','可上传状态','cell-status head-workflow'],
+    ['upload_account_name','上传账号','cell-main head-workflow'],
+    ['status_publish','发布状态','cell-status head-workflow'],
   ];
-  $('#sb-list').innerHTML=rows.length?`<div class="sb-table-wrap"><table class="sb-table"><thead><tr>${cols.map(([,label,cls])=>`<th class="${cls}">${label}</th>`).join('')}<th class="cell-actions">操作</th></tr></thead><tbody>${rows.map(s=>`<tr>${cols.map(([key,,cls])=>`<td class="${cls}">${renderSubmissionTableCell(key,s)}</td>`).join('')}<td class="cell-actions"><div style="display:flex;gap:8px;flex-wrap:wrap"><button class="btn sm key" onclick="openMaterialSubmissionEdit('${s.id}')">编辑</button><button class="btn sm block" onclick="deleteMaterialSubmissions(['${s.id}'])">删除</button></div></td></tr>`).join('')}</tbody></table></div>`:'<div class="empty"><b class="disp">还没有素材提报</b>点右上角“新建”创建一条提报记录。</div>';
+  $('#sb-list').innerHTML=rows.length?`<div class="sb-table-wrap"><table class="sb-table"><thead><tr>${cols.map(([,label,cls])=>`<th class="${cls}">${label}</th>`).join('')}<th class="cell-actions">操作</th></tr></thead><tbody>${rows.map(s=>`<tr>${cols.map(([key,,cls])=>`<td class="${cls}">${renderSubmissionTableCell(key,s)}</td>`).join('')}<td class="cell-actions"><div style="display:flex;gap:8px;flex-wrap:wrap"><button class="btn sm key" onclick="openMaterialSubmissionDetail('${s.id}')">详情</button><button class="btn sm key" data-key="${encodeURIComponent(s.oss_key||'')}" onclick="downloadMaterialSubmissionFile(decodeURIComponent(this.dataset.key))">下载</button><button class="btn sm key" onclick="openMaterialSubmissionEdit('${s.id}')">编辑</button><button class="btn sm block" onclick="deleteMaterialSubmissions(['${s.id}'])">删除</button></div></td></tr>`).join('')}</tbody></table></div>`:'<div class="empty"><b class="disp">还没有素材提报</b>点右上角“新建”创建一条提报记录。</div>';
   renderPager('#sb-pager','submissions');
   lazyLoadSubmissionPreviews();
 }
 function applySubmissionFilters(){
   const v=V.submissions;
-  v.team_name=($('#sb-ft-team').value||'').trim();
   v.drama_name=($('#sb-ft-drama').value||'').trim();
-  v.video_file_name=($('#sb-ft-video').value||'').trim();
   v.title_name=($('#sb-ft-title').value||'').trim();
   v.can_upload_status=$('#sb-ft-can-upload').value||'';
   v.upload_account_name=($('#sb-ft-account-name').value||'').trim();
   v.publish_status=$('#sb-ft-publish').value||'';
   v.page=1;loadMaterialSubmissions()}
 function resetSubmissionFilters(){
-  const v=V.submissions;Object.assign(v,{page:1,team_name:'',drama_name:'',video_file_name:'',title_name:'',can_upload_status:'',upload_account_name:'',publish_status:''});
-  ['#sb-ft-team','#sb-ft-drama','#sb-ft-video','#sb-ft-title'].forEach(s=>{$(s).value=''});
+  const v=V.submissions;Object.assign(v,{page:1,drama_name:'',title_name:'',can_upload_status:'',upload_account_name:'',publish_status:''});
+  ['#sb-ft-drama','#sb-ft-title'].forEach(s=>{$(s).value=''});
   $('#sb-ft-can-upload').value='';$('#sb-ft-account-name').value='';$('#sb-ft-publish').value='';loadMaterialSubmissions()}
 function materialSubmissionBaseBody(){return {
   team_name:($('#sb-d-team')?.value||'').trim(),
