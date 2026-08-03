@@ -104,6 +104,7 @@ Content-Type: application/json
   "revision_comment": "",
   "can_upload_status": null,
   "upload_account_name": "",
+  "upload_date": "",
   "publish_status": null,
   "platform_reject_reason": "",
   "platform_reject_attachments": []
@@ -123,6 +124,7 @@ Content-Type: application/json
 | `revision_comment` | String | 修改意见（管理端填写） |
 | `can_upload_status` | Int\|Null | 可上传状态：`1`=可上传，`2`=不可上传，`null`=未设置 |
 | `upload_account_name` | String | 上传账号名称（管理端填写） |
+| `upload_date` | String | 上传日期（`YYYY-MM-DD`） |
 | `publish_status` | Int\|Null | 发布状态：`1`=成功，`2`=失败，`null`=未设置 |
 | `platform_reject_reason` | String | 平台拒审理由（管理端填写） |
 | `platform_reject_attachments` | [String] | 拒审附件 OSS Key 列表（管理端填写） |

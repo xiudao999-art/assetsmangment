@@ -13,7 +13,7 @@ _TABLE_RE = re.compile(r"^[a-z_][a-z0-9_]*$")
 _SELECT_COLS = (
     "id, team_name, delivery_time, drama_name, oss_key, video_file_name, "
     "title_name, episode_range, revision_comment, can_upload_status, "
-    "upload_account_name, publish_status, platform_reject_reason, "
+    "upload_account_name, upload_date, publish_status, platform_reject_reason, "
     "platform_reject_attachments, create_by"
 )
 
@@ -48,6 +48,7 @@ class PgMaterialSubmissionRepo:
                     revision_comment            TEXT NOT NULL DEFAULT '',
                     can_upload_status           SMALLINT,
                     upload_account_name         TEXT NOT NULL DEFAULT '',
+                    upload_date                 TEXT NOT NULL DEFAULT '',
                     publish_status              SMALLINT,
                     platform_reject_reason      TEXT NOT NULL DEFAULT '',
                     platform_reject_attachments JSONB NOT NULL DEFAULT '[]'::jsonb,
@@ -76,6 +77,21 @@ class PgMaterialSubmissionRepo:
                 END $$;
             """)
             c.execute(f"ALTER TABLE {t} ADD COLUMN IF NOT EXISTS upload_account_name TEXT NOT NULL DEFAULT ''")
+            c.execute(f"""
+                DO $$
+                BEGIN
+                    IF EXISTS (
+                        SELECT 1 FROM information_schema.columns
+                        WHERE table_schema = 'public' AND table_name = '{t}' AND column_name = 'upload_time'
+                    ) AND NOT EXISTS (
+                        SELECT 1 FROM information_schema.columns
+                        WHERE table_schema = 'public' AND table_name = '{t}' AND column_name = 'upload_date'
+                    ) THEN
+                        EXECUTE 'ALTER TABLE {t} RENAME COLUMN upload_time TO upload_date';
+                    END IF;
+                END $$;
+            """)
+            c.execute(f"ALTER TABLE {t} ADD COLUMN IF NOT EXISTS upload_date TEXT NOT NULL DEFAULT ''")
             c.execute(f"""
                 DO $$
                 BEGIN
@@ -126,9 +142,9 @@ class PgMaterialSubmissionRepo:
                 f"""INSERT INTO {self._table}
                         (id, team_name, delivery_time, drama_name, oss_key, video_file_name,
                          title_name, episode_range, revision_comment, can_upload_status,
-                         upload_account_name, publish_status, platform_reject_reason,
+                         upload_account_name, upload_date, publish_status, platform_reject_reason,
                          platform_reject_attachments, create_by, update_by)
-                    VALUES (%s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s)
+                    VALUES (%s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s)
                     ON CONFLICT (id) DO UPDATE SET
                         team_name = EXCLUDED.team_name,
                         delivery_time = EXCLUDED.delivery_time,
@@ -140,6 +156,7 @@ class PgMaterialSubmissionRepo:
                         revision_comment = EXCLUDED.revision_comment,
                         can_upload_status = EXCLUDED.can_upload_status,
                         upload_account_name = EXCLUDED.upload_account_name,
+                        upload_date = EXCLUDED.upload_date,
                         publish_status = EXCLUDED.publish_status,
                         platform_reject_reason = EXCLUDED.platform_reject_reason,
                         platform_reject_attachments = EXCLUDED.platform_reject_attachments,
@@ -150,7 +167,7 @@ class PgMaterialSubmissionRepo:
                     submission.oss_key, submission.video_file_name, submission.title_name,
                     submission.episode_range, submission.revision_comment,
                     submission.can_upload_status, submission.upload_account_name,
-                    submission.publish_status, submission.platform_reject_reason,
+                    submission.upload_date, submission.publish_status, submission.platform_reject_reason,
                     Jsonb(submission.platform_reject_attachments),
                     submission.created_by or by, by or submission.created_by,
                 ),
@@ -304,8 +321,9 @@ class PgMaterialSubmissionRepo:
             revision_comment=row[8] or "",
             can_upload_status=int(row[9]) if row[9] is not None else None,
             upload_account_name=row[10] or "",
-            publish_status=int(row[11]) if row[11] is not None else None,
-            platform_reject_reason=row[12] or "",
-            platform_reject_attachments=row[13] or [],
-            created_by=row[14] or "",
+            upload_date=row[11] or "",
+            publish_status=int(row[12]) if row[12] is not None else None,
+            platform_reject_reason=row[13] or "",
+            platform_reject_attachments=row[14] or [],
+            created_by=row[15] or "",
         )

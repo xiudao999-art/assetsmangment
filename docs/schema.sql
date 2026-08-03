@@ -310,6 +310,7 @@ CREATE TABLE IF NOT EXISTS material_submission (
     revision_comment            TEXT NOT NULL DEFAULT '',
     can_upload_status           SMALLINT NOT NULL DEFAULT 1,
     upload_account_name         TEXT NOT NULL DEFAULT '',
+    upload_date                 TEXT NOT NULL DEFAULT '',
     publish_status              SMALLINT NOT NULL DEFAULT 0,
     platform_reject_reason      TEXT NOT NULL DEFAULT '',
     platform_reject_attachments JSONB NOT NULL DEFAULT '[]'::jsonb,

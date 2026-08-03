@@ -35,6 +35,7 @@ def ensure_submission_tables(
                 revision_comment            TEXT NOT NULL DEFAULT '',
                 can_upload_status           SMALLINT,
                 upload_account_name         TEXT NOT NULL DEFAULT '',
+                upload_date                 TEXT NOT NULL DEFAULT '',
                 publish_status              SMALLINT,
                 platform_reject_reason      TEXT NOT NULL DEFAULT '',
                 platform_reject_attachments JSONB NOT NULL DEFAULT '[]'::jsonb,
@@ -66,6 +67,23 @@ def ensure_submission_tables(
             """
         )
         c.execute(f"ALTER TABLE {submission_table} ADD COLUMN IF NOT EXISTS upload_account_name TEXT NOT NULL DEFAULT ''")
+        c.execute(
+            f"""
+            DO $$
+            BEGIN
+                IF EXISTS (
+                    SELECT 1 FROM information_schema.columns
+                    WHERE table_schema = 'public' AND table_name = '{submission_table}' AND column_name = 'upload_time'
+                ) AND NOT EXISTS (
+                    SELECT 1 FROM information_schema.columns
+                    WHERE table_schema = 'public' AND table_name = '{submission_table}' AND column_name = 'upload_date'
+                ) THEN
+                    EXECUTE 'ALTER TABLE {submission_table} RENAME COLUMN upload_time TO upload_date';
+                END IF;
+            END $$;
+            """
+        )
+        c.execute(f"ALTER TABLE {submission_table} ADD COLUMN IF NOT EXISTS upload_date TEXT NOT NULL DEFAULT ''")
         c.execute(f"ALTER TABLE {submission_table} ALTER COLUMN can_upload_status DROP NOT NULL")
         c.execute(f"ALTER TABLE {submission_table} ALTER COLUMN can_upload_status DROP DEFAULT")
         c.execute(f"ALTER TABLE {submission_table} ALTER COLUMN publish_status DROP NOT NULL")
@@ -115,6 +133,7 @@ def ensure_submission_tables(
         c.execute(f"COMMENT ON COLUMN {submission_table}.revision_comment IS '修改意见'")
         c.execute(f"COMMENT ON COLUMN {submission_table}.can_upload_status IS '可上传状态:1=可上传,2=不可上传；可为空'")
         c.execute(f"COMMENT ON COLUMN {submission_table}.upload_account_name IS '上传账号名称，直接存文本'")
+        c.execute(f"COMMENT ON COLUMN {submission_table}.upload_date IS '上传日期，格式 YYYY-MM-DD'")
         c.execute(f"COMMENT ON COLUMN {submission_table}.publish_status IS '发布状态:1=成功,2=失败；可为空'")
         c.execute(f"COMMENT ON COLUMN {submission_table}.platform_reject_reason IS '平台拒审理由'")
         c.execute(
