@@ -28,7 +28,8 @@
   .app:not(.nav-expanded) .brand{justify-content:center;padding:6px 0 18px}
   .app:not(.nav-expanded) .brand .sprocket{display:none}
   .app:not(.nav-expanded) .me{flex-direction:column;align-items:center;gap:6px;padding:8px 0}
-  .app:not(.nav-expanded) .me .logout{margin:0}
+  .app:not(.nav-expanded) .me .logout{margin:0;padding:7px}
+  .app:not(.nav-expanded) .me .logout span{display:none}
   .brand{display:flex;align-items:center;gap:11px;padding:6px 10px 18px}
   .railtoggle{margin-left:auto;width:26px;height:26px;flex:none;border:1px solid var(--line-2);border-radius:7px;background:var(--raise);color:var(--dim);cursor:pointer;font-size:14px;line-height:1;display:flex;align-items:center;justify-content:center}
   .railtoggle:hover{border-color:var(--faint);color:var(--ink)}
@@ -47,7 +48,9 @@
   .ava{width:30px;height:30px;border-radius:8px;background:var(--raise);border:1px solid var(--line-2);display:flex;align-items:center;justify-content:center;font:600 13px "Fraunces";color:var(--mint)}
   .me .nm{font-weight:600;font-size:13px}.me .rl{color:var(--faint);font-size:11px}
   .me .rl.admin{color:var(--review)}
-  .logout{margin-left:auto;color:var(--faint);background:none;border:none;cursor:pointer;font-size:12px}.logout:hover{color:var(--block)}
+  .logout{margin-left:auto;display:inline-flex;align-items:center;gap:6px;color:var(--dim);background:transparent;border:1px solid transparent;border-radius:8px;padding:6px 8px;cursor:pointer;font:500 12px Inter;white-space:nowrap}
+  .logout:hover{color:var(--block);background:color-mix(in oklab,var(--block) 7%,var(--panel));border-color:color-mix(in oklab,var(--block) 22%,var(--line))}
+  .logout .ico{width:15px;height:15px}
   .live{display:flex;align-items:center;gap:7px;color:var(--faint);font-size:11px;padding:6px 10px}
   .led{width:7px;height:7px;border-radius:50%;background:var(--faint)}.led.ok{background:var(--pass);box-shadow:0 0 0 3px color-mix(in oklab,var(--pass) 25%,transparent)}
   /* 主区 */
@@ -183,7 +186,7 @@
   .hamburger{display:none;width:40px;height:40px;flex:none;border:1px solid var(--line-2);border-radius:9px;background:var(--raise);color:var(--ink);font-size:17px;cursor:pointer;align-items:center;justify-content:center}
   .f-fixed{flex:0 0 130px}.f-grow{flex:1}.f-auto{flex:0 0 auto}
   /* 键盘可达焰圈(无障碍)*/
-  .nav:focus-visible,.fchip:focus-visible,.chip:focus-visible,.btn:focus-visible,.pgbtn:focus-visible,.railtoggle:focus-visible,.hamburger:focus-visible,.tab:focus-visible,.x:focus-visible{outline:2px solid var(--mint);outline-offset:2px}
+  .nav:focus-visible,.fchip:focus-visible,.chip:focus-visible,.btn:focus-visible,.pgbtn:focus-visible,.railtoggle:focus-visible,.hamburger:focus-visible,.logout:focus-visible,.tab:focus-visible,.x:focus-visible{outline:2px solid var(--mint);outline-offset:2px}
   /* ── 自适应:平板/手机 ── */
   @media (max-width:900px){
     .app{grid-template-columns:1fr}
@@ -191,7 +194,9 @@
     .app.nav-open .rail{transform:none}
     .rail,.app:not(.nav-expanded) .rail{--rail-w:238px;padding:22px 14px}
     .rail .nav,.app:not(.nav-expanded) .nav{justify-content:flex-start;gap:10px;padding:9px 10px}
-    .nav-t,.nav .cnt,.navgroup>span,.brand .bx,.brand .sprocket,.me .who,.me .logout,.live span{display:inline}
+    .nav-t,.nav .cnt,.navgroup>span,.brand .bx,.brand .sprocket,.me .who,.live span{display:inline}
+    .me .logout{display:inline-flex}
+    .app:not(.nav-expanded) .me .logout span{display:inline}
     .railtoggle{display:none}
     .hamburger{display:inline-flex}
     .topbar{padding:14px 18px;flex-wrap:wrap}
@@ -333,7 +338,7 @@
     <div class="brand"><span class="sprocket"></span><div class="bx"><b>物料中台</b><small>ASSET · DESK</small></div><button class="railtoggle" id="rail-toggle" aria-label="展开或收起导航" onclick="setRail(!document.getElementById('app').classList.contains('nav-expanded'))">›</button></div>
     <nav id="nav"></nav>
     <div class="foot">
-      <div class="me"><div class="ava" id="ava">D</div><div class="who"><div class="nm" id="me-name">—</div><div class="rl" id="me-role">—</div></div><button class="logout" onclick="logout()">退出</button></div>
+      <div class="me"><div class="ava" id="ava">D</div><div class="who"><div class="nm" id="me-name">—</div><div class="rl" id="me-role">—</div></div><button class="logout" type="button" title="退出登录" aria-label="退出登录" onclick="logout()"><svg class="ico" viewBox="0 0 24 24" aria-hidden="true"><path d="M10 5H5v14h5M14 8l4 4-4 4M18 12H9"/></svg><span>退出登录</span></button></div>
       <div class="live"><span class="led" id="led"></span><span id="livetxt">检测中</span></div>
     </div>
   </aside>
@@ -602,7 +607,10 @@ async function submitAuth(){const name=$('#g-name').value.trim(),password=$('#g-
   const r=await api('POST','/users/login',{name,password});
   if(!r.ok){$('#g-msg').textContent='用户名或密码错误';return}
   ME={...r.data.user,token:r.data.token};localStorage.setItem('me',JSON.stringify(ME));boot()}
-function logout(){localStorage.removeItem('me');ME=null;location.reload()}
+function logout(){
+  if(!ME||!confirm('确认退出登录吗？'))return;
+  localStorage.removeItem('me');ME=null;location.hash='';location.reload();
+}
 
 /* ── 导航(按角色)── */
 const NAV_USER=[['我的','mine','我的物料库','我上传的与我收藏的物料'],['我的','ingest','内容审核','审核视频/图片/文字/声音'],['我的','pending','待审核','我提交的审核任务与状态'],
