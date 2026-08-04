@@ -18,7 +18,8 @@
   .app{display:grid;grid-template-columns:var(--rail-w) 1fr;min-height:100vh}
   .app.nav-expanded{--rail-w:238px}
   /* 左栏(默认收成图标窄栏,几乎不占 PC 宽;点箭头展开;手机上抽屉滑出)*/
-  .rail{background:linear-gradient(180deg,color-mix(in oklab,var(--raise) 72%,var(--panel)),var(--panel));border-right:1px solid var(--line);padding:22px 14px;display:flex;flex-direction:column;gap:5px;position:sticky;top:0;height:100vh;overflow-x:hidden;overflow-y:auto;scrollbar-gutter:stable;transition:padding .18s}
+  .rail{background:linear-gradient(180deg,color-mix(in oklab,var(--raise) 72%,var(--panel)),var(--panel));border-right:1px solid var(--line);padding:22px 14px;display:flex;flex-direction:column;gap:5px;position:sticky;top:0;height:100vh;overflow:hidden;transition:padding .18s}
+  .rail #nav{flex:1;min-height:0;overflow-x:hidden;overflow-y:auto;scrollbar-gutter:stable;padding-bottom:8px}
   .app:not(.nav-expanded) .rail{padding:22px 9px}
   .app:not(.nav-expanded) .nav{justify-content:center;gap:0;padding:9px 0}
   .app:not(.nav-expanded) .nav-t,.app:not(.nav-expanded) .nav .cnt,
@@ -43,7 +44,7 @@
   .nav-t{white-space:nowrap;overflow:hidden}
   .ico{width:17px;height:17px;flex:none;stroke:currentColor;fill:none;stroke-width:1.7}
   .nav .cnt{margin-left:auto;font:500 11px/1 "IBM Plex Mono";color:var(--faint)}.nav.on .cnt{color:var(--mint)}
-  .rail .foot{margin-top:auto;border-top:1px solid var(--line);padding-top:12px}
+  .rail .foot{flex:none;margin-top:0;border-top:1px solid var(--line);padding-top:12px;background:var(--panel)}
   .me{display:flex;align-items:center;gap:10px;padding:8px 10px;border-radius:9px}
   .ava{width:30px;height:30px;border-radius:8px;background:var(--raise);border:1px solid var(--line-2);display:flex;align-items:center;justify-content:center;font:600 13px "Fraunces";color:var(--mint)}
   .me .nm{font-weight:600;font-size:13px}.me .rl{color:var(--faint);font-size:11px}
@@ -1874,7 +1875,7 @@ async function openMaterialSubmissionPermissions(id){
     const options=`<option value="" ${!u.permission_type?'selected':''}>无权限</option><option value="read" ${u.permission_type==='read'?'selected':''}>阅读</option><option value="read_edit" ${u.permission_type==='read_edit'?'selected':''}>阅读并编辑</option>`;
     return `<div class="qrow" style="align-items:center"><div class="thumb">${esc(_ava(u.name))}</div><div class="meta"><div>${esc(u.name)}</div><div class="k">${esc(note||'可按需分配数据权限')}</div></div><select class="sb-permission-select" data-user-id="${esc(u.user_id)}" ${u.locked?'disabled':''} style="width:150px">${options}</select></div>`;
   }).join('');
-  $('#d-body').innerHTML=`<div class="sb-detail-card"><h4>用户数据权限</h4><p class="k" style="margin:6px 0 14px">阅读只能查看和下载；阅读并编辑还可以修改和删除。</p>${rows||'<div class="empty">暂无用户</div>'}</div><div class="sb-action-bar"><button class="btn key" onclick="saveMaterialSubmissionPermissions('${esc(id)}')">保存权限</button><button class="btn" onclick="openMaterialSubmissionDetail('${esc(id)}')">返回详情</button></div>`;
+  $('#d-body').innerHTML=`<div class="sb-detail-card"><h4>用户数据权限</h4><p class="k" style="margin:6px 0 14px">阅读只支持查看和下载；阅读并编辑还支持修改和删除。</p>${rows||'<div class="empty">暂无用户</div>'}</div><div class="sb-action-bar"><button class="btn key" onclick="saveMaterialSubmissionPermissions('${esc(id)}')">保存权限</button><button class="btn" onclick="openMaterialSubmissionDetail('${esc(id)}')">返回详情</button></div>`;
 }
 async function saveMaterialSubmissionPermissions(id){
   const grants=[...$$('.sb-permission-select:not(:disabled)')].map(el=>({user_id:el.dataset.userId,permission_type:el.value})).filter(x=>x.permission_type);
