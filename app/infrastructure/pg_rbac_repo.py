@@ -91,6 +91,15 @@ class PgRbacRepo:
             ).fetchall()
         return {r[0] for r in rows}
 
+    def all_user_permissions(self) -> dict[str, set[str]]:
+        with self._conn() as c:
+            rows = c.execute(
+                f"SELECT user_id, permission FROM {self._ut} WHERE del_flag = 0"
+            ).fetchall()
+        result: dict[str, set[str]] = {}
+        for user_id, permission in rows:
+            result.setdefault(str(user_id), set()).add(str(permission))
+        return result
     def set_user_permissions(self, user_id: str, permissions: set[str]) -> None:
         """原子替换:逐条软删旧(各独立雪花 del_flag) + 插新(同一连接内完成)。"""
         with self._conn() as c:

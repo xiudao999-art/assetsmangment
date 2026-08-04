@@ -251,6 +251,9 @@ class InMemoryRbac:
     def user_permissions(self, user_id: str) -> set[str]:
         return set(self._user_map.get(user_id, set()))
 
+    def all_user_permissions(self) -> dict[str, set[str]]:
+        return {user_id: set(permissions) for user_id, permissions in self._user_map.items()}
+
     def set_user_permissions(self, user_id: str, permissions: set[str]) -> None:
         self._user_map[user_id] = set(permissions)
 
@@ -410,6 +413,7 @@ class InMemoryProjectRepo:
 class InMemoryMaterialSubmissionRepo:
     def __init__(self) -> None:
         self._items: dict[str, MaterialSubmission] = {}
+        self._permissions: dict[tuple[str, str], str] = {}
 
     def add(self, submission: MaterialSubmission, by: str = "") -> None:
         self._items[submission.id] = submission
@@ -419,6 +423,37 @@ class InMemoryMaterialSubmissionRepo:
 
     def delete(self, submission_id: str, by: str = "") -> None:
         self._items.pop(submission_id, None)
+        self._permissions = {k: v for k, v in self._permissions.items() if k[0] != submission_id}
+
+    def permission_of(self, submission_id: str, user_id: str) -> str:
+        return self._permissions.get((submission_id, user_id), "")
+
+    def permissions_for(self, submission_id: str) -> dict[str, str]:
+        return {uid: value for (sid, uid), value in self._permissions.items() if sid == submission_id}
+
+    def replace_permissions(self, submission_id: str, grants: dict[str, str], by: str = "") -> None:
+        self._permissions = {k: v for k, v in self._permissions.items() if k[0] != submission_id}
+        for user_id, permission_type in grants.items():
+            if user_id != "admin" and permission_type in ("read", "read_edit"):
+                self._permissions[(submission_id, user_id)] = permission_type
+
+    def permissions_for_user(self, user_id: str) -> dict[str, str]:
+        return {sid: value for (sid, uid), value in self._permissions.items() if uid == user_id}
+
+    def replace_user_permissions(self, user_id: str, grants: dict[str, str], by: str = "") -> int:
+        before = self.permissions_for_user(user_id)
+        desired = {str(sid): value for sid, value in grants.items()
+                   if str(sid) in self._items and value in ("read", "read_edit")}
+        for submission in self._items.values():
+            if submission.created_by == user_id:
+                desired[submission.id] = "read_edit"
+        self._permissions = {key: value for key, value in self._permissions.items() if key[1] != user_id}
+        for submission_id, permission_type in desired.items():
+            self._permissions[(submission_id, user_id)] = permission_type
+        return sum(1 for sid in set(before) | set(desired) if before.get(sid, "") != desired.get(sid, ""))
+    def submission_ids_for_user(self, user_id: str, require_edit: bool = False) -> set[str]:
+        allowed = {"read_edit"} if require_edit else {"read", "read_edit"}
+        return {sid for (sid, uid), value in self._permissions.items() if uid == user_id and value in allowed}
 
     def list_upload_account_names(self, keyword: str = "", limit: int | None = None) -> list[str]:
         items = []

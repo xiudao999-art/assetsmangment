@@ -24,6 +24,7 @@ class PgMaterialSubmissionRepo:
             raise ValueError(f"非法表名: {table!r}")
         self._dsn = dsn
         self._table = table
+        self._permission_table = f"{table}_permission"
         self._idgen = idgen or next_id
         self._init_schema()
 
@@ -130,6 +131,28 @@ class PgMaterialSubmissionRepo:
                 f"CREATE INDEX IF NOT EXISTS idx_{t}_account_name ON {t} (upload_account_name, del_flag)"
             )
             c.execute(f"CREATE INDEX IF NOT EXISTS idx_{t}_live ON {t} (del_flag) WHERE del_flag = 0")
+            p = self._permission_table
+            c.execute(f"""
+                CREATE TABLE IF NOT EXISTS {p} (
+                    submission_id  BIGINT NOT NULL REFERENCES {t}(id) ON DELETE CASCADE,
+                    user_id        TEXT NOT NULL,
+                    permission_type TEXT NOT NULL CHECK (permission_type IN ('read', 'read_edit')),
+                    create_by      TEXT NOT NULL DEFAULT '',
+                    create_time    TIMESTAMPTZ NOT NULL DEFAULT now(),
+                    update_by      TEXT NOT NULL DEFAULT '',
+                    update_time    TIMESTAMPTZ NOT NULL DEFAULT now(),
+                    PRIMARY KEY (submission_id, user_id)
+                )""")
+            c.execute(f"CREATE INDEX IF NOT EXISTS idx_{p}_user ON {p} (user_id, permission_type)")
+            c.execute(f"""
+                INSERT INTO {p} (submission_id, user_id, permission_type, create_by, update_by)
+                SELECT id, create_by, 'read_edit', create_by, create_by
+                  FROM {t}
+                 WHERE del_flag = 0 AND create_by <> '' AND create_by <> 'admin'
+                ON CONFLICT (submission_id, user_id) DO UPDATE
+                    SET permission_type = 'read_edit', update_time = now()
+            """)
+            c.execute(f"DELETE FROM {p} WHERE user_id = 'admin'")
 
     def add(self, submission: MaterialSubmission, by: str = "") -> None:
         try:
@@ -196,6 +219,116 @@ class PgMaterialSubmissionRepo:
                 f"WHERE id = %s AND del_flag = 0",
                 (self._idgen(), by, sid),
             )
+            c.execute(f"DELETE FROM {self._permission_table} WHERE submission_id = %s", (sid,))
+
+    def permission_of(self, submission_id: str, user_id: str) -> str:
+        try:
+            sid = int(submission_id)
+        except (TypeError, ValueError):
+            return ""
+        with self._conn() as c:
+            row = c.execute(
+                f"SELECT permission_type FROM {self._permission_table} "
+                "WHERE submission_id = %s AND user_id = %s",
+                (sid, user_id),
+            ).fetchone()
+        return row[0] if row else ""
+
+    def permissions_for(self, submission_id: str) -> dict[str, str]:
+        try:
+            sid = int(submission_id)
+        except (TypeError, ValueError):
+            return {}
+        with self._conn() as c:
+            rows = c.execute(
+                f"SELECT user_id, permission_type FROM {self._permission_table} WHERE submission_id = %s",
+                (sid,),
+            ).fetchall()
+        return {str(row[0]): str(row[1]) for row in rows}
+
+    def permissions_for_user(self, user_id: str) -> dict[str, str]:
+        with self._conn() as c:
+            rows = c.execute(
+                f"SELECT submission_id, permission_type FROM {self._permission_table} WHERE user_id = %s",
+                (user_id,),
+            ).fetchall()
+        return {str(row[0]): str(row[1]) for row in rows}
+    def replace_permissions(self, submission_id: str, grants: dict[str, str], by: str = "") -> None:
+        try:
+            sid = int(submission_id)
+        except (TypeError, ValueError):
+            return
+        clean = {str(uid): value for uid, value in grants.items()
+                 if uid and str(uid) != "admin" and value in ("read", "read_edit")}
+        with self._conn() as c:
+            with c.transaction():
+                c.execute(f"DELETE FROM {self._permission_table} WHERE submission_id = %s", (sid,))
+                for user_id, permission_type in clean.items():
+                    c.execute(
+                        f"INSERT INTO {self._permission_table} "
+                        "(submission_id, user_id, permission_type, create_by, update_by) "
+                        "VALUES (%s, %s, %s, %s, %s)",
+                        (sid, user_id, permission_type, by, by),
+                    )
+
+    def replace_user_permissions(self, user_id: str, grants: dict[str, str], by: str = "") -> int:
+        if not user_id or user_id == "admin":
+            return 0
+        clean: dict[int, str] = {}
+        for submission_id, permission_type in grants.items():
+            try:
+                sid = int(submission_id)
+            except (TypeError, ValueError):
+                continue
+            if permission_type in ("read", "read_edit"):
+                clean[sid] = permission_type
+        with self._conn() as c:
+            with c.transaction():
+                rows = c.execute(
+                    f"SELECT submission_id, permission_type FROM {self._permission_table} WHERE user_id = %s",
+                    (user_id,),
+                ).fetchall()
+                before = {int(row[0]): str(row[1]) for row in rows}
+                owner_rows = c.execute(
+                    f"SELECT id FROM {self._table} WHERE del_flag = 0 AND create_by = %s",
+                    (user_id,),
+                ).fetchall()
+                for row in owner_rows:
+                    clean[int(row[0])] = "read_edit"
+                submission_ids = list(clean)
+                if submission_ids:
+                    values_sql = ", ".join(["(%s, %s, %s, %s, %s)"] * len(submission_ids))
+                    params: list = []
+                    for sid in submission_ids:
+                        params.extend((sid, user_id, clean[sid], by, by))
+                    c.execute(
+                        f"""INSERT INTO {self._permission_table}
+                                (submission_id, user_id, permission_type, create_by, update_by)
+                            VALUES {values_sql}
+                            ON CONFLICT (submission_id, user_id) DO UPDATE SET
+                                permission_type = EXCLUDED.permission_type,
+                                update_by = EXCLUDED.update_by,
+                                update_time = now()""",
+                        params,
+                    )
+                    c.execute(
+                        f"DELETE FROM {self._permission_table} "
+                        "WHERE user_id = %s AND NOT (submission_id = ANY(%s::bigint[]))",
+                        (user_id, submission_ids),
+                    )
+                else:
+                    c.execute(f"DELETE FROM {self._permission_table} WHERE user_id = %s", (user_id,))
+        return sum(1 for sid in set(before) | set(clean) if before.get(sid, "") != clean.get(sid, ""))
+    def submission_ids_for_user(self, user_id: str, require_edit: bool = False) -> set[str]:
+        allowed = ("read_edit",) if require_edit else ("read", "read_edit")
+        placeholders = ",".join(["%s"] * len(allowed))
+        with self._conn() as c:
+            rows = c.execute(
+                f"SELECT submission_id FROM {self._permission_table} "
+                f"WHERE user_id = %s AND permission_type IN ({placeholders})",
+                (user_id, *allowed),
+            ).fetchall()
+        return {str(row[0]) for row in rows}
 
     def list_upload_account_names(self, keyword: str = "", limit: int | None = None) -> list[str]:
         where = "del_flag = 0 AND upload_account_name <> ''"

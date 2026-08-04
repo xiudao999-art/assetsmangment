@@ -34,6 +34,7 @@ class Store:
         self.rules: dict[str, AuditRule] = {}
         self.projects: dict[str, Project] = {}       # 作品项目(每个项目一组审核规则)
         self.material_submissions: dict[str, MaterialSubmission] = {}
+        self.material_submission_permissions: dict[tuple[str, str], str] = {}
         self.audit_reports: dict[str, AuditReport] = {}
         self.audit_tasks: dict[str, AuditTask] = {}
         self._load()
@@ -130,6 +131,17 @@ class Store:
             s.pop("upload_account_id", None)
             submission = MaterialSubmission(**s)
             self.material_submissions[submission.id] = submission
+        for grant in d.get("material_submission_permissions", []):
+            if not isinstance(grant, dict):
+                continue
+            sid = str(grant.get("submission_id") or "")
+            uid = str(grant.get("user_id") or "")
+            permission_type = str(grant.get("permission_type") or "")
+            if sid and uid and uid != "admin" and permission_type in ("read", "read_edit"):
+                self.material_submission_permissions[(sid, uid)] = permission_type
+        for submission in self.material_submissions.values():
+            if submission.created_by and submission.created_by != "admin":
+                self.material_submission_permissions[(submission.id, submission.created_by)] = "read_edit"
         ar = d.get("audit_reports", {})
         if isinstance(ar, list):   # 兼容早期把 audit_reports 存成列表的老数据(防加载崩溃→静默清库)
             ar = {(r.get("id") or str(i)): r for i, r in enumerate(ar) if isinstance(r, dict)}
@@ -152,6 +164,10 @@ class Store:
                 "rules": [asdict(r) for r in self.rules.values()],
                 "projects": [asdict(p) for p in self.projects.values()],
                 "material_submissions": [asdict(s) for s in self.material_submissions.values()],
+                "material_submission_permissions": [
+                    {"submission_id": sid, "user_id": uid, "permission_type": permission_type}
+                    for (sid, uid), permission_type in self.material_submission_permissions.items()
+                ],
                 "audit_reports": {rid: self._report_to_dict(rep)
                                   for rid, rep in self.audit_reports.items()},
                 "audit_tasks": [self._task_to_dict(t) for t in self.audit_tasks.values()],
@@ -267,6 +283,9 @@ class JsonRbac:
     def user_permissions(self, user_id: str) -> set[str]:
         return set(self._s.user_perms.get(user_id, set()))
 
+    def all_user_permissions(self) -> dict[str, set[str]]:
+        return {user_id: set(permissions) for user_id, permissions in self._s.user_perms.items()}
+
     def set_user_permissions(self, user_id: str, permissions: set[str]) -> None:
         self._s.user_perms[user_id] = set(permissions)
         self._s.save()
@@ -329,7 +348,49 @@ class JsonMaterialSubmissionRepo:
 
     def delete(self, submission_id: str, by: str = "") -> None:
         self._s.material_submissions.pop(submission_id, None)
+        self._s.material_submission_permissions = {
+            k: v for k, v in self._s.material_submission_permissions.items() if k[0] != submission_id
+        }
         self._s.save()
+
+    def permission_of(self, submission_id: str, user_id: str) -> str:
+        return self._s.material_submission_permissions.get((submission_id, user_id), "")
+
+    def permissions_for(self, submission_id: str) -> dict[str, str]:
+        return {uid: value for (sid, uid), value in self._s.material_submission_permissions.items()
+                if sid == submission_id}
+
+    def replace_permissions(self, submission_id: str, grants: dict[str, str], by: str = "") -> None:
+        self._s.material_submission_permissions = {
+            k: v for k, v in self._s.material_submission_permissions.items() if k[0] != submission_id
+        }
+        for user_id, permission_type in grants.items():
+            if user_id != "admin" and permission_type in ("read", "read_edit"):
+                self._s.material_submission_permissions[(submission_id, user_id)] = permission_type
+        self._s.save()
+
+    def permissions_for_user(self, user_id: str) -> dict[str, str]:
+        return {sid: value for (sid, uid), value in self._s.material_submission_permissions.items()
+                if uid == user_id}
+
+    def replace_user_permissions(self, user_id: str, grants: dict[str, str], by: str = "") -> int:
+        before = self.permissions_for_user(user_id)
+        desired = {str(sid): value for sid, value in grants.items()
+                   if str(sid) in self._s.material_submissions and value in ("read", "read_edit")}
+        for submission in self._s.material_submissions.values():
+            if submission.created_by == user_id:
+                desired[submission.id] = "read_edit"
+        self._s.material_submission_permissions = {
+            key: value for key, value in self._s.material_submission_permissions.items() if key[1] != user_id
+        }
+        for submission_id, permission_type in desired.items():
+            self._s.material_submission_permissions[(submission_id, user_id)] = permission_type
+        self._s.save()
+        return sum(1 for sid in set(before) | set(desired) if before.get(sid, "") != desired.get(sid, ""))
+    def submission_ids_for_user(self, user_id: str, require_edit: bool = False) -> set[str]:
+        allowed = {"read_edit"} if require_edit else {"read", "read_edit"}
+        return {sid for (sid, uid), value in self._s.material_submission_permissions.items()
+                if uid == user_id and value in allowed}
 
     def list_upload_account_names(self, keyword: str = "", limit: int | None = None) -> list[str]:
         items = []

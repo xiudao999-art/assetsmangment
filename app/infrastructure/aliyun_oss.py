@@ -29,36 +29,25 @@ class OssStorage:
             self._bucket.put_object(oss_key, fileobj)
 
     def _multipart_upload(self, oss_key: str, fileobj, total_size: int) -> None:
-        """分片并发上传:多线程并行 PUT 各分片,大文件显著快于单连接 PUT。"""
+        """固定大小逐片上传；任何时刻只保留一个分片，避免大视频整体进入内存。"""
         import oss2 as _oss2
-        from concurrent.futures import ThreadPoolExecutor, as_completed
 
-        part_size = max(1024 * 1024, total_size // 10)  # 1MB ~ total/10
-        # 预读全部分片到内存(上游已有 data bytes,不增加峰值)
-        chunks: list[bytes] = []
-        while True:
-            chunk = fileobj.read(part_size)
-            if not chunk:
-                break
-            chunks.append(chunk)
-
-        if not chunks:
-            self._bucket.put_object(oss_key, b"")
-            return
-
+        part_size = 8 * 1024 * 1024
         upload_id = self._bucket.init_multipart_upload(oss_key).upload_id
-        part_infos: list = [None] * len(chunks)
+        part_infos: list = []
+        part_number = 1
         try:
-            workers = min(4, len(chunks))
-            with ThreadPoolExecutor(max_workers=workers) as ex:
-                futures = {
-                    ex.submit(self._bucket.upload_part, oss_key, upload_id, i + 1, chunks[i]): i
-                    for i in range(len(chunks))
-                }
-                for fut in as_completed(futures):
-                    idx = futures[fut]
-                    result = fut.result()
-                    part_infos[idx] = _oss2.models.PartInfo(idx + 1, result.etag)
+            while True:
+                chunk = fileobj.read(part_size)
+                if not chunk:
+                    break
+                result = self._bucket.upload_part(oss_key, upload_id, part_number, chunk)
+                part_infos.append(_oss2.models.PartInfo(part_number, result.etag))
+                part_number += 1
+            if not part_infos:
+                self._bucket.abort_multipart_upload(oss_key, upload_id)
+                self._bucket.put_object(oss_key, b"")
+                return
             self._bucket.complete_multipart_upload(oss_key, upload_id, part_infos)
         except Exception:
             self._bucket.abort_multipart_upload(oss_key, upload_id)
