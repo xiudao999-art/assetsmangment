@@ -131,6 +131,15 @@ class MaterialSubmissionUpdateIn(BaseModel):
     platform_reject_attachments: list[str] = []
 
 
+class MaterialSubmissionPermissionGrantIn(BaseModel):
+    user_id: str
+    permission_type: str  # read / read_edit
+
+
+class MaterialSubmissionPermissionsIn(BaseModel):
+    grants: list[MaterialSubmissionPermissionGrantIn] = []
+
+
 class MaterialSubmissionProcessIn(BaseModel):
     revision_comment: str = ""
     can_upload_status: int | None = None

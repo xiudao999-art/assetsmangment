@@ -410,6 +410,7 @@ class InMemoryProjectRepo:
 class InMemoryMaterialSubmissionRepo:
     def __init__(self) -> None:
         self._items: dict[str, MaterialSubmission] = {}
+        self._permissions: dict[tuple[str, str], str] = {}
 
     def add(self, submission: MaterialSubmission, by: str = "") -> None:
         self._items[submission.id] = submission
@@ -419,6 +420,23 @@ class InMemoryMaterialSubmissionRepo:
 
     def delete(self, submission_id: str, by: str = "") -> None:
         self._items.pop(submission_id, None)
+        self._permissions = {k: v for k, v in self._permissions.items() if k[0] != submission_id}
+
+    def permission_of(self, submission_id: str, user_id: str) -> str:
+        return self._permissions.get((submission_id, user_id), "")
+
+    def permissions_for(self, submission_id: str) -> dict[str, str]:
+        return {uid: value for (sid, uid), value in self._permissions.items() if sid == submission_id}
+
+    def replace_permissions(self, submission_id: str, grants: dict[str, str], by: str = "") -> None:
+        self._permissions = {k: v for k, v in self._permissions.items() if k[0] != submission_id}
+        for user_id, permission_type in grants.items():
+            if user_id != "admin" and permission_type in ("read", "read_edit"):
+                self._permissions[(submission_id, user_id)] = permission_type
+
+    def submission_ids_for_user(self, user_id: str, require_edit: bool = False) -> set[str]:
+        allowed = {"read_edit"} if require_edit else {"read", "read_edit"}
+        return {sid for (sid, uid), value in self._permissions.items() if uid == user_id and value in allowed}
 
     def list_upload_account_names(self, keyword: str = "", limit: int | None = None) -> list[str]:
         items = []

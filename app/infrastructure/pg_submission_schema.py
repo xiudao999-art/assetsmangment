@@ -145,3 +145,31 @@ def ensure_submission_tables(
         c.execute(f"COMMENT ON COLUMN {submission_table}.update_by IS '最后操作人'")
         c.execute(f"COMMENT ON COLUMN {submission_table}.update_time IS '最后操作时间'")
         c.execute(f"CREATE INDEX IF NOT EXISTS idx_{submission_table}_live ON {submission_table} (del_flag) WHERE del_flag = 0")
+        permission_table = f"{submission_table}_permission"
+        c.execute(
+            f"""
+            CREATE TABLE IF NOT EXISTS {permission_table} (
+                submission_id   BIGINT NOT NULL REFERENCES {submission_table}(id) ON DELETE CASCADE,
+                user_id         TEXT NOT NULL,
+                permission_type TEXT NOT NULL CHECK (permission_type IN ('read', 'read_edit')),
+                create_by       TEXT NOT NULL DEFAULT '',
+                create_time     TIMESTAMPTZ NOT NULL DEFAULT now(),
+                update_by       TEXT NOT NULL DEFAULT '',
+                update_time     TIMESTAMPTZ NOT NULL DEFAULT now(),
+                PRIMARY KEY (submission_id, user_id)
+            )
+            """
+        )
+        c.execute(f"CREATE INDEX IF NOT EXISTS idx_{permission_table}_user ON {permission_table} (user_id, permission_type)")
+        c.execute(
+            f"""
+            INSERT INTO {permission_table} (submission_id, user_id, permission_type, create_by, update_by)
+            SELECT id, create_by, 'read_edit', create_by, create_by
+              FROM {submission_table}
+             WHERE del_flag = 0 AND create_by <> '' AND create_by <> 'admin'
+            ON CONFLICT (submission_id, user_id) DO UPDATE
+                SET permission_type = 'read_edit', update_time = now()
+            """
+        )
+        c.execute(f"DELETE FROM {permission_table} WHERE user_id = 'admin'")
+        c.execute(f"COMMENT ON TABLE {permission_table} IS '素材提报数据权限关联表。read=阅读，read_edit=阅读并编辑。'")

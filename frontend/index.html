@@ -613,7 +613,8 @@ function logout(){
 }
 
 /* ── 导航(按角色)── */
-const NAV_USER=[['我的','mine','我的物料库','我上传的与我收藏的物料'],['我的','ingest','内容审核','审核视频/图片/文字/声音'],['我的','pending','待审核','我提交的审核任务与状态'],
+const NAV_USER=[['提报','submissions','素材提报','管理我上传及获授权的视频素材'],
+  ['我的','mine','我的物料库','我上传的与我收藏的物料'],['我的','ingest','内容审核','审核视频/图片/文字/声音'],['我的','pending','待审核','我提交的审核任务与状态'],
   ['发现','public','公共物料库','所有人共享的物料,可收藏'],['发现','search','搜索','在公共物料里检索']];
 const NAV_ADMIN=[['提报','submissions','素材提报','统一管理视频素材的提报、上传与发布状态'],
   ['管理','all','全部物料','所有用户的物料'],['管理','review','审核队列','人工复核待定物料'],['管理','works','作品审核记录','按项目 + 按天看作品审核记录'],
@@ -711,7 +712,7 @@ function showSkeleton(sel,n){if(!$(sel))return;
 
 const pageCount=v=>Math.max(1,Math.ceil((v.total||0)/v.size));
 function renderPager(sel,vkey){const v=V[vkey],pc=pageCount(v),el=$(sel);if(!el)return;
-  if((v.total||0)<=v.size){el.innerHTML='';return}   // 单页不显示翻页
+  if((v.total||0)===0){el.innerHTML='';return}   // 空结果不显示；单页仍展示页数与条数
   const dPrev=v.page<=1,dNext=v.page>=pc;
   el.innerHTML=`<button class="pgbtn" ${dPrev?'disabled':''} data-go="first" aria-label="第一页">«</button>`+
     `<button class="pgbtn" ${dPrev?'disabled':''} data-go="prev">上一页</button>`+
@@ -1555,6 +1556,7 @@ let SUBMISSION_ACCOUNT_NAME_OPTIONS=[];
 let SUBMISSION_DRAMA_NAME_OPTIONS=[];
 const SUBMISSION_SUGGEST_TIMERS={};
 let PREVIEW_KEY='';
+let PREVIEW_SUBMISSION_ID='';
 let MATERIAL_SUBMISSION_ROWS={};
 function parseSubmissionRejectAttachmentKeys(raw){
   return String(raw||'').split(/\r?\n|,/).map(s=>s.trim()).filter(Boolean)
@@ -1571,7 +1573,7 @@ function submissionValueHtml(value,fallback='—'){
 function submissionAttachmentNames(keys){
   return (keys||[]).map(x=>submissionUploadedFileName(x)).filter(Boolean)
 }
-function renderSubmissionAttachmentTags(keys){
+function renderSubmissionAttachmentTags(keys,submissionId=''){
   const items=submissionAttachmentNames(keys);
   if(!items.length) return '<span class="k">—</span>';
   return `<div class="sb-file-tags" style="align-items:center">${(keys||[]).map((k,i)=>{
@@ -1579,7 +1581,7 @@ function renderSubmissionAttachmentTags(keys){
     const isImg=submissionFileIsImage(ext);
     const isVid=submissionFileIsVideo(ext);
     const thumb=isImg?`<span class="sb-attach-thumb sb-thumb" data-key="${esc(k)}" data-kind="image" style="margin-right:4px"></span>`:(isVid?`<span class="sb-attach-thumb sb-thumb" data-key="${esc(k)}" data-kind="video" style="margin-right:4px;font-size:18px;display:inline-flex;align-items:center;justify-content:center;color:var(--dim)">▶</span>`:'');
-    return `<span class="sb-file-tag" style="cursor:pointer;display:inline-flex;align-items:center;gap:6px;padding:2px 8px 2px 2px" title="${esc(items[i])}" onclick="previewSubmissionFile('${esc(k)}')">${thumb}${esc(items[i])}</span>`;
+    return `<span class="sb-file-tag" style="cursor:pointer;display:inline-flex;align-items:center;gap:6px;padding:2px 8px 2px 2px" title="${esc(items[i])}" onclick="previewSubmissionFile('${esc(k)}','${esc(submissionId)}')">${thumb}${esc(items[i])}</span>`;
   }).join('')}</div>`;
 }
 function submissionFileExtension(key){
@@ -1588,29 +1590,32 @@ function submissionFileExtension(key){
 }
 function submissionFileIsImage(ext){return /^(jpg|jpeg|png|gif|webp|svg|bmp|ico)$/i.test(ext)}
 function submissionFileIsVideo(ext){return /^(mp4|mov|avi|mkv|webm|flv|wmv|m4v)$/i.test(ext)}
-async function getSubmissionFileUrl(key,dl=0){
-  const r=await api('GET','/admin/uploads/url?'+new URLSearchParams({key,dl:String(dl)}));
+async function getSubmissionFileUrl(key,dl=0,submissionId=''){
+  const params={key,dl:String(dl)};
+  if(submissionId) params.submission_id=submissionId;
+  const r=await api('GET','/admin/uploads/url?'+new URLSearchParams(params));
   if(!r.ok){toast('获取文件链接失败',true);return null}
   return r.data.url||null;
 }
 async function downloadSubmissionPreviewFile(){
   if(!PREVIEW_KEY) return;
-  const url=await getSubmissionFileUrl(PREVIEW_KEY,1);
+  const url=await getSubmissionFileUrl(PREVIEW_KEY,1,PREVIEW_SUBMISSION_ID);
   if(url) window.open(url,'_blank');
 }
-async function previewSubmissionFile(key){
+async function previewSubmissionFile(key,submissionId=''){
   if(!key){return}
+  PREVIEW_SUBMISSION_ID=submissionId||PREVIEW_SUBMISSION_ID;
   const ext=submissionFileExtension(key);
   if(submissionFileIsImage(ext)){
-    const url=await getSubmissionFileUrl(key);
+    const url=await getSubmissionFileUrl(key,0,PREVIEW_SUBMISSION_ID);
     if(!url) return;
     PREVIEW_KEY=key;
     $('#pv-title').textContent=submissionUploadedFileName(key);
-    $('#pv-body').innerHTML=`<div class="preview" style="margin:0;border-radius:0;border:none"><img src="${esc(url)}" onerror="this.remove();$('#pv-body').innerHTML='<div class=\\'empty\\' style=\\'padding:40px\\'>预览失败</div>'"></div>`;
+    $('#pv-body').innerHTML=`<div class="preview" style="margin:0;border-radius:0;border:none"><img src="${esc(url)}" onerror="this.remove();$('#pv-body').innerHTML='<div class=\'empty\' style=\'padding:40px\'>预览失败</div>'"></div>`;
     $('#pv-foot').innerHTML=`<button class="btn key" onclick="downloadSubmissionPreviewFile()">下载</button>`;
     openSubmissionPreviewModal();
   }else if(submissionFileIsVideo(ext)){
-    const url=await getSubmissionFileUrl(key);
+    const url=await getSubmissionFileUrl(key,0,PREVIEW_SUBMISSION_ID);
     if(!url) return;
     PREVIEW_KEY=key;
     $('#pv-title').textContent=submissionUploadedFileName(key);
@@ -1618,11 +1623,10 @@ async function previewSubmissionFile(key){
     $('#pv-foot').innerHTML=`<button class="btn key" onclick="downloadSubmissionPreviewFile()">下载</button>`;
     openSubmissionPreviewModal();
   }else{
-    const url=await getSubmissionFileUrl(key,1);
+    const url=await getSubmissionFileUrl(key,1,PREVIEW_SUBMISSION_ID);
     if(url) window.open(url,'_blank');
   }
-}
-function openSubmissionPreviewModal(){
+}function openSubmissionPreviewModal(){
   closeDrawer();$('#pscrim').classList.add('on');$('#preview-modal').classList.add('on');
 }
 function closeSubmissionPreview(){
@@ -1632,23 +1636,22 @@ function closeSubmissionPreview(){
 async function lazyLoadSubmissionPreviews(){
   const thumbs=$$('.sb-thumb:not(.loaded)');
   for(const el of thumbs){
-    const key=el.dataset.key, kind=el.dataset.kind;
+    const key=el.dataset.key, kind=el.dataset.kind, submissionId=el.dataset.detailId||'';
     if(!key) continue;
     el.classList.add('loaded');
-    const url=await getSubmissionFileUrl(key);
+    const url=await getSubmissionFileUrl(key,0,submissionId);
     if(!url) continue;
     if(kind==='video'){
       el.innerHTML=`<video src="${esc(url)}" muted preload="metadata"></video>`;
-      el.addEventListener('click',(e)=>{e.stopPropagation();el.dataset.detailId?openMaterialSubmissionDetail(el.dataset.detailId):previewSubmissionFile(key);});
+      el.addEventListener('click',(e)=>{e.stopPropagation();el.dataset.detailId?openMaterialSubmissionDetail(el.dataset.detailId):previewSubmissionFile(key,submissionId);});
       el.addEventListener('mouseenter',()=>{const v=el.querySelector('video');if(v)v.play();});
       el.addEventListener('mouseleave',()=>{const v=el.querySelector('video');if(v){v.pause();v.currentTime=0;}});
     }else{
       el.innerHTML=`<img src="${esc(url)}" loading="lazy" onerror="this.parentElement.remove()">`;
-      el.addEventListener('click',(e)=>{e.stopPropagation();el.dataset.detailId?openMaterialSubmissionDetail(el.dataset.detailId):previewSubmissionFile(key);});
+      el.addEventListener('click',(e)=>{e.stopPropagation();el.dataset.detailId?openMaterialSubmissionDetail(el.dataset.detailId):previewSubmissionFile(key,submissionId);});
     }
   }
-}
-function renderSubmissionFieldGrid(s,scope='all'){
+}function renderSubmissionFieldGrid(s,scope='all'){
   const x=s||{};
   const allFields=[
     ['团队名称',submissionValueHtml(x.team_name)],
@@ -1664,7 +1667,7 @@ function renderSubmissionFieldGrid(s,scope='all'){
     ['上传日期',submissionValueHtml(x.upload_date)],
     ['发布状态',submissionStatusChip('publish',x.publish_status)],
     ['平台拒审理由',submissionValueHtml(x.platform_reject_reason)],
-    ['拒审附件',renderSubmissionAttachmentTags(x.platform_reject_attachments||[])],
+    ['拒审附件',renderSubmissionAttachmentTags(x.platform_reject_attachments||[],x.id||'')],
   ];
   const fields=scope==='process'?allFields.slice(7):allFields;
   return fields.map(([k,v])=>`<div class="sb-field"><div class="kk">${k}</div><div class="vv">${v}</div></div>`).join('');
@@ -1827,7 +1830,7 @@ async function openMaterialSubmissionDetail(id){
   const r=await api('GET','/admin/material-submissions/'+id);
   if(!r.ok){$('#d-body').innerHTML='<div class="empty"><b class="disp">加载失败</b>请稍后重试。</div>';toast(r.data.detail||'加载提报失败',true);return}
   const x=r.data||{};
-  const mediaUrl=x.oss_key?await getSubmissionFileUrl(x.oss_key):'';
+  const mediaUrl=x.oss_key?await getSubmissionFileUrl(x.oss_key,0,x.id||id):'';
   const ext=submissionFileExtension(x.oss_key||'');
   const media=mediaUrl&&submissionFileIsVideo(ext)
     ? `<video src="${esc(mediaUrl)}" controls preload="metadata"></video>`
@@ -1845,13 +1848,14 @@ async function openMaterialSubmissionDetail(id){
     ['修改意见',submissionValueHtml(x.revision_comment)]
   ];
   const rejectFields=[
-    ['平台拒审理由',submissionValueHtml(x.platform_reject_reason)],['拒审附件',renderSubmissionAttachmentTags(x.platform_reject_attachments||[])]
+    ['平台拒审理由',submissionValueHtml(x.platform_reject_reason)],['拒审附件',renderSubmissionAttachmentTags(x.platform_reject_attachments||[],x.id||id)]
   ];
   const fieldGrid=fields=>`<div class="sb-field-grid">${fields.map(([k,v])=>`<div class="sb-field"><div class="kk">${k}</div><div class="vv">${v}</div></div>`).join('')}</div>`;
-  const mediaActions=`<div class="sb-detail-media-actions"><span class="sb-detail-media-name" title="${esc(submissionUploadedFileName(x.oss_key||''))}">${esc(submissionUploadedFileName(x.oss_key||'')||'暂无视频文件')}</span><button class="btn sm key" data-key="${encodeURIComponent(x.oss_key||'')}" onclick="downloadMaterialSubmissionFile(decodeURIComponent(this.dataset.key))">下载</button></div>`;
+  const mediaActions=`<div class="sb-detail-media-actions"><span class="sb-detail-media-name" title="${esc(submissionUploadedFileName(x.oss_key||''))}">${esc(submissionUploadedFileName(x.oss_key||'')||'暂无视频文件')}</span><button class="btn sm key" data-key="${encodeURIComponent(x.oss_key||'')}" onclick="downloadMaterialSubmissionFile(decodeURIComponent(this.dataset.key),'${esc(x.id||id)}')">下载</button></div>`;
   const actions=`<div class="sb-action-bar" style="padding-top:14px;border-top:1px solid var(--line)">
-    <button class="btn key" onclick="openMaterialSubmissionEdit('${esc(x.id||id)}')">编辑</button>
-    <button class="btn block" onclick="deleteMaterialSubmissionFromDrawer('${esc(x.id||id)}')">删除</button>
+    ${x.can_edit?`<button class="btn key" onclick="openMaterialSubmissionEdit('${esc(x.id||id)}')">编辑</button>`:''}
+    ${ME.role==='admin'?`<button class="btn key" onclick="openMaterialSubmissionPermissions('${esc(x.id||id)}')">分配</button>`:''}
+    ${x.can_edit?`<button class="btn block" onclick="deleteMaterialSubmissionFromDrawer('${esc(x.id||id)}')">删除</button>`:''}
   </div>`;
   $('#d-body').innerHTML=`<div class="sb-detail-head"><div><h3>${esc(x.title_name||'未命名素材')}</h3><p>${esc(x.drama_name||'未填写剧名')} · ${esc(x.episode_range||'未填写集数区间')}</p></div>${submissionStatusChip('publish',x.publish_status)}</div>
     <div class="sb-detail-media-block"><div class="sb-detail-media">${media}</div>${mediaActions}</div>
@@ -1860,9 +1864,28 @@ async function openMaterialSubmissionDetail(id){
     <div class="sb-detail-card"><h4>审核反馈</h4>${fieldGrid(rejectFields)}</div>${actions}`;
   lazyLoadSubmissionPreviews();
 }
-async function downloadMaterialSubmissionFile(key){
+async function openMaterialSubmissionPermissions(id){
+  openAdminDrawer('分配素材提报','<div class="empty">加载中…</div>');
+  const r=await api('GET',`/admin/material-submissions/${id}/permissions`);
+  if(!r.ok){$('#d-body').innerHTML='<div class="empty"><b class="disp">加载失败</b>请稍后重试。</div>';toast(r.data.detail||'加载权限失败',true);return}
+  const users=r.data.users||[];
+  const rows=users.map(u=>{
+    const note=u.role==='admin'?'管理员默认拥有全部权限':(u.is_owner?'上传者默认拥有阅读并编辑权限':'');
+    const options=`<option value="" ${!u.permission_type?'selected':''}>无权限</option><option value="read" ${u.permission_type==='read'?'selected':''}>阅读</option><option value="read_edit" ${u.permission_type==='read_edit'?'selected':''}>阅读并编辑</option>`;
+    return `<div class="qrow" style="align-items:center"><div class="thumb">${esc(_ava(u.name))}</div><div class="meta"><div>${esc(u.name)}</div><div class="k">${esc(note||'可按需分配数据权限')}</div></div><select class="sb-permission-select" data-user-id="${esc(u.user_id)}" ${u.locked?'disabled':''} style="width:150px">${options}</select></div>`;
+  }).join('');
+  $('#d-body').innerHTML=`<div class="sb-detail-card"><h4>用户数据权限</h4><p class="k" style="margin:6px 0 14px">阅读只能查看和下载；阅读并编辑还可以修改和删除。</p>${rows||'<div class="empty">暂无用户</div>'}</div><div class="sb-action-bar"><button class="btn key" onclick="saveMaterialSubmissionPermissions('${esc(id)}')">保存权限</button><button class="btn" onclick="openMaterialSubmissionDetail('${esc(id)}')">返回详情</button></div>`;
+}
+async function saveMaterialSubmissionPermissions(id){
+  const grants=[...$$('.sb-permission-select:not(:disabled)')].map(el=>({user_id:el.dataset.userId,permission_type:el.value})).filter(x=>x.permission_type);
+  const r=await api('PUT',`/admin/material-submissions/${id}/permissions`,{grants});
+  if(!r.ok){toast(r.data.detail||'保存权限失败',true);return}
+  toast('数据权限已保存');openMaterialSubmissionPermissions(id);
+}
+
+async function downloadMaterialSubmissionFile(key,submissionId=''){
   if(!key){toast('该提报暂无可下载的视频文件',true);return}
-  const url=await getSubmissionFileUrl(key,1);
+  const url=await getSubmissionFileUrl(key,1,submissionId);
   if(url) window.open(url,'_blank');
 }
 function syncMaterialSubmissionSelectedFile(){
@@ -1923,6 +1946,7 @@ async function uploadMaterialSubmissionRejectAttachments(){
     const fd=new FormData();
     fd.append('file',f);
     fd.append('scope','submissions/rejects');
+    fd.append('submission_id',$('#sb-d-id')?.value||'');
     const r=await api('POST','/admin/uploads/file',fd,true);
     if(!r.ok){setSubmissionRejectState('error',`${f.name} 上传失败`);toast(r.data.detail||`附件上传失败: ${f.name}`,true);return}
     if(r.data.oss_key) keys.push(r.data.oss_key);
@@ -1973,7 +1997,7 @@ async function loadMaterialSubmissions(){
     ['upload_date','上传日期','cell-time head-workflow'],
     ['status_publish','发布状态','cell-status head-workflow'],
   ];
-  $('#sb-list').innerHTML=rows.length?`<div class="sb-table-wrap"><table class="sb-table"><thead><tr>${cols.map(([,label,cls])=>`<th class="${cls}">${label}</th>`).join('')}<th class="cell-actions">操作</th></tr></thead><tbody>${rows.map(s=>`<tr>${cols.map(([key,,cls])=>`<td class="${cls}">${renderSubmissionTableCell(key,s)}</td>`).join('')}<td class="cell-actions"><div class="sb-row-actions"><button class="btn key sb-icon-btn" title="详情" aria-label="详情" onclick="openMaterialSubmissionDetail('${s.id}')">ⓘ</button><button class="btn key sb-icon-btn" title="下载" aria-label="下载" data-key="${encodeURIComponent(s.oss_key||'')}" onclick="downloadMaterialSubmissionFile(decodeURIComponent(this.dataset.key))">↓</button><button class="btn key sb-icon-btn" title="编辑" aria-label="编辑" onclick="openMaterialSubmissionEdit('${s.id}')">✎</button><button class="btn block sb-icon-btn" title="删除" aria-label="删除" onclick="deleteMaterialSubmissions(['${s.id}'])">×</button></div></td></tr>`).join('')}</tbody></table></div>`:'<div class="empty"><b class="disp">还没有素材提报</b>点右上角“新建”创建一条提报记录。</div>';
+  $('#sb-list').innerHTML=rows.length?`<div class="sb-table-wrap"><table class="sb-table"><thead><tr>${cols.map(([,label,cls])=>`<th class="${cls}">${label}</th>`).join('')}<th class="cell-actions">操作</th></tr></thead><tbody>${rows.map(s=>`<tr>${cols.map(([key,,cls])=>`<td class="${cls}">${renderSubmissionTableCell(key,s)}</td>`).join('')}<td class="cell-actions"><div class="sb-row-actions"><button class="btn key sb-icon-btn" title="详情" aria-label="详情" onclick="openMaterialSubmissionDetail('${s.id}')">ⓘ</button><button class="btn key sb-icon-btn" title="下载" aria-label="下载" data-key="${encodeURIComponent(s.oss_key||'')}" onclick="downloadMaterialSubmissionFile(decodeURIComponent(this.dataset.key),'${s.id}')">↓</button>${ME.role==='admin'?`<button class="btn key sb-icon-btn" title="分配素材提报" aria-label="分配素材提报" onclick="openMaterialSubmissionPermissions('${s.id}')"><svg class="ico" viewBox="0 0 24 24">${ICO.users}</svg></button>`:''}${s.can_edit?`<button class="btn key sb-icon-btn" title="编辑" aria-label="编辑" onclick="openMaterialSubmissionEdit('${s.id}')">✎</button><button class="btn block sb-icon-btn" title="删除" aria-label="删除" onclick="deleteMaterialSubmissions(['${s.id}'])">×</button>`:''}</div></td></tr>`).join('')}</tbody></table></div>`:'<div class="empty"><b class="disp">还没有素材提报</b>点右上角“新建”创建一条提报记录。</div>';
   renderPager('#sb-pager','submissions');
   lazyLoadSubmissionPreviews();
 }

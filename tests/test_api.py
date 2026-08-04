@@ -728,16 +728,46 @@ def test_projects_crud_perm_and_dupe():
     empty = client.post("/admin/projects", json={"name": "空项目QC"}, headers=ah).json()["id"]
     assert client.delete(f"/admin/projects/{empty}", headers=ah).status_code == 200               # 空项目可删
 
+def test_material_submission_upload_uses_file_object_stream(monkeypatch):
+    from app.api import deps
+
+    called = {}
+
+    def reject_bytes_upload(*args, **kwargs):
+        raise AssertionError("素材提报上传不应调用整块 bytes 上传")
+
+    def capture_stream(oss_key, fileobj):
+        called["key"] = oss_key
+        called["is_fileobj"] = hasattr(fileobj, "read")
+        called["data"] = fileobj.read()
+
+    monkeypatch.setattr(deps.storage, "put", reject_bytes_upload)
+    monkeypatch.setattr(deps.storage, "put_fileobj", capture_stream)
+    response = client.post(
+        "/admin/uploads/file",
+        headers=_user_hdr(),
+        data={"scope": "submissions"},
+        files={"file": ("stream.mp4", b"stream-demo", "video/mp4")},
+    )
+    assert response.status_code == 200
+    assert called == {
+        "key": response.json()["oss_key"],
+        "is_fileobj": True,
+        "data": b"stream-demo",
+    }
+
+
+
 def test_material_submissions_crud_filter_and_batch_delete():
     ah, uh = _admin_hdr(), _user_hdr()
     assert client.get("/admin/material-submissions").status_code == 401
-    assert client.get("/admin/material-submissions", headers=uh).status_code == 403
-    assert client.get("/admin/material-submissions/upload-account-names", headers=uh).status_code == 403
-    assert client.get("/admin/material-submissions/drama-names", headers=uh).status_code == 403
+    assert client.get("/admin/material-submissions", headers=uh).json()["count"] == 0
+    assert client.get("/admin/material-submissions/upload-account-names", headers=uh).json()["items"] == []
+    assert client.get("/admin/material-submissions/drama-names", headers=uh).json()["items"] == []
     assert client.post("/admin/uploads/file", headers=uh,
                        data={"scope": "submissions"},
-                       files={"file": ("sub.mp4", b"demo", "video/mp4")}).status_code == 403
-    assert client.put("/admin/material-submissions/1/process", json={}, headers=uh).status_code == 403
+                       files={"file": ("sub.mp4", b"demo", "video/mp4")}).status_code == 200
+    assert client.put("/admin/material-submissions/1/process", json={}, headers=uh).status_code == 404
 
     uploaded = client.post("/admin/uploads/file", headers=ah,
                            data={"scope": "submissions"},
@@ -874,6 +904,49 @@ def test_material_submissions_crud_filter_and_batch_delete():
     rm = client.post("/admin/material-submissions/batch/delete", json={"ids": [sid1, sid2]}, headers=ah)
     assert rm.status_code == 200 and set(rm.json()["deleted"]) == {sid1, sid2}
     assert client.get(f"/admin/material-submissions/{sid1}", headers=ah).status_code == 404
+
+
+def test_material_submission_data_permissions_read_and_read_edit():
+    ah, owner_h = _admin_hdr(), _user_hdr()
+    own = client.post("/admin/material-submissions", json={
+        "drama_name": "上传者自己的剧", "title_name": "上传者自己的提报", "oss_key": "submissions/own.mp4"
+    }, headers=owner_h)
+    assert own.status_code == 200
+    own_id = own.json()["id"]
+    assert own.json()["permission_type"] == "read_edit" and own.json()["is_owner"] is True
+
+    managed = client.post("/admin/material-submissions", json={
+        "drama_name": "管理员创建的剧", "title_name": "待分配提报", "oss_key": "submissions/admin.mp4"
+    }, headers=ah)
+    managed_id = managed.json()["id"]
+    from app.api import deps
+    assert deps.material_submission_repo.permissions_for(managed_id) == {}
+    visible_ids = {item["id"] for item in client.get("/admin/material-submissions", headers=owner_h).json()["submissions"]}
+    assert visible_ids == {own_id}
+    assert client.get(f"/admin/material-submissions/{managed_id}", headers=owner_h).status_code == 403
+
+    permission_users = client.get(f"/admin/material-submissions/{managed_id}/permissions", headers=ah).json()["users"]
+    owner_row = next(item for item in permission_users if item["user_id"] == "admin")
+    assert owner_row["locked"] is True and owner_row["permission_type"] == "read_edit"
+    set_read = client.put(f"/admin/material-submissions/{managed_id}/permissions", json={
+        "grants": [{"user_id": "user01", "permission_type": "read"}]
+    }, headers=ah)
+    assert set_read.status_code == 200
+    detail = client.get(f"/admin/material-submissions/{managed_id}", headers=owner_h)
+    assert detail.status_code == 200 and detail.json()["can_read"] is True and detail.json()["can_edit"] is False
+    assert client.put(f"/admin/material-submissions/{managed_id}", json={"title_name": "不能改"}, headers=owner_h).status_code == 403
+    assert client.get("/admin/uploads/url", params={
+        "key": "submissions/admin.mp4", "submission_id": managed_id
+    }, headers=owner_h).status_code == 200
+
+    set_edit = client.put(f"/admin/material-submissions/{managed_id}/permissions", json={
+        "grants": [{"user_id": "user01", "permission_type": "read_edit"}]
+    }, headers=ah)
+    assert set_edit.status_code == 200
+    edited = client.put(f"/admin/material-submissions/{managed_id}", json={
+        "drama_name": "管理员创建的剧", "title_name": "现在可以改", "oss_key": "submissions/admin.mp4"
+    }, headers=owner_h)
+    assert edited.status_code == 200 and edited.json()["title_name"] == "现在可以改"
 
 
 def test_submit_work_requires_existing_project_and_lands_in_project_queue():
