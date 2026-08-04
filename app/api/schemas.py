@@ -140,6 +140,21 @@ class MaterialSubmissionPermissionsIn(BaseModel):
     grants: list[MaterialSubmissionPermissionGrantIn] = []
 
 
+class MaterialSubmissionBatchPermissionsIn(BaseModel):
+    submission_ids: list[str] = []
+    user_ids: list[str] = []
+    permission_type: str
+
+
+class MaterialSubmissionUserGrantIn(BaseModel):
+    submission_id: str
+    permission_type: str  # read / read_edit
+
+
+class MaterialSubmissionUserPermissionsIn(BaseModel):
+    grants: list[MaterialSubmissionUserGrantIn] = []
+
+
 class MaterialSubmissionProcessIn(BaseModel):
     revision_comment: str = ""
     can_upload_status: int | None = None

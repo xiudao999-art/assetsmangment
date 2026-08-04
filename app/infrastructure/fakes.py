@@ -251,6 +251,9 @@ class InMemoryRbac:
     def user_permissions(self, user_id: str) -> set[str]:
         return set(self._user_map.get(user_id, set()))
 
+    def all_user_permissions(self) -> dict[str, set[str]]:
+        return {user_id: set(permissions) for user_id, permissions in self._user_map.items()}
+
     def set_user_permissions(self, user_id: str, permissions: set[str]) -> None:
         self._user_map[user_id] = set(permissions)
 
@@ -434,6 +437,20 @@ class InMemoryMaterialSubmissionRepo:
             if user_id != "admin" and permission_type in ("read", "read_edit"):
                 self._permissions[(submission_id, user_id)] = permission_type
 
+    def permissions_for_user(self, user_id: str) -> dict[str, str]:
+        return {sid: value for (sid, uid), value in self._permissions.items() if uid == user_id}
+
+    def replace_user_permissions(self, user_id: str, grants: dict[str, str], by: str = "") -> int:
+        before = self.permissions_for_user(user_id)
+        desired = {str(sid): value for sid, value in grants.items()
+                   if str(sid) in self._items and value in ("read", "read_edit")}
+        for submission in self._items.values():
+            if submission.created_by == user_id:
+                desired[submission.id] = "read_edit"
+        self._permissions = {key: value for key, value in self._permissions.items() if key[1] != user_id}
+        for submission_id, permission_type in desired.items():
+            self._permissions[(submission_id, user_id)] = permission_type
+        return sum(1 for sid in set(before) | set(desired) if before.get(sid, "") != desired.get(sid, ""))
     def submission_ids_for_user(self, user_id: str, require_edit: bool = False) -> set[str]:
         allowed = {"read_edit"} if require_edit else {"read", "read_edit"}
         return {sid for (sid, uid), value in self._permissions.items() if uid == user_id and value in allowed}

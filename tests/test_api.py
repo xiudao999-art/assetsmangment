@@ -949,6 +949,112 @@ def test_material_submission_data_permissions_read_and_read_edit():
     assert edited.status_code == 200 and edited.json()["title_name"] == "现在可以改"
 
 
+def test_admin_can_batch_bind_submission_permissions():
+    ah, uh = _admin_hdr(), _user_hdr()
+    created_user = client.post("/admin/users", json={
+        "name": "batch_grantee", "password": "pw123456"
+    }, headers=ah)
+    assert created_user.status_code == 200
+    target_user_id = created_user.json()["id"]
+    target_h = _hdr(_token("batch_grantee", "pw123456"))
+    submission_ids = []
+    for index in (1, 2):
+        response = client.post("/admin/material-submissions", json={
+            "drama_name": "批量权限剧", "title_name": f"批量视频{index}",
+            "oss_key": f"submissions/batch-{index}.mp4",
+        }, headers=ah)
+        assert response.status_code == 200
+        submission_ids.append(response.json()["id"])
+
+    payload = {
+        "submission_ids": submission_ids,
+        "user_ids": [target_user_id],
+        "permission_type": "read",
+    }
+    assert client.put("/admin/material-submissions/permissions/batch", json=payload, headers=uh).status_code == 403
+    result = client.put("/admin/material-submissions/permissions/batch", json=payload, headers=ah)
+    assert result.status_code == 200
+    assert result.json()["grant_count"] == 2
+    for submission_id in submission_ids:
+        detail = client.get(f"/admin/material-submissions/{submission_id}", headers=target_h)
+        assert detail.status_code == 200
+        assert detail.json()["permission_type"] == "read"
+        assert detail.json()["can_edit"] is False
+
+    payload["permission_type"] = "read_edit"
+    result = client.put("/admin/material-submissions/permissions/batch", json=payload, headers=ah)
+    assert result.status_code == 200
+    for submission_id in submission_ids:
+        assert client.get(f"/admin/material-submissions/{submission_id}", headers=target_h).json()["can_edit"] is True
+
+    payload["user_ids"] = ["admin"]
+    assert client.put("/admin/material-submissions/permissions/batch", json=payload, headers=ah).status_code == 400
+
+
+
+def test_admin_can_replace_permissions_for_one_submission_user():
+    ah, uh = _admin_hdr(), _user_hdr()
+    created_user = client.post("/admin/users", json={
+        "name": "permission_manager_target", "password": "pw123456"
+    }, headers=ah)
+    assert created_user.status_code == 200
+    target_user_id = created_user.json()["id"]
+    target_h = _hdr(_token("permission_manager_target", "pw123456"))
+
+    owned = client.post("/admin/material-submissions", json={
+        "drama_name": "用户上传剧", "title_name": "用户自己的视频",
+        "episode_range": "1-2", "oss_key": "submissions/user-owned.mp4",
+    }, headers=target_h)
+    assert owned.status_code == 200
+    owned_id = owned.json()["id"]
+
+    managed_ids = []
+    for index, episode_range in ((1, "3-4"), (2, "5-6")):
+        response = client.post("/admin/material-submissions", json={
+            "drama_name": "权限管理剧", "title_name": f"待管理视频{index}",
+            "episode_range": episode_range,
+            "oss_key": f"submissions/manage-{index}.mp4",
+        }, headers=ah)
+        assert response.status_code == 200
+        managed_ids.append(response.json()["id"])
+
+    endpoint = f"/admin/material-submissions/permissions/user/{target_user_id}"
+    assert client.get(endpoint, headers=uh).status_code == 403
+    initial = client.get(endpoint, headers=ah)
+    assert initial.status_code == 200
+    initial_grants = initial.json()["grants"]
+    assert len(initial_grants) == 1
+    assert initial_grants[0]["submission_id"] == owned_id
+    assert initial_grants[0]["permission_type"] == "read_edit"
+    assert initial_grants[0]["locked"] is True
+    assert initial_grants[0]["submission"]["id"] == owned_id
+
+    saved = client.put(endpoint, json={"grants": [
+        {"submission_id": managed_ids[0], "permission_type": "read"},
+        {"submission_id": managed_ids[1], "permission_type": "read_edit"},
+    ]}, headers=ah)
+    assert saved.status_code == 200 and saved.json()["changed_count"] == 2
+    grants = {item["submission_id"]: item for item in saved.json()["grants"]}
+    assert grants[owned_id]["locked"] is True
+    assert grants[managed_ids[0]]["permission_type"] == "read"
+    assert grants[managed_ids[1]]["permission_type"] == "read_edit"
+
+    replaced = client.put(endpoint, json={"grants": [
+        {"submission_id": managed_ids[1], "permission_type": "read"},
+    ]}, headers=ah)
+    assert replaced.status_code == 200 and replaced.json()["changed_count"] == 2
+    assert client.get(f"/admin/material-submissions/{managed_ids[0]}", headers=target_h).status_code == 403
+    read_detail = client.get(f"/admin/material-submissions/{managed_ids[1]}", headers=target_h)
+    assert read_detail.status_code == 200 and read_detail.json()["can_edit"] is False
+    owned_detail = client.get(f"/admin/material-submissions/{owned_id}", headers=target_h)
+    assert owned_detail.status_code == 200 and owned_detail.json()["can_edit"] is True
+
+    invalid = client.put(endpoint, json={"grants": [
+        {"submission_id": "missing", "permission_type": "read"},
+    ]}, headers=ah)
+    assert invalid.status_code == 400
+    assert client.get("/admin/material-submissions/permissions/user/admin", headers=ah).status_code == 400
+
 def test_submit_work_requires_existing_project_and_lands_in_project_queue():
     uh, ah = _user_hdr(), _admin_hdr()
     # 作品无项目 → 400
