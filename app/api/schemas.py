@@ -1,6 +1,6 @@
 """API 请求/响应模型(Pydantic)。"""
 from __future__ import annotations
-from pydantic import BaseModel
+from pydantic import BaseModel, Field
 from app.domain.models import MaterialType
 
 
@@ -103,6 +103,14 @@ class IdsIn(BaseModel):
     ids: list[str] = []
 
 
+class RequirementIn(BaseModel):
+    description: str = Field(min_length=1, max_length=10000)
+    urgency: str = "medium"
+    status: str = "not_started"
+    reply: str = Field(default="", max_length=10000)
+    attachments: list[str] = Field(default_factory=list, max_length=50)
+
+
 class MaterialSubmissionIn(BaseModel):
     team_name: str = ""
     delivery_time: str = ""
@@ -153,6 +161,17 @@ class MaterialSubmissionUserGrantIn(BaseModel):
 
 class MaterialSubmissionUserPermissionsIn(BaseModel):
     grants: list[MaterialSubmissionUserGrantIn] = []
+
+
+class MaterialSubmissionUnselectedQueryIn(BaseModel):
+    selected_submission_ids: list[str] = Field(default_factory=list, max_length=1000)
+    page: int = Field(1, ge=1)
+    size: int = Field(20, ge=1, le=100)
+    drama_name: str = ""
+    title_name: str = ""
+    can_upload_status: str = ""
+    upload_account_name: str = ""
+    publish_status: str = ""
 
 
 class MaterialSubmissionProcessIn(BaseModel):

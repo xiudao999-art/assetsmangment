@@ -91,6 +91,20 @@ class PgRbacRepo:
             ).fetchall()
         return {r[0] for r in rows}
 
+    def user_permissions_for(self, user_ids: set[str]) -> dict[str, set[str]]:
+        if not user_ids:
+            return {}
+        with self._conn() as c:
+            rows = c.execute(
+                f"SELECT user_id, permission FROM {self._ut} "
+                "WHERE user_id = ANY(%s) AND del_flag = 0",
+                (list(user_ids),),
+            ).fetchall()
+        result = {user_id: set() for user_id in user_ids}
+        for user_id, permission in rows:
+            result.setdefault(str(user_id), set()).add(str(permission))
+        return result
+
     def all_user_permissions(self) -> dict[str, set[str]]:
         with self._conn() as c:
             rows = c.execute(

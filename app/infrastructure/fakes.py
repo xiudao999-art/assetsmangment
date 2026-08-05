@@ -166,8 +166,16 @@ class InMemoryUserRepo:
     def get(self, user_id: str) -> Optional[User]:
         return self._by_id.get(user_id)
 
-    def list(self) -> list[User]:
-        return list(self._by_id.values())
+    def list(self, q: str = "", role: str = "", offset: int = 0,
+             limit: int | None = None) -> list[User]:
+        key = (q or "").lower()
+        rows = [u for u in self._by_id.values()
+                if (not key or key in u.name.lower()) and (not role or u.role == role)]
+        rows.sort(key=lambda u: (u.role != "admin", u.name.lower(), u.id))
+        return rows[offset:] if limit is None else rows[offset:offset + limit]
+
+    def count(self, q: str = "", role: str = "") -> int:
+        return len(self.list(q=q, role=role))
 
     def delete(self, user_id: str) -> None:
         u = self._by_id.pop(user_id, None)
@@ -250,6 +258,9 @@ class InMemoryRbac:
 
     def user_permissions(self, user_id: str) -> set[str]:
         return set(self._user_map.get(user_id, set()))
+
+    def user_permissions_for(self, user_ids: set[str]) -> dict[str, set[str]]:
+        return {user_id: set(self._user_map.get(user_id, set())) for user_id in user_ids}
 
     def all_user_permissions(self) -> dict[str, set[str]]:
         return {user_id: set(permissions) for user_id, permissions in self._user_map.items()}
@@ -416,6 +427,11 @@ class InMemoryMaterialSubmissionRepo:
         self._permissions: dict[tuple[str, str], str] = {}
 
     def add(self, submission: MaterialSubmission, by: str = "") -> None:
+        now = str(int(time.time() * 1000))
+        previous = self._items.get(submission.id)
+        submission.created_time = previous.created_time if previous else (submission.created_time or now)
+        submission.updated_by = by or submission.updated_by or submission.created_by
+        submission.updated_time = now
         self._items[submission.id] = submission
 
     def get(self, submission_id: str):

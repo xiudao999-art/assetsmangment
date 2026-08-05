@@ -23,6 +23,7 @@ from app.infrastructure.fakes import (
     InMemoryAuditTaskRepo, InMemoryWhitelistRepo, InMemoryProjectRepo, InMemoryBlockwordRepo,
     InMemoryTrainingSetRepo, InMemoryTrainingExampleRepo, InMemoryMaterialSubmissionRepo,
 )
+from app.infrastructure.requirement_repo import InMemoryRequirementRepo
 
 # ── 进程内单例 ──
 # 存储:OSS 有密钥用真实现,否则假实现。
@@ -57,6 +58,7 @@ if settings.data_dir:
     training_set_repo = InMemoryTrainingSetRepo()
     training_example_repo = InMemoryTrainingExampleRepo()
     material_submission_repo = JsonMaterialSubmissionRepo(_store)
+    requirement_repo = InMemoryRequirementRepo()
 else:
     material_repo = InMemoryMaterialRepo()
     user_repo = InMemoryUserRepo()
@@ -71,6 +73,7 @@ else:
     training_set_repo = InMemoryTrainingSetRepo()
     training_example_repo = InMemoryTrainingExampleRepo()
     material_submission_repo = InMemoryMaterialSubmissionRepo()
+    requirement_repo = InMemoryRequirementRepo()
 
 # 审核规则:配置了真实 AM_DATABASE_URL → PG 是唯一真源(audit_rule 表,雪花ID+软删基础字段),
 # 覆盖上面的 JSON/内存实现。连接/建表失败 = 启动即报错,**不静默回退 JSON**(回退会分叉真源、
@@ -206,6 +209,15 @@ if _real_db:
     except Exception as _e:
         raise RuntimeError(
             f"AM_DATABASE_URL 已配置但 PG 素材提报表连接/建表失败:{_e}。"
+        ) from _e
+
+    # 新需求提报
+    from app.infrastructure.requirement_repo import PgRequirementRepo
+    try:
+        requirement_repo = PgRequirementRepo(settings.database_url)
+    except Exception as _e:
+        raise RuntimeError(
+            f"AM_DATABASE_URL 已配置但 PG 需求提报表连接/建表失败:{_e}。"
         ) from _e
 
 # 向量索引:有真 embedding(DashScope)+ 真 pg 连接串 → pgvector 语义近邻;否则内存

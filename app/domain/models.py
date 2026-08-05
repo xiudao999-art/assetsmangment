@@ -113,6 +113,24 @@ class MaterialSubmission:
     platform_reject_reason: str = ""
     platform_reject_attachments: list[str] = field(default_factory=list)
     created_by: str = ""
+    created_time: str = ""
+    updated_by: str = ""
+    updated_time: str = ""
+
+
+@dataclass
+class Requirement:
+    """内部需求提报记录。"""
+    id: str
+    description: str
+    urgency: str = "medium"
+    status: str = "not_started"
+    reply: str = ""
+    attachments: list[str] = field(default_factory=list)
+    created_by: str = ""
+    created_time: str = ""
+    updated_by: str = ""
+    updated_time: str = ""
 
 
 @dataclass

@@ -14,7 +14,7 @@ from app.api import deps, schemas
 from app.infrastructure.snowflake import next_id_str   # 规则主键:雪花 BIGINT 的字符串形态(PG 规范)
 from app.domain.models import (MaterialType, AuditStatus, Material, AuditRule, User,
                                AuditTask, JobStatus, Project, TextSourceType,
-                               MaterialSubmission)
+                               MaterialSubmission, Requirement)
 from app.domain.mp4 import parse_mp4_duration_ms
 from app.service.material import MaterialNotFound
 from app.service.user import InvalidCredentials, DuplicateName
@@ -197,6 +197,11 @@ def _submission_out(s: MaterialSubmission, user: dict | None = None) -> dict:
         "platform_reject_reason": s.platform_reject_reason,
         "platform_reject_attachments": list(s.platform_reject_attachments or []),
         "created_by": s.created_by,
+        "created_by_name": _owner_name(s.created_by),
+        "created_time": s.created_time,
+        "updated_by": s.updated_by,
+        "updated_by_name": _owner_name(s.updated_by),
+        "updated_time": s.updated_time,
         "owner_name": _owner_name(s.created_by),
         "is_owner": bool(user and s.created_by == user.get("id")),
         "permission_type": permission_type,
@@ -1388,15 +1393,32 @@ def perm_catalog(user: dict = Depends(_user)):
 
 
 @router.get("/admin/users")
-def list_users(user: dict = Depends(_user)):
+def list_users(page: int = Query(1, ge=1), size: int = Query(20, ge=1, le=100),
+               q: str = Query(""), role: str = Query(""), user: dict = Depends(_user)):
     """账号列表(名字 / 角色 / 已被单独授予的权限)。"""
     _require_perm(user, "admin.grant")
-    permission_map = deps.rbac.all_user_permissions()
-    users = [{"id": u.id, "name": u.name, "role": u.role,
-              "permissions": sorted(permission_map.get(u.id, set()))}
-             for u in deps.user_repo.list()]
-    users.sort(key=lambda x: (x["role"] != "admin", x["name"]))   # 管理员置顶
-    return {"users": users}
+    role = (role or "").strip()
+    if role and role not in ("admin", "user"):
+        raise HTTPException(400, "非法用户角色")
+    keyword = (q or "").strip()
+    total = deps.user_repo.count(q=keyword, role=role)
+    off, lim = _page_args(page, size)
+    accounts = deps.user_repo.list(q=keyword, role=role, offset=off, limit=lim)
+    permission_map = deps.rbac.user_permissions_for({account.id for account in accounts})
+    users = [{"id": account.id, "name": account.name, "role": account.role,
+              "permissions": sorted(permission_map.get(account.id, set()))}
+             for account in accounts]
+    return _page_out(users, total, page, size, key="users")
+
+
+@router.get("/admin/users/{uid}")
+def get_admin_user(uid: str, user: dict = Depends(_user)):
+    _require_perm(user, "admin.grant")
+    account = deps.user_repo.get(uid)
+    if account is None:
+        raise HTTPException(404, "用户不存在")
+    return {"id": account.id, "name": account.name, "role": account.role,
+            "permissions": sorted(deps.rbac.user_permissions(account.id))}
 
 
 @router.post("/admin/users")
@@ -1547,7 +1569,7 @@ async def upload_admin_file(file: UploadFile = File(...), scope: str = Form("upl
     safe_name = _safe_upload_file_name(file.filename or "")
     safe_scope = _safe_upload_scope(scope)
     if user.get("role") != "admin":
-        if safe_scope == "submissions":
+        if safe_scope in ("submissions", "requirements"):
             pass
         elif safe_scope == "submissions/rejects" and submission_id:
             _require_submission_access(user, submission_id, edit=True)
@@ -1561,18 +1583,24 @@ async def upload_admin_file(file: UploadFile = File(...), scope: str = Form("upl
 
 @router.get("/admin/uploads/url")
 def admin_upload_signed_url(key: str = Query(...), dl: int = Query(0),
-                            submission_id: str = Query(""), user: dict = Depends(_user)):
+                            submission_id: str = Query(""), requirement_id: str = Query(""),
+                            user: dict = Depends(_user)):
     _require_auth(user)
     if not key or not key.strip():
         raise HTTPException(400, "缺少 oss key")
     k = key.strip()
     if user.get("role") != "admin":
-        if not submission_id:
+        if requirement_id:
+            requirement = _require_requirement(requirement_id, user)
+            if k not in set(requirement.attachments or []):
+                raise HTTPException(403, "无权访问该文件")
+        elif not submission_id:
             raise HTTPException(403, "缺少素材提报权限上下文")
-        submission = _require_submission_access(user, submission_id)
-        allowed_keys = {submission.oss_key, *(submission.platform_reject_attachments or [])}
-        if k not in allowed_keys:
-            raise HTTPException(403, "无权访问该文件")
+        else:
+            submission = _require_submission_access(user, submission_id)
+            allowed_keys = {submission.oss_key, *(submission.platform_reject_attachments or [])}
+            if k not in allowed_keys:
+                raise HTTPException(403, "无权访问该文件")
     try:
         url = deps.storage.download_url(k) if dl == 1 else deps.storage.signed_url(k)
     except Exception:
@@ -1687,7 +1715,7 @@ def batch_set_material_submission_permissions(
 
 
 def _material_submission_permission_target(user_id: str):
-    account = next((item for item in deps.user_repo.list() if item.id == user_id), None)
+    account = deps.user_repo.get(user_id)
     if account is None:
         raise HTTPException(404, "用户不存在")
     if account.role == "admin":
@@ -1715,6 +1743,133 @@ def get_material_submission_user_permissions(target_user_id: str, user: dict = D
         "user": {"id": account.id, "name": account.name},
         "grants": grants,
     }
+
+
+_REQUIREMENT_URGENCIES = {"low", "medium", "high"}
+_REQUIREMENT_STATUSES = {
+    "not_started", "in_progress", "pending_acceptance", "completed", "acceptance_failed",
+}
+
+
+def _check_requirement_values(urgency: str, status: str) -> tuple[str, str]:
+    urgency = (urgency or "").strip()
+    status = (status or "").strip()
+    if urgency not in _REQUIREMENT_URGENCIES:
+        raise HTTPException(400, "非法紧急程度: 应为 low/medium/high")
+    if status not in _REQUIREMENT_STATUSES:
+        raise HTTPException(400, "非法需求状态")
+    return urgency, status
+
+
+def _requirement_out(item: Requirement, user: dict) -> dict:
+    can_edit = user.get("role") == "admin" or item.created_by == user.get("id")
+    return {
+        "id": item.id, "description": item.description, "urgency": item.urgency,
+        "status": item.status, "reply": item.reply, "attachments": list(item.attachments or []),
+        "created_by": item.created_by, "created_by_name": _owner_name(item.created_by),
+        "created_time": item.created_time, "updated_by": item.updated_by,
+        "updated_by_name": _owner_name(item.updated_by), "updated_time": item.updated_time,
+        "can_edit": can_edit,
+    }
+
+
+def _require_requirement(requirement_id: str, user: dict, edit: bool = False) -> Requirement:
+    _require_auth(user)
+    item = deps.requirement_repo.get(requirement_id)
+    if item is None:
+        raise HTTPException(404, "需求不存在")
+    if edit and user.get("role") != "admin" and item.created_by != user.get("id"):
+        raise HTTPException(403, "无权修改该需求")
+    return item
+
+
+@router.get("/requirements")
+def list_requirements(q: str = "", urgency: str = "", status: str = "",
+                      page: int = Query(1, ge=1), size: int = Query(20, ge=1, le=100),
+                      user: dict = Depends(_user)):
+    _require_auth(user)
+    if urgency and urgency not in _REQUIREMENT_URGENCIES:
+        raise HTTPException(400, "非法紧急程度筛选值")
+    if status and status not in _REQUIREMENT_STATUSES:
+        raise HTTPException(400, "非法需求状态筛选值")
+    offset, limit = _page_args(page, size)
+    items = deps.requirement_repo.list(q=q.strip(), urgency=urgency, status=status,
+                                       offset=offset, limit=limit)
+    total = deps.requirement_repo.count(q=q.strip(), urgency=urgency, status=status)
+    return _page_out([_requirement_out(x, user) for x in items], total, page, size, key="requirements")
+
+
+@router.post("/requirements")
+def create_requirement(body: schemas.RequirementIn, user: dict = Depends(_user)):
+    _require_auth(user)
+    urgency, status = _check_requirement_values(body.urgency, body.status)
+    attachments = [str(x).strip() for x in body.attachments if str(x).strip()]
+    item = Requirement(id=next_id_str(), description=body.description.strip(), urgency=urgency,
+                       status=status, reply=body.reply.strip(), attachments=attachments,
+                       created_by=user["id"])
+    deps.requirement_repo.add(item, by=user["id"])
+    return _requirement_out(deps.requirement_repo.get(item.id) or item, user)
+
+
+@router.get("/requirements/{requirement_id}")
+def get_requirement(requirement_id: str, user: dict = Depends(_user)):
+    return _requirement_out(_require_requirement(requirement_id, user), user)
+
+
+@router.put("/requirements/{requirement_id}")
+def update_requirement(requirement_id: str, body: schemas.RequirementIn,
+                       user: dict = Depends(_user)):
+    current = _require_requirement(requirement_id, user, edit=True)
+    urgency, status = _check_requirement_values(body.urgency, body.status)
+    current.description = body.description.strip()
+    current.urgency = urgency
+    current.status = status
+    current.reply = body.reply.strip()
+    current.attachments = [str(x).strip() for x in body.attachments if str(x).strip()]
+    deps.requirement_repo.add(current, by=user["id"])
+    return _requirement_out(deps.requirement_repo.get(current.id) or current, user)
+
+
+@router.delete("/requirements/{requirement_id}")
+def delete_requirement(requirement_id: str, user: dict = Depends(_user)):
+    _require_requirement(requirement_id, user, edit=True)
+    deps.requirement_repo.delete(requirement_id, by=user["id"])
+    return {"deleted": requirement_id}
+
+
+@router.post("/admin/material-submissions/permissions/user/{target_user_id}/unselected")
+def list_unselected_material_submission_permissions(
+    target_user_id: str,
+    body: schemas.MaterialSubmissionUnselectedQueryIn,
+    user: dict = Depends(_user),
+):
+    """按当前未保存的权限草稿分页，确保移入/移出后当前页自动补位。"""
+    _require_perm(user, "admin.grant")
+    _material_submission_permission_target(target_user_id)
+    selected_ids = {
+        str(item or "").strip() for item in body.selected_submission_ids if str(item or "").strip()
+    }
+    if len(selected_ids) > 1000:
+        raise HTTPException(400, "单次分配数量过多")
+
+    can_upload_value, can_upload_empty = _status_filter_arg(
+        body.can_upload_status, kind="可上传状态"
+    )
+    publish_value, publish_empty = _status_filter_arg(body.publish_status, kind="发布状态")
+    items = deps.material_submission_repo.list(
+        offset=0, limit=None, drama_name=body.drama_name, title_name=body.title_name,
+        can_upload_status=can_upload_value, can_upload_status_empty=can_upload_empty,
+        upload_account_name=body.upload_account_name, publish_status=publish_value,
+        publish_status_empty=publish_empty,
+    )
+    unselected = [item for item in items if item.id not in selected_ids]
+    total = len(unselected)
+    off, lim = _page_args(body.page, body.size)
+    page_items = unselected[off:off + lim]
+    return _page_out(
+        [_submission_out(item, user) for item in page_items],
+        total, body.page, body.size, key="submissions",
+    )
 
 
 @router.put("/admin/material-submissions/permissions/user/{target_user_id}")
@@ -1881,7 +2036,7 @@ def create_material_submission(body: schemas.MaterialSubmissionIn, user: dict = 
     deps.material_submission_repo.add(s, by=user["id"])
     if user.get("role") != "admin":
         deps.material_submission_repo.replace_permissions(s.id, {user["id"]: "read_edit"}, by=user["id"])
-    return _submission_out(s, user)
+    return _submission_out(deps.material_submission_repo.get(s.id) or s, user)
 
 
 @router.put("/admin/material-submissions/{submission_id}")
@@ -1909,7 +2064,7 @@ def update_material_submission(submission_id: str, body: schemas.MaterialSubmiss
     elif "upload_date" not in fields_set:
         s.upload_date = cur.upload_date
     deps.material_submission_repo.add(s, by=user["id"])
-    return _submission_out(s, user)
+    return _submission_out(deps.material_submission_repo.get(s.id) or s, user)
 
 
 @router.put("/admin/material-submissions/{submission_id}/process")
@@ -1918,7 +2073,7 @@ def process_material_submission(submission_id: str, body: schemas.MaterialSubmis
     cur = _require_submission_access(user, submission_id, edit=True)
     cur = _apply_submission_process_fields(cur, body)
     deps.material_submission_repo.add(cur, by=user["id"])
-    return _submission_out(cur, user)
+    return _submission_out(deps.material_submission_repo.get(cur.id) or cur, user)
 
 
 @router.post("/admin/material-submissions/batch/delete")

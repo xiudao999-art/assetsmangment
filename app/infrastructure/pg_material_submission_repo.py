@@ -14,7 +14,7 @@ _SELECT_COLS = (
     "id, team_name, delivery_time, drama_name, oss_key, video_file_name, "
     "title_name, episode_range, revision_comment, can_upload_status, "
     "upload_account_name, upload_date, publish_status, platform_reject_reason, "
-    "platform_reject_attachments, create_by"
+    "platform_reject_attachments, create_by, create_time, update_by, update_time"
 )
 
 
@@ -459,4 +459,7 @@ class PgMaterialSubmissionRepo:
             platform_reject_reason=row[13] or "",
             platform_reject_attachments=row[14] or [],
             created_by=row[15] or "",
+            created_time=row[16].isoformat() if row[16] else "",
+            updated_by=row[17] or "",
+            updated_time=row[18].isoformat() if row[18] else "",
         )

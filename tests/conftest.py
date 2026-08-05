@@ -25,6 +25,7 @@ def _hermetic_storage(monkeypatch):
         InMemoryMaterialSubmissionRepo,
         InMemoryUserRepo, InMemoryFavoriteRepo, InMemoryRbac, ListAuditLog,
     )
+    from app.infrastructure.requirement_repo import InMemoryRequirementRepo
     _drain_audit_threads()   # 起点:上一个测试的后台线程先跑完,别沾本测试的 deps
     monkeypatch.setattr(deps, "storage", FakeStorage())
     monkeypatch.setattr(deps, "material_repo", InMemoryMaterialRepo())
@@ -45,6 +46,7 @@ def _hermetic_storage(monkeypatch):
     monkeypatch.setattr(deps, "training_set_repo", InMemoryTrainingSetRepo())
     monkeypatch.setattr(deps, "training_example_repo", InMemoryTrainingExampleRepo())
     monkeypatch.setattr(deps, "material_submission_repo", InMemoryMaterialSubmissionRepo())
+    monkeypatch.setattr(deps, "requirement_repo", InMemoryRequirementRepo())
     monkeypatch.setattr(deps, "blockword_repo", InMemoryBlockwordRepo())
     monkeypatch.setattr(deps, "whitelist_repo", InMemoryWhitelistRepo())
     monkeypatch.setattr(deps, "user_repo", InMemoryUserRepo())

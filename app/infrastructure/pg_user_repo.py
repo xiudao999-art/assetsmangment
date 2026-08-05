@@ -98,12 +98,35 @@ class PgUserRepo:
             ).fetchone()
         return self._to_user(row) if row else None
 
-    def list(self) -> list[User]:
+    def _where(self, q: str = "", role: str = "") -> tuple[str, list[object]]:
+        clauses = ["del_flag = 0"]
+        params: list[object] = []
+        if q:
+            clauses.append("name ILIKE %s")
+            params.append(f"%{q}%")
+        if role:
+            clauses.append("role = %s")
+            params.append(role)
+        return " AND ".join(clauses), params
+
+    def list(self, q: str = "", role: str = "", offset: int = 0,
+             limit: int | None = None) -> list[User]:
+        where, params = self._where((q or "").strip(), (role or "").strip())
+        sql = (f"SELECT {_SELECT_COLS} FROM {self._table} WHERE {where} "
+               "ORDER BY CASE WHEN role = 'admin' THEN 0 ELSE 1 END, lower(name), domain_id OFFSET %s")
+        params.append(max(0, offset))
+        if limit is not None:
+            sql += " LIMIT %s"
+            params.append(max(0, limit))
         with self._conn() as c:
-            rows = c.execute(
-                f"SELECT {_SELECT_COLS} FROM {self._table} WHERE del_flag = 0 ORDER BY name"
-            ).fetchall()
+            rows = c.execute(sql, params).fetchall()
         return [self._to_user(r) for r in rows]
+
+    def count(self, q: str = "", role: str = "") -> int:
+        where, params = self._where((q or "").strip(), (role or "").strip())
+        with self._conn() as c:
+            row = c.execute(f"SELECT count(*) FROM {self._table} WHERE {where}", params).fetchone()
+        return int(row[0]) if row else 0
 
     def delete(self, user_id: str) -> None:
         """软删:del_flag 置新雪花 ID。按 domain User.id 删除在用行。"""

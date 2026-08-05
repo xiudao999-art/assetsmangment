@@ -26,6 +26,46 @@ def test_health():
     assert client.get("/health").json()["status"] == "ok"
 
 
+def test_requirement_crud_and_owner_permissions():
+    user_h = _user_hdr()
+    admin_h = _admin_hdr()
+    assert client.get("/requirements").status_code == 401
+
+    created = client.post("/requirements", headers=user_h, json={
+        "description": "希望增加批量导出功能",
+        "urgency": "high",
+        "status": "not_started",
+        "reply": "",
+        "attachments": ["requirements/demo/spec.docx"],
+    })
+    assert created.status_code == 200
+    rid = created.json()["id"]
+    assert created.json()["created_by_name"] == "demo"
+    assert created.json()["created_time"]
+    assert created.json()["can_edit"] is True
+
+    detail = client.get(f"/requirements/{rid}", headers=admin_h)
+    assert detail.status_code == 200
+    assert detail.json()["description"] == "希望增加批量导出功能"
+
+    updated = client.put(f"/requirements/{rid}", headers=user_h, json={
+        "description": "希望增加批量导出功能",
+        "urgency": "medium",
+        "status": "in_progress",
+        "reply": "已排期",
+        "attachments": ["requirements/demo/spec.docx"],
+    })
+    assert updated.status_code == 200
+    assert updated.json()["status"] == "in_progress"
+    assert updated.json()["reply"] == "已排期"
+
+    rows = client.get("/requirements?urgency=medium&status=in_progress&q=批量", headers=user_h).json()
+    assert rows["total"] == 1 and rows["requirements"][0]["id"] == rid
+
+    assert client.delete(f"/requirements/{rid}", headers=admin_h).status_code == 200
+    assert client.get(f"/requirements/{rid}", headers=user_h).status_code == 404
+
+
 def test_user_register_and_login():  # REQ-601
     client.post("/users/register", json={"name": "api_u", "password": "pw123456"})
     r = client.post("/users/login", json={"name": "api_u", "password": "pw123456"})
@@ -340,12 +380,22 @@ def test_download_only_in_my_library():
 # ── 账号管理 + 按用户授权(F8 新)──
 def test_admin_lists_and_creates_and_deletes_users():
     ah = _admin_hdr()
+    listed = client.get("/admin/users?page=1&size=1", headers=ah)
+    assert listed.status_code == 200
+    assert listed.json()["page"] == 1 and listed.json()["size"] == 1
+    assert listed.json()["count"] == 1 and listed.json()["total"] >= 2
+    assert listed.json()["users"][0]["role"] == "admin"
     us = client.get("/admin/users", headers=ah).json()["users"]
     assert any(u["name"] == "admin" and u["role"] == "admin" for u in us)
     # 创建(默认普通用户)
     r = client.post("/admin/users", json={"name": "acct_new", "password": "pw123456"}, headers=ah)
     assert r.status_code == 200 and r.json()["role"] == "user"
     uid = r.json()["id"]
+    searched = client.get("/admin/users?q=acct_new&role=user&page=1&size=20", headers=ah)
+    assert searched.status_code == 200 and searched.json()["total"] == 1
+    assert searched.json()["users"][0]["id"] == uid
+    detail = client.get(f"/admin/users/{uid}", headers=ah)
+    assert detail.status_code == 200 and detail.json()["name"] == "acct_new"
     assert client.post("/users/login", json={"name": "acct_new", "password": "pw123456"}).status_code == 200
     # 删除 → 登录失败
     assert client.delete(f"/admin/users/{uid}", headers=ah).status_code == 200
@@ -790,6 +840,10 @@ def test_material_submissions_crud_filter_and_batch_delete():
     assert s1.json()["can_upload_status"] is None
     assert s1.json()["publish_status"] is None
     assert s1.json()["upload_account_name"] == ""
+    assert s1.json()["created_by_name"] == "admin"
+    assert s1.json()["updated_by_name"] == "admin"
+    assert s1.json()["created_time"]
+    assert s1.json()["updated_time"]
 
     sid2 = client.post("/admin/material-submissions", json={
         "team_name": "二组团队QC",
@@ -947,6 +1001,10 @@ def test_material_submission_data_permissions_read_and_read_edit():
         "drama_name": "管理员创建的剧", "title_name": "现在可以改", "oss_key": "submissions/admin.mp4"
     }, headers=owner_h)
     assert edited.status_code == 200 and edited.json()["title_name"] == "现在可以改"
+    assert edited.json()["created_by_name"] == "admin"
+    assert edited.json()["updated_by_name"] == "demo"
+    assert edited.json()["created_time"]
+    assert edited.json()["updated_time"]
 
 
 def test_admin_can_batch_bind_submission_permissions():
@@ -1028,6 +1086,33 @@ def test_admin_can_replace_permissions_for_one_submission_user():
     assert initial_grants[0]["permission_type"] == "read_edit"
     assert initial_grants[0]["locked"] is True
     assert initial_grants[0]["submission"]["id"] == owned_id
+
+    unselected_endpoint = endpoint + "/unselected"
+    unselected_query = {
+        "selected_submission_ids": [owned_id],
+        "page": 1, "size": 1, "drama_name": "权限管理剧",
+    }
+    assert client.post(unselected_endpoint, json=unselected_query, headers=uh).status_code == 403
+    first_page = client.post(unselected_endpoint, json=unselected_query, headers=ah)
+    assert first_page.status_code == 200
+    assert first_page.json()["total"] == 2
+    assert len(first_page.json()["submissions"]) == 1
+    first_unselected_id = first_page.json()["submissions"][0]["id"]
+
+    # 移入已选后仍请求同一页，下一条应自动补到当前页。
+    unselected_query["selected_submission_ids"].append(first_unselected_id)
+    filled_page = client.post(unselected_endpoint, json=unselected_query, headers=ah)
+    assert filled_page.status_code == 200
+    assert filled_page.json()["total"] == 1
+    assert len(filled_page.json()["submissions"]) == 1
+    assert filled_page.json()["submissions"][0]["id"] != first_unselected_id
+
+    # 从已选移回未选后，分页总数和当前页也必须按新集合重新偏移。
+    unselected_query["selected_submission_ids"].remove(first_unselected_id)
+    shifted_page = client.post(unselected_endpoint, json=unselected_query, headers=ah)
+    assert shifted_page.status_code == 200
+    assert shifted_page.json()["total"] == 2
+    assert len(shifted_page.json()["submissions"]) == 1
 
     saved = client.put(endpoint, json={"grants": [
         {"submission_id": managed_ids[0], "permission_type": "read"},
