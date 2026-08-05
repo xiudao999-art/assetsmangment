@@ -103,9 +103,18 @@ class FakeStorage:
     def put(self, oss_key: str, data: bytes = b"") -> None:
         self._keys.add(oss_key)
 
-    def put_fileobj(self, oss_key: str, fileobj) -> None:
+    def put_fileobj(self, oss_key: str, fileobj, progress_callback=None) -> None:
         """流式上传:从 file-like 对象读取并存储。"""
         self._keys.add(oss_key)
+        if progress_callback:
+            try:
+                pos = fileobj.tell()
+                fileobj.seek(0, 2)
+                total = fileobj.tell()
+                fileobj.seek(pos)
+            except Exception:
+                total = 0
+            progress_callback(total, total)
 
     def signed_url(self, oss_key: str) -> str:
         return f"https://oss.fake/{oss_key}?Expires=3600&Signature=xyz"
@@ -166,8 +175,16 @@ class InMemoryUserRepo:
     def get(self, user_id: str) -> Optional[User]:
         return self._by_id.get(user_id)
 
-    def list(self) -> list[User]:
-        return list(self._by_id.values())
+    def list(self, q: str = "", role: str = "", offset: int = 0,
+             limit: int | None = None) -> list[User]:
+        key = (q or "").lower()
+        rows = [u for u in self._by_id.values()
+                if (not key or key in u.name.lower()) and (not role or u.role == role)]
+        rows.sort(key=lambda u: (u.role != "admin", u.name.lower(), u.id))
+        return rows[offset:] if limit is None else rows[offset:offset + limit]
+
+    def count(self, q: str = "", role: str = "") -> int:
+        return len(self.list(q=q, role=role))
 
     def delete(self, user_id: str) -> None:
         u = self._by_id.pop(user_id, None)
@@ -250,6 +267,9 @@ class InMemoryRbac:
 
     def user_permissions(self, user_id: str) -> set[str]:
         return set(self._user_map.get(user_id, set()))
+
+    def user_permissions_for(self, user_ids: set[str]) -> dict[str, set[str]]:
+        return {user_id: set(self._user_map.get(user_id, set())) for user_id in user_ids}
 
     def all_user_permissions(self) -> dict[str, set[str]]:
         return {user_id: set(permissions) for user_id, permissions in self._user_map.items()}
@@ -416,6 +436,11 @@ class InMemoryMaterialSubmissionRepo:
         self._permissions: dict[tuple[str, str], str] = {}
 
     def add(self, submission: MaterialSubmission, by: str = "") -> None:
+        now = str(int(time.time() * 1000))
+        previous = self._items.get(submission.id)
+        submission.created_time = previous.created_time if previous else (submission.created_time or now)
+        submission.updated_by = by or submission.updated_by or submission.created_by
+        submission.updated_time = now
         self._items[submission.id] = submission
 
     def get(self, submission_id: str):
@@ -494,7 +519,8 @@ class InMemoryMaterialSubmissionRepo:
     def list(self, team_name: str = "", drama_name: str = "", video_file_name: str = "",
              title_name: str = "", can_upload_status: int | None = None,
              can_upload_status_empty: bool = False,
-             upload_account_name: str = "", publish_status: int | None = None,
+             designated_upload_account_name: str = "", upload_account_name: str = "",
+             created_by: str = "", publish_status: int | None = None,
              publish_status_empty: bool = False,
              offset: int = 0, limit: int | None = None) -> list[MaterialSubmission]:
         items = sorted(self._items.values(), key=lambda s: int(s.id))
@@ -510,8 +536,12 @@ class InMemoryMaterialSubmissionRepo:
             items = [s for s in items if s.can_upload_status == can_upload_status]
         elif can_upload_status_empty:
             items = [s for s in items if s.can_upload_status is None]
+        if designated_upload_account_name:
+            items = [s for s in items if s.designated_upload_account_name == designated_upload_account_name]
         if upload_account_name:
             items = [s for s in items if s.upload_account_name == upload_account_name]
+        if created_by:
+            items = [s for s in items if s.created_by == created_by]
         if publish_status is not None:
             items = [s for s in items if s.publish_status == publish_status]
         elif publish_status_empty:
@@ -521,13 +551,16 @@ class InMemoryMaterialSubmissionRepo:
     def count(self, team_name: str = "", drama_name: str = "", video_file_name: str = "",
               title_name: str = "", can_upload_status: int | None = None,
               can_upload_status_empty: bool = False,
-              upload_account_name: str = "", publish_status: int | None = None,
+              designated_upload_account_name: str = "", upload_account_name: str = "",
+              created_by: str = "", publish_status: int | None = None,
               publish_status_empty: bool = False) -> int:
         return len(self.list(team_name=team_name, drama_name=drama_name,
                              video_file_name=video_file_name, title_name=title_name,
                              can_upload_status=can_upload_status,
                              can_upload_status_empty=can_upload_status_empty,
+                             designated_upload_account_name=designated_upload_account_name,
                              upload_account_name=upload_account_name,
+                             created_by=created_by,
                              publish_status=publish_status,
                              publish_status_empty=publish_status_empty))
 

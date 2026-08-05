@@ -1,6 +1,6 @@
 """API 请求/响应模型(Pydantic)。"""
 from __future__ import annotations
-from pydantic import BaseModel
+from pydantic import BaseModel, Field
 from app.domain.models import MaterialType
 
 
@@ -103,6 +103,14 @@ class IdsIn(BaseModel):
     ids: list[str] = []
 
 
+class RequirementIn(BaseModel):
+    description: str = Field(min_length=1, max_length=10000)
+    urgency: str = "medium"
+    status: str = "not_started"
+    reply: str = Field(default="", max_length=10000)
+    attachments: list[str] = Field(default_factory=list, max_length=50)
+
+
 class MaterialSubmissionIn(BaseModel):
     team_name: str = ""
     delivery_time: str = ""
@@ -124,6 +132,7 @@ class MaterialSubmissionUpdateIn(BaseModel):
     episode_range: str = ""
     revision_comment: str = ""
     can_upload_status: int | None = None
+    designated_upload_account_name: str = ""
     upload_account_name: str = ""
     upload_date: str | None = None
     publish_status: int | None = None
@@ -155,9 +164,23 @@ class MaterialSubmissionUserPermissionsIn(BaseModel):
     grants: list[MaterialSubmissionUserGrantIn] = []
 
 
+class MaterialSubmissionUnselectedQueryIn(BaseModel):
+    selected_submission_ids: list[str] = Field(default_factory=list, max_length=1000)
+    page: int = Field(1, ge=1)
+    size: int = Field(20, ge=1, le=100)
+    drama_name: str = ""
+    title_name: str = ""
+    can_upload_status: str = ""
+    designated_upload_account_name: str = ""
+    upload_account_name: str = ""
+    created_by: str = ""
+    publish_status: str = ""
+
+
 class MaterialSubmissionProcessIn(BaseModel):
     revision_comment: str = ""
     can_upload_status: int | None = None
+    designated_upload_account_name: str = ""
     upload_account_name: str = ""
     upload_date: str | None = None
     publish_status: int | None = None
@@ -166,6 +189,26 @@ class MaterialSubmissionProcessIn(BaseModel):
 
 
 # ── 规则训练 ──
+class VideoEditingTemplateIn(BaseModel):
+    name: str = Field(min_length=1, max_length=120)
+    description: str = Field(default="", max_length=10000)
+    reference_oss_key: str = Field(default="", max_length=2000)
+    narration_voice: dict = Field(default_factory=dict)
+    bgm_oss_key: str = Field(default="", max_length=2000)
+    config: dict = Field(default_factory=dict)
+    status: str = "active"
+
+
+class VideoEditingTemplateUpdateIn(BaseModel):
+    name: str | None = Field(default=None, min_length=1, max_length=120)
+    description: str | None = Field(default=None, max_length=10000)
+    reference_oss_key: str | None = Field(default=None, max_length=2000)
+    narration_voice: dict | None = None
+    bgm_oss_key: str | None = Field(default=None, max_length=2000)
+    config: dict | None = None
+    status: str | None = None
+
+
 class TrainingExampleIn(BaseModel):
     material_id: str                        # 被标注的物料 ID
     expected_rule_ids: list[str] = []       # 该物料应该命中的规则 ID 列表

@@ -7,6 +7,7 @@ from __future__ import annotations
 import json
 import os
 import threading
+import time
 from dataclasses import asdict
 from typing import Optional
 
@@ -235,8 +236,16 @@ class JsonUserRepo:
     def get(self, user_id: str) -> Optional[User]:
         return self._s.users.get(user_id)
 
-    def list(self) -> list[User]:
-        return list(self._s.users.values())
+    def list(self, q: str = "", role: str = "", offset: int = 0,
+             limit: int | None = None) -> list[User]:
+        key = (q or "").lower()
+        rows = [u for u in self._s.users.values()
+                if (not key or key in u.name.lower()) and (not role or u.role == role)]
+        rows.sort(key=lambda u: (u.role != "admin", u.name.lower(), u.id))
+        return rows[offset:] if limit is None else rows[offset:offset + limit]
+
+    def count(self, q: str = "", role: str = "") -> int:
+        return len(self.list(q=q, role=role))
 
     def delete(self, user_id: str) -> None:
         self._s.users.pop(user_id, None)
@@ -282,6 +291,9 @@ class JsonRbac:
 
     def user_permissions(self, user_id: str) -> set[str]:
         return set(self._s.user_perms.get(user_id, set()))
+
+    def user_permissions_for(self, user_ids: set[str]) -> dict[str, set[str]]:
+        return {user_id: set(self._s.user_perms.get(user_id, set())) for user_id in user_ids}
 
     def all_user_permissions(self) -> dict[str, set[str]]:
         return {user_id: set(permissions) for user_id, permissions in self._s.user_perms.items()}
@@ -340,6 +352,11 @@ class JsonMaterialSubmissionRepo:
         self._s = store
 
     def add(self, submission: MaterialSubmission, by: str = "") -> None:
+        now = str(int(time.time() * 1000))
+        previous = self._s.material_submissions.get(submission.id)
+        submission.created_time = previous.created_time if previous else (submission.created_time or now)
+        submission.updated_by = by or submission.updated_by or submission.created_by
+        submission.updated_time = now
         self._s.material_submissions[submission.id] = submission
         self._s.save()
 
@@ -431,7 +448,8 @@ class JsonMaterialSubmissionRepo:
     def list(self, team_name: str = "", drama_name: str = "", video_file_name: str = "",
              title_name: str = "", can_upload_status: int | None = None,
              can_upload_status_empty: bool = False,
-             upload_account_name: str = "", publish_status: int | None = None,
+             designated_upload_account_name: str = "", upload_account_name: str = "",
+             created_by: str = "", publish_status: int | None = None,
              publish_status_empty: bool = False,
              offset: int = 0, limit: int | None = None) -> list[MaterialSubmission]:
         items = sorted(self._s.material_submissions.values(), key=lambda s: int(s.id))
@@ -447,8 +465,12 @@ class JsonMaterialSubmissionRepo:
             items = [s for s in items if s.can_upload_status == can_upload_status]
         elif can_upload_status_empty:
             items = [s for s in items if s.can_upload_status is None]
+        if designated_upload_account_name:
+            items = [s for s in items if s.designated_upload_account_name == designated_upload_account_name]
         if upload_account_name:
             items = [s for s in items if s.upload_account_name == upload_account_name]
+        if created_by:
+            items = [s for s in items if s.created_by == created_by]
         if publish_status is not None:
             items = [s for s in items if s.publish_status == publish_status]
         elif publish_status_empty:
@@ -458,13 +480,16 @@ class JsonMaterialSubmissionRepo:
     def count(self, team_name: str = "", drama_name: str = "", video_file_name: str = "",
               title_name: str = "", can_upload_status: int | None = None,
               can_upload_status_empty: bool = False,
-              upload_account_name: str = "", publish_status: int | None = None,
+              designated_upload_account_name: str = "", upload_account_name: str = "",
+              created_by: str = "", publish_status: int | None = None,
               publish_status_empty: bool = False) -> int:
         return len(self.list(team_name=team_name, drama_name=drama_name,
                              video_file_name=video_file_name, title_name=title_name,
                              can_upload_status=can_upload_status,
                              can_upload_status_empty=can_upload_status_empty,
+                             designated_upload_account_name=designated_upload_account_name,
                              upload_account_name=upload_account_name,
+                             created_by=created_by,
                              publish_status=publish_status,
                              publish_status_empty=publish_status_empty))
 

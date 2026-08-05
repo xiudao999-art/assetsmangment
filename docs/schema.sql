@@ -309,6 +309,7 @@ CREATE TABLE IF NOT EXISTS material_submission (
     episode_range               TEXT NOT NULL DEFAULT '',
     revision_comment            TEXT NOT NULL DEFAULT '',
     can_upload_status           SMALLINT NOT NULL DEFAULT 1,
+    designated_upload_account_name TEXT NOT NULL DEFAULT '',
     upload_account_name         TEXT NOT NULL DEFAULT '',
     upload_date                 TEXT NOT NULL DEFAULT '',
     publish_status              SMALLINT NOT NULL DEFAULT 0,
@@ -321,3 +322,25 @@ CREATE TABLE IF NOT EXISTS material_submission (
     update_time                 TIMESTAMPTZ NOT NULL DEFAULT now()
 );
 CREATE INDEX IF NOT EXISTS idx_material_submission_live ON material_submission (del_flag) WHERE del_flag = 0;
+
+-- Video-editing templates: reference product and BGM store OSS object keys only.
+CREATE TABLE IF NOT EXISTS video_editing_template (
+    id                    BIGINT PRIMARY KEY,
+    name                  TEXT NOT NULL,
+    description           TEXT NOT NULL DEFAULT '',
+    reference_oss_key     TEXT NOT NULL DEFAULT '',
+    narration_voice       JSONB NOT NULL DEFAULT '{}'::jsonb,
+    bgm_oss_key           TEXT NOT NULL DEFAULT '',
+    config                JSONB NOT NULL DEFAULT '{}'::jsonb,
+    status                TEXT NOT NULL DEFAULT 'active' CHECK (status IN ('active', 'inactive')),
+    version               INTEGER NOT NULL DEFAULT 1 CHECK (version > 0),
+    del_flag              BIGINT NOT NULL DEFAULT 0,
+    create_by             TEXT NOT NULL DEFAULT '',
+    create_time           TIMESTAMPTZ NOT NULL DEFAULT now(),
+    update_by             TEXT NOT NULL DEFAULT '',
+    update_time           TIMESTAMPTZ NOT NULL DEFAULT now()
+);
+CREATE UNIQUE INDEX IF NOT EXISTS uq_video_editing_template_live_name
+    ON video_editing_template (lower(name)) WHERE del_flag = 0;
+CREATE INDEX IF NOT EXISTS idx_video_editing_template_live_status
+    ON video_editing_template (status, id DESC) WHERE del_flag = 0;

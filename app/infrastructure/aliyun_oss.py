@@ -9,12 +9,17 @@ class OssStorage:
     def __init__(self) -> None:
         import oss2  # 延迟导入
         auth = oss2.Auth(settings.oss_access_key_id, settings.oss_access_key_secret)
-        self._bucket = oss2.Bucket(auth, settings.oss_endpoint, settings.oss_bucket)
+        endpoint = (settings.oss_endpoint or "").strip()
+        # OSS SDK 对无协议 endpoint 默认使用 HTTP；本地/公网环境的 80 端口常被拦截，
+        # 上传最终表现为超时和 500。统一补成 HTTPS，同时兼容显式配置完整 URL。
+        if endpoint and not endpoint.startswith(("http://", "https://")):
+            endpoint = "https://" + endpoint
+        self._bucket = oss2.Bucket(auth, endpoint, settings.oss_bucket)
 
     def put(self, oss_key: str, data: bytes) -> None:
         self._bucket.put_object(oss_key, data)
 
-    def put_fileobj(self, oss_key: str, fileobj) -> None:
+    def put_fileobj(self, oss_key: str, fileobj, progress_callback=None) -> None:
         """流式上传到 OSS。≥10MB 用分片并发(UCloud 多连接),小文件直传。"""
         # 取文件大小,判断是否走分片
         try:
@@ -24,11 +29,11 @@ class OssStorage:
         except Exception:
             size = None
         if size and size >= 10 * 1024 * 1024:
-            self._multipart_upload(oss_key, fileobj, size)
+            self._multipart_upload(oss_key, fileobj, size, progress_callback)
         else:
-            self._bucket.put_object(oss_key, fileobj)
+            self._bucket.put_object(oss_key, fileobj, progress_callback=progress_callback)
 
-    def _multipart_upload(self, oss_key: str, fileobj, total_size: int) -> None:
+    def _multipart_upload(self, oss_key: str, fileobj, total_size: int, progress_callback=None) -> None:
         """固定大小逐片上传；任何时刻只保留一个分片，避免大视频整体进入内存。"""
         import oss2 as _oss2
 
@@ -36,6 +41,7 @@ class OssStorage:
         upload_id = self._bucket.init_multipart_upload(oss_key).upload_id
         part_infos: list = []
         part_number = 1
+        uploaded_size = 0
         try:
             while True:
                 chunk = fileobj.read(part_size)
@@ -43,6 +49,9 @@ class OssStorage:
                     break
                 result = self._bucket.upload_part(oss_key, upload_id, part_number, chunk)
                 part_infos.append(_oss2.models.PartInfo(part_number, result.etag))
+                uploaded_size += len(chunk)
+                if progress_callback:
+                    progress_callback(uploaded_size, total_size)
                 part_number += 1
             if not part_infos:
                 self._bucket.abort_multipart_upload(oss_key, upload_id)

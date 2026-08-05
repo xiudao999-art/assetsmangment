@@ -107,12 +107,49 @@ class MaterialSubmission:
     episode_range: str = ""
     revision_comment: str = ""
     can_upload_status: int | None = None
+    designated_upload_account_name: str = ""
     upload_account_name: str = ""
     upload_date: str = ""
     publish_status: int | None = None
     platform_reject_reason: str = ""
     platform_reject_attachments: list[str] = field(default_factory=list)
     created_by: str = ""
+    created_time: str = ""
+    updated_by: str = ""
+    updated_time: str = ""
+
+
+@dataclass
+class VideoEditingTemplate:
+    """Video-editing template; media fields store OSS object keys only."""
+    id: str
+    name: str
+    description: str = ""
+    reference_oss_key: str = ""
+    narration_voice: dict = field(default_factory=dict)
+    bgm_oss_key: str = ""
+    config: dict = field(default_factory=dict)
+    status: str = "active"
+    version: int = 1
+    created_by: str = ""
+    created_time: str = ""
+    updated_by: str = ""
+    updated_time: str = ""
+
+
+@dataclass
+class Requirement:
+    """内部需求提报记录。"""
+    id: str
+    description: str
+    urgency: str = "medium"
+    status: str = "not_started"
+    reply: str = ""
+    attachments: list[str] = field(default_factory=list)
+    created_by: str = ""
+    created_time: str = ""
+    updated_by: str = ""
+    updated_time: str = ""
 
 
 @dataclass
