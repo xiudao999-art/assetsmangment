@@ -103,9 +103,18 @@ class FakeStorage:
     def put(self, oss_key: str, data: bytes = b"") -> None:
         self._keys.add(oss_key)
 
-    def put_fileobj(self, oss_key: str, fileobj) -> None:
+    def put_fileobj(self, oss_key: str, fileobj, progress_callback=None) -> None:
         """流式上传:从 file-like 对象读取并存储。"""
         self._keys.add(oss_key)
+        if progress_callback:
+            try:
+                pos = fileobj.tell()
+                fileobj.seek(0, 2)
+                total = fileobj.tell()
+                fileobj.seek(pos)
+            except Exception:
+                total = 0
+            progress_callback(total, total)
 
     def signed_url(self, oss_key: str) -> str:
         return f"https://oss.fake/{oss_key}?Expires=3600&Signature=xyz"
@@ -510,7 +519,8 @@ class InMemoryMaterialSubmissionRepo:
     def list(self, team_name: str = "", drama_name: str = "", video_file_name: str = "",
              title_name: str = "", can_upload_status: int | None = None,
              can_upload_status_empty: bool = False,
-             upload_account_name: str = "", publish_status: int | None = None,
+             designated_upload_account_name: str = "", upload_account_name: str = "",
+             created_by: str = "", publish_status: int | None = None,
              publish_status_empty: bool = False,
              offset: int = 0, limit: int | None = None) -> list[MaterialSubmission]:
         items = sorted(self._items.values(), key=lambda s: int(s.id))
@@ -526,8 +536,12 @@ class InMemoryMaterialSubmissionRepo:
             items = [s for s in items if s.can_upload_status == can_upload_status]
         elif can_upload_status_empty:
             items = [s for s in items if s.can_upload_status is None]
+        if designated_upload_account_name:
+            items = [s for s in items if s.designated_upload_account_name == designated_upload_account_name]
         if upload_account_name:
             items = [s for s in items if s.upload_account_name == upload_account_name]
+        if created_by:
+            items = [s for s in items if s.created_by == created_by]
         if publish_status is not None:
             items = [s for s in items if s.publish_status == publish_status]
         elif publish_status_empty:
@@ -537,13 +551,16 @@ class InMemoryMaterialSubmissionRepo:
     def count(self, team_name: str = "", drama_name: str = "", video_file_name: str = "",
               title_name: str = "", can_upload_status: int | None = None,
               can_upload_status_empty: bool = False,
-              upload_account_name: str = "", publish_status: int | None = None,
+              designated_upload_account_name: str = "", upload_account_name: str = "",
+              created_by: str = "", publish_status: int | None = None,
               publish_status_empty: bool = False) -> int:
         return len(self.list(team_name=team_name, drama_name=drama_name,
                              video_file_name=video_file_name, title_name=title_name,
                              can_upload_status=can_upload_status,
                              can_upload_status_empty=can_upload_status_empty,
+                             designated_upload_account_name=designated_upload_account_name,
                              upload_account_name=upload_account_name,
+                             created_by=created_by,
                              publish_status=publish_status,
                              publish_status_empty=publish_status_empty))
 

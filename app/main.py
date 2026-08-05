@@ -93,4 +93,8 @@ if os.path.isdir(_frontend):
 
 if __name__ == "__main__":
     import uvicorn
-    uvicorn.run("app.main:app", host="0.0.0.0", port=8099, reload=True)
+    # 只监控业务代码与前端；日志、临时文件变化不应触发无限热重载。
+    uvicorn.run(
+        "app.main:app", host="0.0.0.0", port=8099, reload=True,
+        reload_dirs=["app", "frontend"],
+    )

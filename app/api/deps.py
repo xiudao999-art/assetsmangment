@@ -24,6 +24,9 @@ from app.infrastructure.fakes import (
     InMemoryTrainingSetRepo, InMemoryTrainingExampleRepo, InMemoryMaterialSubmissionRepo,
 )
 from app.infrastructure.requirement_repo import InMemoryRequirementRepo
+from app.infrastructure.video_editing_template_repo import (
+    InMemoryVideoEditingTemplateRepo, JsonVideoEditingTemplateRepo,
+)
 
 # ── 进程内单例 ──
 # 存储:OSS 有密钥用真实现,否则假实现。
@@ -58,6 +61,9 @@ if settings.data_dir:
     training_set_repo = InMemoryTrainingSetRepo()
     training_example_repo = InMemoryTrainingExampleRepo()
     material_submission_repo = JsonMaterialSubmissionRepo(_store)
+    video_editing_template_repo = JsonVideoEditingTemplateRepo(
+        f"{settings.data_dir.rstrip('/')}/video-editing-templates.json"
+    )
     requirement_repo = InMemoryRequirementRepo()
 else:
     material_repo = InMemoryMaterialRepo()
@@ -73,6 +79,7 @@ else:
     training_set_repo = InMemoryTrainingSetRepo()
     training_example_repo = InMemoryTrainingExampleRepo()
     material_submission_repo = InMemoryMaterialSubmissionRepo()
+    video_editing_template_repo = InMemoryVideoEditingTemplateRepo()
     requirement_repo = InMemoryRequirementRepo()
 
 # 审核规则:配置了真实 AM_DATABASE_URL → PG 是唯一真源(audit_rule 表,雪花ID+软删基础字段),
@@ -221,6 +228,15 @@ if _real_db:
         ) from _e
 
 # 向量索引:有真 embedding(DashScope)+ 真 pg 连接串 → pgvector 语义近邻;否则内存
+    # Video editing templates
+    from app.infrastructure.video_editing_template_repo import PgVideoEditingTemplateRepo
+    try:
+        video_editing_template_repo = PgVideoEditingTemplateRepo(settings.database_url)
+    except Exception as _e:
+        raise RuntimeError(
+            f"AM_DATABASE_URL is set but the video-editing template table failed to initialize: {_e}."
+        ) from _e
+
 if settings.dashscope_api_key and _real_db:
     from app.infrastructure.pgvector_index import PgVectorIndex
     index = PgVectorIndex(settings.database_url, dim=settings.embedding_dim)

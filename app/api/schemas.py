@@ -132,6 +132,7 @@ class MaterialSubmissionUpdateIn(BaseModel):
     episode_range: str = ""
     revision_comment: str = ""
     can_upload_status: int | None = None
+    designated_upload_account_name: str = ""
     upload_account_name: str = ""
     upload_date: str | None = None
     publish_status: int | None = None
@@ -170,13 +171,16 @@ class MaterialSubmissionUnselectedQueryIn(BaseModel):
     drama_name: str = ""
     title_name: str = ""
     can_upload_status: str = ""
+    designated_upload_account_name: str = ""
     upload_account_name: str = ""
+    created_by: str = ""
     publish_status: str = ""
 
 
 class MaterialSubmissionProcessIn(BaseModel):
     revision_comment: str = ""
     can_upload_status: int | None = None
+    designated_upload_account_name: str = ""
     upload_account_name: str = ""
     upload_date: str | None = None
     publish_status: int | None = None
@@ -185,6 +189,26 @@ class MaterialSubmissionProcessIn(BaseModel):
 
 
 # ── 规则训练 ──
+class VideoEditingTemplateIn(BaseModel):
+    name: str = Field(min_length=1, max_length=120)
+    description: str = Field(default="", max_length=10000)
+    reference_oss_key: str = Field(default="", max_length=2000)
+    narration_voice: dict = Field(default_factory=dict)
+    bgm_oss_key: str = Field(default="", max_length=2000)
+    config: dict = Field(default_factory=dict)
+    status: str = "active"
+
+
+class VideoEditingTemplateUpdateIn(BaseModel):
+    name: str | None = Field(default=None, min_length=1, max_length=120)
+    description: str | None = Field(default=None, max_length=10000)
+    reference_oss_key: str | None = Field(default=None, max_length=2000)
+    narration_voice: dict | None = None
+    bgm_oss_key: str | None = Field(default=None, max_length=2000)
+    config: dict | None = None
+    status: str | None = None
+
+
 class TrainingExampleIn(BaseModel):
     material_id: str                        # 被标注的物料 ID
     expected_rule_ids: list[str] = []       # 该物料应该命中的规则 ID 列表

@@ -34,8 +34,6 @@ def test_requirement_crud_and_owner_permissions():
     created = client.post("/requirements", headers=user_h, json={
         "description": "希望增加批量导出功能",
         "urgency": "high",
-        "status": "not_started",
-        "reply": "",
         "attachments": ["requirements/demo/spec.docx"],
     })
     assert created.status_code == 200
@@ -43,6 +41,8 @@ def test_requirement_crud_and_owner_permissions():
     assert created.json()["created_by_name"] == "demo"
     assert created.json()["created_time"]
     assert created.json()["can_edit"] is True
+    assert created.json()["status"] == "not_started"
+    assert created.json()["reply"] == ""
 
     detail = client.get(f"/requirements/{rid}", headers=admin_h)
     assert detail.status_code == 200
@@ -807,12 +807,125 @@ def test_material_submission_upload_uses_file_object_stream(monkeypatch):
     }
 
 
+def test_material_submission_upload_exposes_optional_server_progress(monkeypatch):
+    from app.api import deps
+
+    def capture_progress(oss_key, fileobj, progress_callback=None):
+        assert progress_callback is not None
+        progress_callback(4, 11)
+        progress_callback(11, 11)
+
+    monkeypatch.setattr(deps.storage, "put_fileobj", capture_progress)
+    upload_id = "a" * 32
+    response = client.post(
+        "/admin/uploads/file",
+        headers=_user_hdr(),
+        data={"scope": "submissions", "upload_id": upload_id},
+        files={"file": ("progress.mp4", b"server-demo", "video/mp4")},
+    )
+    assert response.status_code == 200
+    progress = client.get(f"/admin/uploads/progress/{upload_id}", headers=_user_hdr())
+    assert progress.status_code == 200
+    assert progress.json()["status"] == "done"
+    assert progress.json()["stage"] == "storage"
+    assert progress.json()["loaded"] == 11
+    assert progress.json()["total"] == 11
+    assert client.get(f"/admin/uploads/progress/{upload_id}", headers=_admin_hdr()).status_code == 403
+
+
+def test_video_editing_template_crud_and_oss_key_access():
+    ah, uh = _admin_hdr(), _user_hdr()
+    assert client.get("/admin/video-editing-templates").status_code == 401
+
+    uploaded = client.post(
+        "/admin/uploads/file", headers=uh, data={"scope": "templates"},
+        files={"file": ("reference.mp4", b"template-video", "video/mp4")},
+    )
+    assert uploaded.status_code == 200
+    reference_key = uploaded.json()["oss_key"]
+    assert reference_key.startswith("templates/")
+
+    created = client.post("/admin/video-editing-templates", headers=uh, json={
+        "name": "high-conflict-ck-template-qc",
+        "description": "two-minute short-drama recap template",
+        "reference_oss_key": reference_key,
+        "narration_voice": {
+            "provider": "minimax", "model": "speech-2.8-hd", "voice_id": "voice-qc"
+        },
+        "bgm_oss_key": "templates/bgm-qc.mp3",
+        "config": {"editing": {"hook_seconds": [7, 12]}, "captions": {"ck": True}},
+        "status": "active",
+    })
+    assert created.status_code == 200
+    template = created.json()
+    template_id = template["id"]
+    assert template["version"] == 1
+    assert template["can_edit"] is True
+    assert template["reference_oss_key"] == reference_key
+
+    listed = client.get("/admin/video-editing-templates?name=CK&status=active", headers=ah).json()
+    assert listed["count"] == 1
+    assert listed["templates"][0]["id"] == template_id
+    by_name = client.get("/admin/video-editing-templates/by-name/high-conflict-ck-template-qc", headers=ah)
+    assert by_name.status_code == 200 and by_name.json()["id"] == template_id
+    detail = client.get(f"/admin/video-editing-templates/{template_id}", headers=ah)
+    assert detail.status_code == 200
+    assert detail.json()["narration_voice"]["voice_id"] == "voice-qc"
+
+    signed = client.get("/admin/uploads/url", headers=uh, params={
+        "key": reference_key, "template_id": template_id,
+    })
+    assert signed.status_code == 200 and signed.json()["url"]
+    denied = client.get("/admin/uploads/url", headers=uh, params={
+        "key": "templates/not-owned.mp4", "template_id": template_id,
+    })
+    assert denied.status_code == 403
+
+    updated = client.put(f"/admin/video-editing-templates/{template_id}", headers=uh, json={
+        "description": "updated template description", "bgm_oss_key": "", "status": "inactive"
+    })
+    assert updated.status_code == 200
+    assert updated.json()["version"] == 2
+    assert updated.json()["description"] == "updated template description"
+    assert updated.json()["bgm_oss_key"] == ""
+    assert updated.json()["reference_oss_key"] == reference_key
+
+    assert client.put(f"/admin/video-editing-templates/{template_id}", headers=uh, json={}).status_code == 400
+
+    duplicate = client.post("/admin/video-editing-templates", headers=ah, json={
+        "name": "high-conflict-ck-template-qc"
+    })
+    assert duplicate.status_code == 409
+    invalid_key = client.post("/admin/video-editing-templates", headers=ah, json={
+        "name": "invalid-path-template-qc", "reference_oss_key": "https://example.com/a.mp4"
+    })
+    assert invalid_key.status_code == 400
+
+
+def test_admin_upload_returns_clear_gateway_error(monkeypatch):
+    from app.api import deps
+
+    def fail_upload(*args, **kwargs):
+        raise TimeoutError("OSS timeout")
+
+    monkeypatch.setattr(deps.storage, "put_fileobj", fail_upload)
+    response = client.post(
+        "/admin/uploads/file",
+        headers=_user_hdr(),
+        data={"scope": "requirements"},
+        files={"file": ("spec.txt", b"demo", "text/plain")},
+    )
+    assert response.status_code == 502
+    assert response.json()["detail"] == "附件上传失败，请检查 OSS 网络连接或配置"
+
+
 
 def test_material_submissions_crud_filter_and_batch_delete():
     ah, uh = _admin_hdr(), _user_hdr()
     assert client.get("/admin/material-submissions").status_code == 401
     assert client.get("/admin/material-submissions", headers=uh).json()["count"] == 0
     assert client.get("/admin/material-submissions/upload-account-names", headers=uh).json()["items"] == []
+    assert client.get("/admin/material-submissions/designated-upload-account-names", headers=uh).json()["items"] == []
     assert client.get("/admin/material-submissions/drama-names", headers=uh).json()["items"] == []
     assert client.post("/admin/uploads/file", headers=uh,
                        data={"scope": "submissions"},
@@ -839,6 +952,7 @@ def test_material_submissions_crud_filter_and_batch_delete():
     sid1 = s1.json()["id"]
     assert s1.json()["can_upload_status"] is None
     assert s1.json()["publish_status"] is None
+    assert s1.json()["designated_upload_account_name"] == ""
     assert s1.json()["upload_account_name"] == ""
     assert s1.json()["created_by_name"] == "admin"
     assert s1.json()["updated_by_name"] == "admin"
@@ -858,6 +972,7 @@ def test_material_submissions_crud_filter_and_batch_delete():
     p1 = client.put(f"/admin/material-submissions/{sid1}/process", json={
         "revision_comment": "改字幕",
         "can_upload_status": 1,
+        "designated_upload_account_name": "指定账号A-QC",
         "upload_account_name": "提报账号A-QC",
         "upload_date": "2026-08-03",
         "platform_reject_reason": "",
@@ -869,6 +984,7 @@ def test_material_submissions_crud_filter_and_batch_delete():
     p2 = client.put(f"/admin/material-submissions/{sid2}/process", json={
         "revision_comment": "改封面",
         "can_upload_status": 2,
+        "designated_upload_account_name": "指定账号B-QC",
         "upload_account_name": "提报账号B-QC",
         "publish_status": 2,
         "platform_reject_reason": "封面违规",
@@ -880,7 +996,7 @@ def test_material_submissions_crud_filter_and_batch_delete():
                        headers=ah).json()
     assert fuzzy["count"] == 1 and fuzzy["submissions"][0]["id"] == sid1
 
-    exact = client.get("/admin/material-submissions?can_upload_status=2&upload_account_name=提报账号B-QC&publish_status=2",
+    exact = client.get("/admin/material-submissions?can_upload_status=2&designated_upload_account_name=指定账号B-QC&upload_account_name=提报账号B-QC&publish_status=2",
                        headers=ah).json()
     assert exact["count"] == 1 and exact["submissions"][0]["id"] == sid2
     assert exact["submissions"][0]["upload_account_name"] == "提报账号B-QC"
@@ -893,6 +1009,12 @@ def test_material_submissions_crud_filter_and_batch_delete():
     assert names["items"] == ["提报账号B-QC", "提报账号A-QC"]
     filtered_names = client.get("/admin/material-submissions/upload-account-names?keyword=账号B", headers=ah).json()
     assert filtered_names["items"] == ["提报账号B-QC"]
+    designated_names = client.get("/admin/material-submissions/designated-upload-account-names", headers=ah).json()
+    assert designated_names["items"] == ["指定账号B-QC", "指定账号A-QC"]
+    filtered_designated_names = client.get(
+        "/admin/material-submissions/designated-upload-account-names?keyword=账号B", headers=ah,
+    ).json()
+    assert filtered_designated_names["items"] == ["指定账号B-QC"]
     drama_names = client.get("/admin/material-submissions/drama-names?keyword=二号", headers=ah).json()
     assert drama_names["items"] == ["爆款短剧二号QC"]
 
@@ -910,6 +1032,7 @@ def test_material_submissions_crud_filter_and_batch_delete():
     }, headers=ah)
     assert up.status_code == 200
     assert up.json()["team_name"] == "一组团队QC-更新"
+    assert up.json()["designated_upload_account_name"] == "指定账号A-QC"
     assert up.json()["upload_account_name"] == "提报账号A-QC"
     assert up.json()["upload_date"] == "2026-08-03"
     assert up.json()["publish_status"] is None
@@ -917,12 +1040,14 @@ def test_material_submissions_crud_filter_and_batch_delete():
     process_up = client.put(f"/admin/material-submissions/{sid1}/process", json={
         "revision_comment": "改旁白",
         "can_upload_status": 2,
+        "designated_upload_account_name": "指定账号B-QC",
         "upload_account_name": "提报账号B-QC",
         "publish_status": 1,
         "platform_reject_reason": "已修复",
         "platform_reject_attachments": ["oss://reject/a2.png"]
     }, headers=ah)
     assert process_up.status_code == 200
+    assert process_up.json()["designated_upload_account_name"] == "指定账号B-QC"
     assert process_up.json()["upload_account_name"] == "提报账号B-QC"
     assert process_up.json()["publish_status"] == 1
     assert process_up.json()["team_name"] == "一组团队QC-更新"
@@ -937,6 +1062,7 @@ def test_material_submissions_crud_filter_and_batch_delete():
         "episode_range": "1-12",
         "revision_comment": "改旁白",
         "can_upload_status": None,
+        "designated_upload_account_name": "指定账号B-QC",
         "upload_account_name": "提报账号B-QC",
         "upload_date": "2026-08-03",
         "publish_status": 1,
@@ -977,6 +1103,9 @@ def test_material_submission_data_permissions_read_and_read_edit():
     assert deps.material_submission_repo.permissions_for(managed_id) == {}
     visible_ids = {item["id"] for item in client.get("/admin/material-submissions", headers=owner_h).json()["submissions"]}
     assert visible_ids == {own_id}
+    creator_options = client.get("/admin/material-submissions/creator-accounts", headers=owner_h)
+    assert creator_options.status_code == 200
+    assert creator_options.json()["items"] == [{"id": "user01", "name": "demo"}]
     assert client.get(f"/admin/material-submissions/{managed_id}", headers=owner_h).status_code == 403
 
     permission_users = client.get(f"/admin/material-submissions/{managed_id}/permissions", headers=ah).json()["users"]
@@ -988,6 +1117,8 @@ def test_material_submission_data_permissions_read_and_read_edit():
     assert set_read.status_code == 200
     detail = client.get(f"/admin/material-submissions/{managed_id}", headers=owner_h)
     assert detail.status_code == 200 and detail.json()["can_read"] is True and detail.json()["can_edit"] is False
+    by_admin = client.get("/admin/material-submissions?created_by=admin", headers=owner_h).json()
+    assert by_admin["total"] == 1 and by_admin["submissions"][0]["id"] == managed_id
     assert client.put(f"/admin/material-submissions/{managed_id}", json={"title_name": "不能改"}, headers=owner_h).status_code == 403
     assert client.get("/admin/uploads/url", params={
         "key": "submissions/admin.mp4", "submission_id": managed_id
@@ -1075,6 +1206,11 @@ def test_admin_can_replace_permissions_for_one_submission_user():
         }, headers=ah)
         assert response.status_code == 200
         managed_ids.append(response.json()["id"])
+        processed = client.put(
+            f"/admin/material-submissions/{response.json()['id']}/process",
+            json={"designated_upload_account_name": f"批量指定账号{index}"}, headers=ah,
+        )
+        assert processed.status_code == 200
 
     endpoint = f"/admin/material-submissions/permissions/user/{target_user_id}"
     assert client.get(endpoint, headers=uh).status_code == 403
@@ -1090,9 +1226,14 @@ def test_admin_can_replace_permissions_for_one_submission_user():
     unselected_endpoint = endpoint + "/unselected"
     unselected_query = {
         "selected_submission_ids": [owned_id],
-        "page": 1, "size": 1, "drama_name": "权限管理剧",
+        "page": 1, "size": 1, "drama_name": "权限管理剧", "created_by": "admin",
     }
     assert client.post(unselected_endpoint, json=unselected_query, headers=uh).status_code == 403
+    designated_query = dict(unselected_query, designated_upload_account_name="批量指定账号2")
+    designated_page = client.post(unselected_endpoint, json=designated_query, headers=ah)
+    assert designated_page.status_code == 200
+    assert designated_page.json()["total"] == 1
+    assert designated_page.json()["submissions"][0]["id"] == managed_ids[1]
     first_page = client.post(unselected_endpoint, json=unselected_query, headers=ah)
     assert first_page.status_code == 200
     assert first_page.json()["total"] == 2

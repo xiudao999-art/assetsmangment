@@ -34,6 +34,7 @@ def ensure_submission_tables(
                 episode_range               TEXT NOT NULL DEFAULT '',
                 revision_comment            TEXT NOT NULL DEFAULT '',
                 can_upload_status           SMALLINT,
+                designated_upload_account_name TEXT NOT NULL DEFAULT '',
                 upload_account_name         TEXT NOT NULL DEFAULT '',
                 upload_date                 TEXT NOT NULL DEFAULT '',
                 publish_status              SMALLINT,
@@ -66,6 +67,7 @@ def ensure_submission_tables(
             END $$;
             """
         )
+        c.execute(f"ALTER TABLE {submission_table} ADD COLUMN IF NOT EXISTS designated_upload_account_name TEXT NOT NULL DEFAULT ''")
         c.execute(f"ALTER TABLE {submission_table} ADD COLUMN IF NOT EXISTS upload_account_name TEXT NOT NULL DEFAULT ''")
         c.execute(
             f"""
@@ -132,6 +134,7 @@ def ensure_submission_tables(
         c.execute(f"COMMENT ON COLUMN {submission_table}.episode_range IS '集数区间，按文本存储'")
         c.execute(f"COMMENT ON COLUMN {submission_table}.revision_comment IS '修改意见'")
         c.execute(f"COMMENT ON COLUMN {submission_table}.can_upload_status IS '可上传状态:1=可上传,2=不可上传；可为空'")
+        c.execute(f"COMMENT ON COLUMN {submission_table}.designated_upload_account_name IS '指定上传账号名称，直接存文本'")
         c.execute(f"COMMENT ON COLUMN {submission_table}.upload_account_name IS '上传账号名称，直接存文本'")
         c.execute(f"COMMENT ON COLUMN {submission_table}.upload_date IS '上传日期，格式 YYYY-MM-DD'")
         c.execute(f"COMMENT ON COLUMN {submission_table}.publish_status IS '发布状态:1=成功,2=失败；可为空'")

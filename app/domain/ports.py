@@ -3,7 +3,7 @@ from __future__ import annotations
 from typing import Protocol, Optional
 from app.domain.models import (MaterialCandidate, Material, User, TextSegment, AuditRule,
                                AuditTask, Project, TrainingSet, TrainingExample,
-                               MaterialSubmission, Requirement)
+                               MaterialSubmission, VideoEditingTemplate, Requirement)
 from app.domain.query import MaterialQuery
 
 
@@ -73,14 +73,26 @@ class MaterialSubmissionRepo(Protocol):
     def list(self, team_name: str = "", drama_name: str = "", video_file_name: str = "",
              title_name: str = "", can_upload_status: int | None = None,
              can_upload_status_empty: bool = False,
-             upload_account_name: str = "", publish_status: int | None = None,
+             designated_upload_account_name: str = "", upload_account_name: str = "",
+             created_by: str = "", publish_status: int | None = None,
              publish_status_empty: bool = False,
              offset: int = 0, limit: int | None = None) -> list[MaterialSubmission]: ...
     def count(self, team_name: str = "", drama_name: str = "", video_file_name: str = "",
               title_name: str = "", can_upload_status: int | None = None,
               can_upload_status_empty: bool = False,
-              upload_account_name: str = "", publish_status: int | None = None,
+              designated_upload_account_name: str = "", upload_account_name: str = "",
+              created_by: str = "", publish_status: int | None = None,
               publish_status_empty: bool = False) -> int: ...
+
+
+class VideoEditingTemplateRepo(Protocol):
+    """?????????"""
+    def save(self, template: VideoEditingTemplate, by: str = "") -> None: ...
+    def get(self, template_id: str) -> Optional[VideoEditingTemplate]: ...
+    def get_by_name(self, name: str) -> Optional[VideoEditingTemplate]: ...
+    def list(self, name: str = "", status: str = "", offset: int = 0,
+             limit: int | None = None) -> list[VideoEditingTemplate]: ...
+    def count(self, name: str = "", status: str = "") -> int: ...
 
 
 class RequirementRepo(Protocol):
@@ -134,7 +146,7 @@ class MaterialRepo(Protocol):
 class ObjectStorage(Protocol):
     """OSS 存储端口。"""
     def put(self, oss_key: str, data: bytes) -> None: ...
-    def put_fileobj(self, oss_key: str, fileobj) -> None: ...   # 流式上传(file-like object)
+    def put_fileobj(self, oss_key: str, fileobj, progress_callback=None) -> None: ...   # 流式上传(file-like object)
     def signed_url(self, oss_key: str) -> str: ...          # 预览用签名 URL
     def download_url(self, oss_key: str) -> str: ...        # 下载用签名 URL(强制 attachment)
     def snapshot_url(self, oss_key: str, ms: int = 1000) -> str: ...  # 视频封面帧签名 URL
