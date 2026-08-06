@@ -159,8 +159,8 @@ def _owner_name(owner_id: str) -> str:
 def _check_can_upload_status(status: int | None) -> int | None:
     if status is None:
         return None
-    if status not in (1, 2):
-        raise HTTPException(400, "非法可上传状态: 应为 1(可上传) 或 2(不可上传)")
+    if status not in (1, 2, 3):
+        raise HTTPException(400, "非法可上传状态: 应为 1(可上传)、2(不可上传) 或 3(已修改)")
     return status
 
 

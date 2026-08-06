@@ -122,7 +122,7 @@ Content-Type: application/json
 | `title_name` | String | 标题名 |
 | `episode_range` | String | 集数区间 |
 | `revision_comment` | String | 修改意见（管理端填写） |
-| `can_upload_status` | Int\|Null | 可上传状态：`1`=可上传，`2`=不可上传，`null`=未设置 |
+| `can_upload_status` | Int\|Null | 可上传状态：`1`=可上传，`2`=不可上传，`3`=已修改，`null`=未设置 |
 | `upload_account_name` | String | 上传账号名称（管理端填写） |
 | `upload_date` | String | 上传日期（`YYYY-MM-DD`） |
 | `publish_status` | Int\|Null | 发布状态：`1`=成功，`2`=失败，`null`=未设置 |
