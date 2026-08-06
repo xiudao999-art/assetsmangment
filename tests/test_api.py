@@ -1039,7 +1039,7 @@ def test_material_submissions_crud_filter_and_batch_delete():
 
     process_up = client.put(f"/admin/material-submissions/{sid1}/process", json={
         "revision_comment": "改旁白",
-        "can_upload_status": 2,
+        "can_upload_status": 3,
         "designated_upload_account_name": "指定账号B-QC",
         "upload_account_name": "提报账号B-QC",
         "publish_status": 1,
@@ -1050,7 +1050,11 @@ def test_material_submissions_crud_filter_and_batch_delete():
     assert process_up.json()["designated_upload_account_name"] == "指定账号B-QC"
     assert process_up.json()["upload_account_name"] == "提报账号B-QC"
     assert process_up.json()["publish_status"] == 1
+    assert process_up.json()["can_upload_status"] == 3
     assert process_up.json()["team_name"] == "一组团队QC-更新"
+
+    modified = client.get("/admin/material-submissions?can_upload_status=3", headers=ah).json()
+    assert modified["count"] == 1 and modified["submissions"][0]["id"] == sid1
 
     clear_can_upload = client.put(f"/admin/material-submissions/{sid1}", json={
         "team_name": "一组团队QC-更新",

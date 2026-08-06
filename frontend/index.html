@@ -291,6 +291,16 @@
   @keyframes sbspin{to{transform:rotate(360deg)}}
   #sec-submissions,#sec-requirements{min-width:0}
   .sb-table-wrap{width:100%;margin-top:10px;overflow-x:hidden;padding-bottom:6px}
+  .sb-submission-table-wrap{overflow-x:auto;scrollbar-gutter:stable}
+  .sb-table.sb-submission-table{min-width:1370px}
+  .sb-table.sb-submission-table .cell-file{width:126px;min-width:126px;max-width:126px}
+  .sb-table.sb-submission-table .cell-title{width:140px;min-width:140px;max-width:140px}
+  .sb-table.sb-submission-table .cell-drama{width:140px;min-width:140px;max-width:140px}
+  .sb-table.sb-submission-table .cell-balanced{width:86px;min-width:86px;max-width:86px}
+  .sb-table.sb-submission-table .cell-account-wide{width:106px;min-width:106px;max-width:106px}
+  .sb-table.sb-submission-table .cell-revision{width:120px;min-width:120px;max-width:120px}
+  .sb-table.sb-submission-table .cell-actions{width:116px;min-width:116px;max-width:116px}
+  .sb-table.sb-submission-table .cell-title .sb-title-link{max-height:4.65em;-webkit-line-clamp:3}
   .sb-table{width:100%;min-width:0;table-layout:fixed;border-collapse:separate;border-spacing:0}
   .sb-table th,.sb-table td{padding:10px 8px;border-bottom:1px solid var(--line);vertical-align:top;text-align:left;font-size:12.5px;background:transparent}
   .sb-table th{position:sticky;top:0;background:var(--bg);z-index:1;font:600 12px Inter;color:var(--dim);white-space:nowrap}
@@ -317,6 +327,10 @@
   .sb-title-link{display:-webkit-box;width:100%;max-height:4.65em;padding:0;overflow:hidden;-webkit-box-orient:vertical;-webkit-line-clamp:3;border:0;background:none;color:var(--mint);font:600 13px/1.55 Inter;text-align:left;cursor:pointer;text-decoration:underline;text-decoration-color:color-mix(in oklab,var(--mint) 35%,transparent);text-underline-offset:3px;word-break:break-word}
   .sb-title-link:hover{color:var(--ink);text-decoration-color:var(--mint)}
   .sb-cell-ellipsis{display:block;width:100%;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
+  .sb-cell-clamp-3{display:-webkit-box;width:100%;max-height:4.65em;overflow:hidden;-webkit-box-orient:vertical;-webkit-line-clamp:3;white-space:normal;line-height:1.55;word-break:break-word}
+  .sb-copy-anchor{cursor:text}
+  .sb-copy-popover{display:none;position:fixed;z-index:100;width:max-content;min-width:220px;max-width:min(440px,calc(100vw - 24px));max-height:min(260px,calc(100vh - 24px));overflow:auto;padding:10px 12px;border:1px solid var(--line-2);border-radius:10px;background:#fff;color:var(--ink);box-shadow:0 12px 34px rgba(45,20,15,.18);font-size:12.5px;line-height:1.6;white-space:pre-wrap;word-break:break-word;user-select:text;cursor:text}
+  .sb-copy-popover.on{display:block}
   .sb-row-actions{display:flex;align-items:center;gap:2px;flex-wrap:nowrap}
   .sb-icon-btn{width:23px;height:28px;min-width:23px;padding:0;justify-content:center;border-radius:7px;font-size:13px;line-height:1;box-shadow:none!important}
   .sb-icon-btn:hover{transform:translateY(-1px)}
@@ -477,7 +491,7 @@
             <div class="field f-grow" style="margin:0"><label>标题名</label><input id="sb-ft-title" placeholder="模糊筛选标题名"></div>
           </div>
           <div class="row" style="align-items:flex-end;flex-wrap:wrap;gap:12px;margin-top:12px">
-            <div class="field f-fixed" style="margin:0"><label>可上传状态</label><select id="sb-ft-can-upload"><option value="">全部</option><option value="__empty__">空</option><option value="1">可上传</option><option value="2">不可上传</option></select></div>
+            <div class="field f-fixed" style="margin:0"><label>可上传状态</label><select id="sb-ft-can-upload"><option value="">全部</option><option value="__empty__">空</option><option value="1">可上传</option><option value="2">不可上传</option><option value="3">已修改</option></select></div>
             <div class="field" style="margin:0;flex:0 0 210px">
               <label>指定上传账号</label>
               <div class="suggest-wrap">
@@ -642,7 +656,7 @@
     <div class="bp-filter">
       <div class="field"><label>剧名</label><div class="suggest-wrap"><input id="bp-drama" placeholder="模糊筛选剧名" autocomplete="off" onfocus="openSubmissionSuggest('bp-drama')" onclick="openSubmissionSuggest('bp-drama')" oninput="onSubmissionSuggestInput('bp-drama')" onblur="scheduleSubmissionSuggestClose('bp-drama')" onkeydown="if(event.key==='Enter')applyBatchPermissionFilters()"><div id="bp-drama-suggest" class="suggest-dropdown" hidden></div></div></div>
       <div class="field"><label>标题名</label><input id="bp-title" placeholder="模糊筛选标题名" onkeydown="if(event.key==='Enter')applyBatchPermissionFilters()"></div>
-      <div class="field"><label>可上传状态</label><select id="bp-can-upload"><option value="">全部</option><option value="__empty__">空</option><option value="1">可上传</option><option value="2">不可上传</option></select></div>
+      <div class="field"><label>可上传状态</label><select id="bp-can-upload"><option value="">全部</option><option value="__empty__">空</option><option value="1">可上传</option><option value="2">不可上传</option><option value="3">已修改</option></select></div>
       <div class="field"><label>指定上传账号</label><div class="suggest-wrap"><input id="bp-designated-account-name" placeholder="精准筛选指定上传账号名称" autocomplete="off" onfocus="openSubmissionSuggest('bp-designated-account-name')" onclick="openSubmissionSuggest('bp-designated-account-name')" oninput="onSubmissionSuggestInput('bp-designated-account-name')" onblur="scheduleSubmissionSuggestClose('bp-designated-account-name')" onkeydown="if(event.key==='Enter')applyBatchPermissionFilters()"><div id="bp-designated-account-name-suggest" class="suggest-dropdown" hidden></div></div></div>
       <div class="field"><label>上传账号</label><div class="suggest-wrap"><input id="bp-account-name" placeholder="精准筛选上传账号名称" autocomplete="off" onfocus="openSubmissionSuggest('bp-account-name')" onclick="openSubmissionSuggest('bp-account-name')" oninput="onSubmissionSuggestInput('bp-account-name')" onblur="scheduleSubmissionSuggestClose('bp-account-name')" onkeydown="if(event.key==='Enter')applyBatchPermissionFilters()"><div id="bp-account-name-suggest" class="suggest-dropdown" hidden></div></div></div>
       <div class="field"><label>发布状态</label><select id="bp-publish"><option value="">全部</option><option value="__empty__">空</option><option value="1">成功</option><option value="2">失败</option></select></div>
@@ -1656,7 +1670,7 @@ function closeDrawer(){stopDrawerMedia();$('#scrim').classList.remove('on','batc
 async function delMat(id){const r=await api('DELETE','/materials/'+id);if(r.ok){toast('已删除');closeDrawer();refreshLib()}else if(r.status!==401)toast(r.data.detail||'删除失败',true)}
 
 /* ── 提报：素材提报 ── */
-const UP_ST={1:'可上传',2:'不可上传'};
+const UP_ST={1:'可上传',2:'不可上传',3:'已修改'};
 const PUB_ST={1:'成功',2:'失败'};
 let SUBMISSION_ACCOUNT_NAME_OPTIONS=[];
 let SUBMISSION_DESIGNATED_ACCOUNT_NAME_OPTIONS=[];
@@ -1666,6 +1680,31 @@ const SUBMISSION_SUGGEST_TIMERS={};
 let PREVIEW_KEY='';
 let PREVIEW_SUBMISSION_ID='';
 let MATERIAL_SUBMISSION_ROWS={};
+let SUBMISSION_COPY_POPOVER_HIDE_TIMER=0;
+function getSubmissionCopyPopover(){
+  let pop=$('#sb-copy-popover');
+  if(pop)return pop;
+  pop=document.createElement('div');pop.id='sb-copy-popover';pop.className='sb-copy-popover';
+  pop.addEventListener('mouseenter',()=>clearTimeout(SUBMISSION_COPY_POPOVER_HIDE_TIMER));
+  pop.addEventListener('mouseleave',scheduleSubmissionCopyPopoverHide);
+  document.body.appendChild(pop);return pop;
+}
+function showSubmissionCopyPopover(anchor){
+  clearTimeout(SUBMISSION_COPY_POPOVER_HIDE_TIMER);
+  const truncated=anchor.scrollWidth>anchor.clientWidth+1||anchor.scrollHeight>anchor.clientHeight+1;
+  if(!truncated)return;
+  const pop=getSubmissionCopyPopover(),rect=anchor.getBoundingClientRect();
+  pop.textContent=anchor.dataset.copyText||'';pop.classList.add('on');
+  const box=pop.getBoundingClientRect();
+  const left=Math.min(Math.max(12,rect.left),Math.max(12,window.innerWidth-box.width-12));
+  const below=rect.bottom+4;
+  const top=below+box.height<=window.innerHeight-12?below:Math.max(12,rect.top-box.height-4);
+  pop.style.left=`${left}px`;pop.style.top=`${top}px`;
+}
+function scheduleSubmissionCopyPopoverHide(){
+  clearTimeout(SUBMISSION_COPY_POPOVER_HIDE_TIMER);
+  SUBMISSION_COPY_POPOVER_HIDE_TIMER=setTimeout(()=>$('#sb-copy-popover')?.classList.remove('on'),320);
+}
 function parseSubmissionRejectAttachmentKeys(raw){
   return String(raw||'').split(/\r?\n|,/).map(s=>s.trim()).filter(Boolean)
 }
@@ -1897,7 +1936,7 @@ function renderSubmissionTableCell(kind,s){
   if(kind==='title_name'){
     const title=String(s.title_name||'').trim();
     if(!title) return '<span class="k">—</span>';
-    return `<button class="sb-title-link" type="button" title="${esc(title)}" onclick="openMaterialSubmissionDetail('${s.id}')">${esc(title)}</button>`;
+    return `<button class="sb-title-link sb-copy-anchor" type="button" data-copy-text="${esc(title)}" onmouseenter="showSubmissionCopyPopover(this)" onmouseleave="scheduleSubmissionCopyPopoverHide()" onclick="openMaterialSubmissionDetail('${s.id}')">${esc(title)}</button>`;
   }
   if(kind==='video_oss'){
     const oss=s.oss_key||'';
@@ -1914,7 +1953,9 @@ function renderSubmissionTableCell(kind,s){
   if(kind==='created_time'||kind==='updated_time') return submissionAuditTimeHtml(s[kind]);
   if(kind==='attachments') return renderSubmissionAttachmentTags(s.platform_reject_attachments||[]);
   const text=String(s[kind]??'').trim();
-  return text?`<span class="sb-cell-ellipsis" title="${esc(text)}">${esc(text)}</span>`:'<span class="k">—</span>';
+  if(!text)return '<span class="k">—</span>';
+  const clamp=kind==='revision_comment'?'sb-cell-clamp-3':'sb-cell-ellipsis';
+  return `<span class="${clamp} sb-copy-anchor" data-copy-text="${esc(text)}" onmouseenter="showSubmissionCopyPopover(this)" onmouseleave="scheduleSubmissionCopyPopoverHide()">${esc(text)}</span>`;
 }
 function openCreateModal(title,html,foot=''){
   closeDrawer();$('#cscrim').classList.add('on');$('#create-modal').classList.add('on');$('#cm-title').textContent=title;$('#cm-body').innerHTML=html;$('#cm-foot').innerHTML=foot}
@@ -1943,7 +1984,7 @@ function renderMaterialSubmissionEditForm(s,isNew){
     </div>`;
   const processFields=`<div class="sb-section"><h4>上传与发布</h4>
     <div class="row" style="align-items:flex-end;flex-wrap:wrap;gap:12px">
-      <div class="field f-fixed" style="margin:0"><label>可上传状态</label><select id="sb-p-can-upload"><option value="" ${(!canUp||canUp!==1&&canUp!==2)?'selected':''}></option><option value="1" ${canUp===1?'selected':''}>可上传</option><option value="2" ${canUp===2?'selected':''}>不可上传</option></select></div>
+      <div class="field f-fixed" style="margin:0"><label>可上传状态</label><select id="sb-p-can-upload"><option value="" ${(!canUp||![1,2,3].includes(canUp))?'selected':''}></option><option value="1" ${canUp===1?'selected':''}>可上传</option><option value="2" ${canUp===2?'selected':''}>不可上传</option><option value="3" ${canUp===3?'selected':''}>已修改</option></select></div>
       <div class="field f-grow" style="margin:0"><label>指定上传账号</label>${renderSubmissionSuggestInput('sb-p-designated-account-name',x.designated_upload_account_name||'','')}</div>
       <div class="field f-grow" style="margin:0"><label>上传账号</label>${renderSubmissionSuggestInput('sb-p-account-name',x.upload_account_name||'','')}</div>
       <div class="field f-grow" style="margin:0"><label>上传日期</label><input id="sb-p-upload-date" type="date" value="${esc(x.upload_date||'')}"></div>
@@ -2229,14 +2270,15 @@ async function loadMaterialSubmissions(){
     ['drama_name','剧名','cell-drama head-content'],
     ['episode_range','集数区间','cell-balanced head-content'],
     ['status_upload','可上传状态','cell-balanced head-workflow'],
-    ['designated_upload_account_name','指定上传账号','cell-balanced head-workflow'],
-    ['upload_account_name','上传账号','cell-balanced head-workflow'],
+    ['designated_upload_account_name','指定上传账号','cell-account-wide head-workflow'],
+    ['upload_account_name','上传账号','cell-account-wide head-workflow'],
     ['upload_date','上传日期','cell-balanced head-workflow'],
     ['status_publish','发布状态','cell-balanced head-workflow'],
+    ['revision_comment','修改意见','cell-revision head-workflow'],
     ['created_by_name','创建账号','cell-balanced head-audit'],
     ['created_time','创建时间','cell-balanced head-audit'],
   ];
-  $('#sb-list').innerHTML=rows.length?`<div class="sb-table-wrap"><table class="sb-table"><thead><tr>${cols.map(([,label,cls])=>`<th class="${cls}">${label}</th>`).join('')}<th class="cell-actions">操作</th></tr></thead><tbody>${rows.map(s=>`<tr>${cols.map(([key,,cls])=>`<td class="${cls}">${renderSubmissionTableCell(key,s)}</td>`).join('')}<td class="cell-actions"><div class="sb-row-actions"><button class="btn key sb-icon-btn" title="详情" aria-label="详情" onclick="openMaterialSubmissionDetail('${s.id}')">ⓘ</button><button class="btn key sb-icon-btn" title="下载" aria-label="下载" data-key="${encodeURIComponent(s.oss_key||'')}" onclick="downloadMaterialSubmissionFile(decodeURIComponent(this.dataset.key),'${s.id}')">↓</button>${s.can_edit?`<button class="btn key sb-icon-btn" title="编辑" aria-label="编辑" onclick="openMaterialSubmissionEdit('${s.id}')">✎</button><button class="btn block sb-icon-btn" title="删除" aria-label="删除" onclick="deleteMaterialSubmissions(['${s.id}'])">×</button>`:''}</div></td></tr>`).join('')}</tbody></table></div>`:'<div class="empty"><b class="disp">还没有素材提报</b>点右上角“新建”创建一条提报记录。</div>';
+  $('#sb-list').innerHTML=rows.length?`<div class="sb-table-wrap sb-submission-table-wrap"><table class="sb-table sb-submission-table"><thead><tr>${cols.map(([,label,cls])=>`<th class="${cls}">${label}</th>`).join('')}<th class="cell-actions">操作</th></tr></thead><tbody>${rows.map(s=>`<tr>${cols.map(([key,,cls])=>`<td class="${cls}">${renderSubmissionTableCell(key,s)}</td>`).join('')}<td class="cell-actions"><div class="sb-row-actions"><button class="btn key sb-icon-btn" title="详情" aria-label="详情" onclick="openMaterialSubmissionDetail('${s.id}')">ⓘ</button><button class="btn key sb-icon-btn" title="下载" aria-label="下载" data-key="${encodeURIComponent(s.oss_key||'')}" onclick="downloadMaterialSubmissionFile(decodeURIComponent(this.dataset.key),'${s.id}')">↓</button>${s.can_edit?`<button class="btn key sb-icon-btn" title="编辑" aria-label="编辑" onclick="openMaterialSubmissionEdit('${s.id}')">✎</button><button class="btn block sb-icon-btn" title="删除" aria-label="删除" onclick="deleteMaterialSubmissions(['${s.id}'])">×</button>`:''}</div></td></tr>`).join('')}</tbody></table></div>`:'<div class="empty"><b class="disp">还没有素材提报</b>点右上角“新建”创建一条提报记录。</div>';
   renderPager('#sb-pager','submissions');
   lazyLoadSubmissionPreviews();
 }

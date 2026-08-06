@@ -133,7 +133,7 @@ def ensure_submission_tables(
         c.execute(f"COMMENT ON COLUMN {submission_table}.title_name IS '标题名'")
         c.execute(f"COMMENT ON COLUMN {submission_table}.episode_range IS '集数区间，按文本存储'")
         c.execute(f"COMMENT ON COLUMN {submission_table}.revision_comment IS '修改意见'")
-        c.execute(f"COMMENT ON COLUMN {submission_table}.can_upload_status IS '可上传状态:1=可上传,2=不可上传；可为空'")
+        c.execute(f"COMMENT ON COLUMN {submission_table}.can_upload_status IS '可上传状态:1=可上传,2=不可上传,3=已修改；可为空'")
         c.execute(f"COMMENT ON COLUMN {submission_table}.designated_upload_account_name IS '指定上传账号名称，直接存文本'")
         c.execute(f"COMMENT ON COLUMN {submission_table}.upload_account_name IS '上传账号名称，直接存文本'")
         c.execute(f"COMMENT ON COLUMN {submission_table}.upload_date IS '上传日期，格式 YYYY-MM-DD'")
