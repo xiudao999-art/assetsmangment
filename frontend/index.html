@@ -2017,7 +2017,7 @@ async function openMaterialSubmissionEdit(id){
   openAdminDrawer('编辑素材提报',renderMaterialSubmissionEditForm(r.data||{},false));
 }
 async function openMaterialSubmissionDetail(id,returnToBatch=false){
-  openAdminDrawer('素材提报详情','<div class="empty">加载中…</div>');
+  openAdminDrawer('详情','<div class="empty">加载中…</div>');
   const r=await api('GET','/admin/material-submissions/'+id);
   if(!r.ok){$('#d-body').innerHTML='<div class="empty"><b class="disp">加载失败</b>请稍后重试。</div>';toast(r.data.detail||'加载提报失败',true);return}
   const x=r.data||{};
