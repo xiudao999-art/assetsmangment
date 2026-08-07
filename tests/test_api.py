@@ -1132,6 +1132,16 @@ def test_material_submission_data_permissions_read_and_read_edit():
         "grants": [{"user_id": "user01", "permission_type": "read_edit"}]
     }, headers=ah)
     assert set_edit.status_code == 200
+    permission_history = client.get(
+        f"/admin/material-submissions/{managed_id}/operations", headers=ah,
+    ).json()["operations"]
+    permission_changes = [
+        item["changes"][0] for item in permission_history if item["action"] == "permission"
+    ]
+    assert any(item["user_name"] == "demo" and item["before"] == "" and item["after"] == "read"
+               for item in permission_changes)
+    assert any(item["user_name"] == "demo" and item["before"] == "read"
+               and item["after"] == "read_edit" for item in permission_changes)
     edited = client.put(f"/admin/material-submissions/{managed_id}", json={
         "drama_name": "管理员创建的剧", "title_name": "现在可以改", "oss_key": "submissions/admin.mp4"
     }, headers=owner_h)
@@ -1176,6 +1186,36 @@ def test_material_submission_detail_exposes_operation_history():
     assert changes["platform_reject_reason"]["after"] == "封面不合规"
 
 
+def test_submission_reader_can_access_files_referenced_by_operation_history():
+    admin_headers, user_headers = _admin_hdr(), _user_hdr()
+    created = client.post("/admin/material-submissions", json={
+        "title_name": "历史文件访问",
+        "oss_key": "submissions/history-old.mp4",
+    }, headers=user_headers)
+    assert created.status_code == 200
+    submission_id = created.json()["id"]
+
+    assert client.put(f"/admin/material-submissions/{submission_id}/process", json={
+        "platform_reject_attachments": ["submissions/rejects/history-old.png"],
+    }, headers=admin_headers).status_code == 200
+    assert client.put(f"/admin/material-submissions/{submission_id}", json={
+        "title_name": "历史文件访问",
+        "oss_key": "submissions/history-new.mp4",
+        "platform_reject_attachments": ["submissions/rejects/history-new.png"],
+    }, headers=admin_headers).status_code == 200
+
+    for historical_key in (
+        "submissions/history-old.mp4", "submissions/rejects/history-old.png",
+    ):
+        response = client.get("/admin/uploads/url", params={
+            "key": historical_key, "submission_id": submission_id,
+        }, headers=user_headers)
+        assert response.status_code == 200
+    assert client.get("/admin/uploads/url", params={
+        "key": "submissions/not-in-history.mp4", "submission_id": submission_id,
+    }, headers=user_headers).status_code == 403
+
+
 def test_admin_can_batch_bind_submission_permissions():
     ah, uh = _admin_hdr(), _user_hdr()
     created_user = client.post("/admin/users", json={
@@ -1213,6 +1253,13 @@ def test_admin_can_batch_bind_submission_permissions():
     assert result.status_code == 200
     for submission_id in submission_ids:
         assert client.get(f"/admin/material-submissions/{submission_id}", headers=target_h).json()["can_edit"] is True
+        history = client.get(
+            f"/admin/material-submissions/{submission_id}/operations", headers=ah,
+        ).json()["operations"]
+        permission_events = [item for item in history if item["action"] == "permission"]
+        assert len(permission_events) == 2
+        assert any(change["user_name"] == "batch_grantee" and change["after"] == "read_edit"
+                   for item in permission_events for change in item["changes"])
 
     payload["user_ids"] = ["admin"]
     assert client.put("/admin/material-submissions/permissions/batch", json=payload, headers=ah).status_code == 400
@@ -1307,6 +1354,18 @@ def test_admin_can_replace_permissions_for_one_submission_user():
         {"submission_id": managed_ids[1], "permission_type": "read"},
     ]}, headers=ah)
     assert replaced.status_code == 200 and replaced.json()["changed_count"] == 2
+    first_history = client.get(
+        f"/admin/material-submissions/{managed_ids[0]}/operations", headers=ah,
+    ).json()["operations"]
+    assert any(change["before"] == "read" and change["after"] == ""
+               for item in first_history if item["action"] == "permission"
+               for change in item["changes"])
+    second_history = client.get(
+        f"/admin/material-submissions/{managed_ids[1]}/operations", headers=ah,
+    ).json()["operations"]
+    assert any(change["before"] == "read_edit" and change["after"] == "read"
+               for item in second_history if item["action"] == "permission"
+               for change in item["changes"])
     assert client.get(f"/admin/material-submissions/{managed_ids[0]}", headers=target_h).status_code == 403
     read_detail = client.get(f"/admin/material-submissions/{managed_ids[1]}", headers=target_h)
     assert read_detail.status_code == 200 and read_detail.json()["can_edit"] is False
