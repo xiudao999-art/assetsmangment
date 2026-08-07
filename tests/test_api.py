@@ -1142,6 +1142,40 @@ def test_material_submission_data_permissions_read_and_read_edit():
     assert edited.json()["updated_time"]
 
 
+def test_material_submission_detail_exposes_operation_history():
+    admin_headers, user_headers = _admin_hdr(), _user_hdr()
+    created = client.post("/admin/material-submissions", json={
+        "team_name": "历史记录组",
+        "drama_name": "操作记录短剧",
+        "title_name": "初始标题",
+        "oss_key": "submissions/history.mp4",
+    }, headers=user_headers)
+    assert created.status_code == 200
+    submission_id = created.json()["id"]
+
+    updated = client.put(f"/admin/material-submissions/{submission_id}/process", json={
+        "revision_comment": "请修改封面",
+        "can_upload_status": 2,
+        "publish_status": 2,
+        "platform_reject_reason": "封面不合规",
+    }, headers=admin_headers)
+    assert updated.status_code == 200
+
+    history = client.get(
+        f"/admin/material-submissions/{submission_id}/operations", headers=user_headers,
+    )
+    assert history.status_code == 200
+    operations = history.json()["operations"]
+    assert [item["action"] for item in operations] == ["process", "create"]
+    assert operations[0]["operator_name"] == "admin"
+    assert operations[1]["operator_name"] == "demo"
+    changes = {item["field"]: item for item in operations[0]["changes"]}
+    assert changes["can_upload_status"] == {
+        "field": "can_upload_status", "before": None, "after": 2,
+    }
+    assert changes["platform_reject_reason"]["after"] == "封面不合规"
+
+
 def test_admin_can_batch_bind_submission_permissions():
     ah, uh = _admin_hdr(), _user_hdr()
     created_user = client.post("/admin/users", json={

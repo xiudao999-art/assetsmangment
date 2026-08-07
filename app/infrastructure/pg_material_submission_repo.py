@@ -25,6 +25,7 @@ class PgMaterialSubmissionRepo:
         self._dsn = dsn
         self._table = table
         self._permission_table = f"{table}_permission"
+        self._operation_table = f"{table}_operation"
         self._idgen = idgen or next_id
         self._init_schema()
 
@@ -158,6 +159,20 @@ class PgMaterialSubmissionRepo:
                     SET permission_type = 'read_edit', update_time = now()
             """)
             c.execute(f"DELETE FROM {p} WHERE user_id = 'admin'")
+            o = self._operation_table
+            c.execute(f"""
+                CREATE TABLE IF NOT EXISTS {o} (
+                    id             BIGINT PRIMARY KEY,
+                    submission_id  BIGINT NOT NULL REFERENCES {t}(id),
+                    action         TEXT NOT NULL,
+                    operator_id    TEXT NOT NULL DEFAULT '',
+                    changes        JSONB NOT NULL DEFAULT '[]'::jsonb,
+                    operation_time TIMESTAMPTZ NOT NULL DEFAULT now()
+                )""")
+            c.execute(
+                f"CREATE INDEX IF NOT EXISTS idx_{o}_submission_time "
+                f"ON {o} (submission_id, operation_time DESC, id DESC)"
+            )
 
     def add(self, submission: MaterialSubmission, by: str = "") -> None:
         try:
@@ -228,6 +243,39 @@ class PgMaterialSubmissionRepo:
                 (self._idgen(), by, sid),
             )
             c.execute(f"DELETE FROM {self._permission_table} WHERE submission_id = %s", (sid,))
+
+    def record_operation(self, submission_id: str, action: str, by: str,
+                         changes: list[dict]) -> None:
+        try:
+            sid = int(submission_id)
+        except (TypeError, ValueError):
+            return
+        with self._conn() as c:
+            c.execute(
+                f"INSERT INTO {self._operation_table} "
+                "(id, submission_id, action, operator_id, changes) VALUES (%s, %s, %s, %s, %s)",
+                (self._idgen(), sid, action, by, Jsonb(changes)),
+            )
+
+    def list_operations(self, submission_id: str) -> list[dict]:
+        try:
+            sid = int(submission_id)
+        except (TypeError, ValueError):
+            return []
+        with self._conn() as c:
+            rows = c.execute(
+                f"SELECT id, action, operator_id, changes, operation_time "
+                f"FROM {self._operation_table} WHERE submission_id = %s "
+                "ORDER BY operation_time DESC, id DESC",
+                (sid,),
+            ).fetchall()
+        return [{
+            "id": str(row[0]),
+            "action": row[1] or "update",
+            "operator_id": row[2] or "",
+            "changes": row[3] or [],
+            "operation_time": row[4].isoformat() if row[4] else "",
+        } for row in rows]
 
     def permission_of(self, submission_id: str, user_id: str) -> str:
         try:

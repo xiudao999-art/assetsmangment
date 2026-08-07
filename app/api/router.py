@@ -241,6 +241,29 @@ def _submission_out(s: MaterialSubmission, user: dict | None = None) -> dict:
     }
 
 
+_SUBMISSION_OPERATION_FIELDS = (
+    "team_name", "delivery_time", "drama_name", "oss_key", "video_file_name",
+    "title_name", "episode_range", "revision_comment", "can_upload_status",
+    "designated_upload_account_name", "upload_account_name", "upload_date",
+    "publish_status", "platform_reject_reason", "platform_reject_attachments",
+)
+
+
+def _submission_changes(before: MaterialSubmission, after: MaterialSubmission) -> list[dict]:
+    changes = []
+    for field in _SUBMISSION_OPERATION_FIELDS:
+        old_value = getattr(before, field, None)
+        new_value = getattr(after, field, None)
+        if old_value != new_value:
+            changes.append({"field": field, "before": old_value, "after": new_value})
+    return changes
+
+
+def _record_submission_operation(submission_id: str, action: str, user: dict,
+                                 changes: list[dict]) -> None:
+    deps.material_submission_repo.record_operation(submission_id, action, user.get("id", ""), changes)
+
+
 def _template_status(value: str) -> str:
     status = (value or "").strip().lower()
     if status not in ("active", "inactive"):
@@ -2184,6 +2207,24 @@ def get_material_submission_detail(submission_id: str, user: dict = Depends(_use
     return _submission_out(_require_submission_access(user, submission_id), user)
 
 
+@router.get("/admin/material-submissions/{submission_id}/operations")
+def get_material_submission_operations(submission_id: str, user: dict = Depends(_user)):
+    submission = _require_submission_access(user, submission_id)
+    operations = deps.material_submission_repo.list_operations(submission_id)
+    if not any(item.get("action") == "create" for item in operations):
+        operations.append({
+            "id": f"created-{submission.id}",
+            "action": "create",
+            "operator_id": submission.created_by,
+            "changes": [],
+            "operation_time": submission.created_time,
+        })
+    for item in operations:
+        item["operator_name"] = _owner_name(item.get("operator_id", ""))
+    operations.sort(key=lambda item: str(item.get("operation_time", "")), reverse=True)
+    return {"submission_id": submission_id, "operations": operations}
+
+
 @router.get("/admin/material-submissions/{submission_id}/permissions")
 def get_material_submission_permissions(submission_id: str, user: dict = Depends(_user)):
     _require_perm(user, "admin.grant")
@@ -2296,6 +2337,7 @@ def create_material_submission(body: schemas.MaterialSubmissionIn, user: dict = 
     _require_auth(user)
     s = _submission_in_to_model(body, sid=next_id_str(), by=user["id"])
     deps.material_submission_repo.add(s, by=user["id"])
+    _record_submission_operation(s.id, "create", user, [])
     if user.get("role") != "admin":
         deps.material_submission_repo.replace_permissions(s.id, {user["id"]: "read_edit"}, by=user["id"])
     return _submission_out(deps.material_submission_repo.get(s.id) or s, user)
@@ -2328,6 +2370,9 @@ def update_material_submission(submission_id: str, body: schemas.MaterialSubmiss
     elif "upload_date" not in fields_set:
         s.upload_date = cur.upload_date
     deps.material_submission_repo.add(s, by=user["id"])
+    changes = _submission_changes(cur, s)
+    if changes:
+        _record_submission_operation(s.id, "update", user, changes)
     return _submission_out(deps.material_submission_repo.get(s.id) or s, user)
 
 
@@ -2335,8 +2380,12 @@ def update_material_submission(submission_id: str, body: schemas.MaterialSubmiss
 def process_material_submission(submission_id: str, body: schemas.MaterialSubmissionProcessIn,
                                 user: dict = Depends(_user)):
     cur = _require_submission_access(user, submission_id, edit=True)
+    before = MaterialSubmission(**vars(cur))
     cur = _apply_submission_process_fields(cur, body)
     deps.material_submission_repo.add(cur, by=user["id"])
+    changes = _submission_changes(before, cur)
+    if changes:
+        _record_submission_operation(cur.id, "process", user, changes)
     return _submission_out(deps.material_submission_repo.get(cur.id) or cur, user)
 
 

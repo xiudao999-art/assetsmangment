@@ -434,6 +434,7 @@ class InMemoryMaterialSubmissionRepo:
     def __init__(self) -> None:
         self._items: dict[str, MaterialSubmission] = {}
         self._permissions: dict[tuple[str, str], str] = {}
+        self._operations: dict[str, list[dict]] = {}
 
     def add(self, submission: MaterialSubmission, by: str = "") -> None:
         now = str(int(time.time() * 1000))
@@ -449,6 +450,19 @@ class InMemoryMaterialSubmissionRepo:
     def delete(self, submission_id: str, by: str = "") -> None:
         self._items.pop(submission_id, None)
         self._permissions = {k: v for k, v in self._permissions.items() if k[0] != submission_id}
+
+    def record_operation(self, submission_id: str, action: str, by: str,
+                         changes: list[dict]) -> None:
+        self._operations.setdefault(submission_id, []).append({
+            "id": str(int(time.time() * 1000000)),
+            "action": action,
+            "operator_id": by,
+            "operation_time": str(int(time.time() * 1000)),
+            "changes": [dict(item) for item in changes],
+        })
+
+    def list_operations(self, submission_id: str) -> list[dict]:
+        return [dict(item) for item in reversed(self._operations.get(submission_id, []))]
 
     def permission_of(self, submission_id: str, user_id: str) -> str:
         return self._permissions.get((submission_id, user_id), "")
