@@ -241,6 +241,64 @@ def _submission_out(s: MaterialSubmission, user: dict | None = None) -> dict:
     }
 
 
+_SUBMISSION_OPERATION_FIELDS = (
+    "team_name", "delivery_time", "drama_name", "oss_key", "video_file_name",
+    "title_name", "episode_range", "revision_comment", "can_upload_status",
+    "designated_upload_account_name", "upload_account_name", "upload_date",
+    "publish_status", "platform_reject_reason", "platform_reject_attachments",
+)
+
+
+def _submission_changes(before: MaterialSubmission, after: MaterialSubmission) -> list[dict]:
+    changes = []
+    for field in _SUBMISSION_OPERATION_FIELDS:
+        old_value = getattr(before, field, None)
+        new_value = getattr(after, field, None)
+        if old_value != new_value:
+            changes.append({"field": field, "before": old_value, "after": new_value})
+    return changes
+
+
+def _record_submission_operation(submission_id: str, action: str, user: dict,
+                                 changes: list[dict]) -> None:
+    deps.material_submission_repo.record_operation(submission_id, action, user.get("id", ""), changes)
+
+
+def _submission_permission_changes(before: dict[str, str], after: dict[str, str]) -> list[dict]:
+    changes = []
+    for user_id in sorted(set(before) | set(after)):
+        old_value = before.get(user_id, "")
+        new_value = after.get(user_id, "")
+        if old_value == new_value:
+            continue
+        changes.append({
+            "field": "permission_type",
+            "user_id": user_id,
+            "user_name": _owner_name(user_id) or user_id,
+            "before": old_value,
+            "after": new_value,
+        })
+    return changes
+
+
+def _submission_operation_asset_keys(submission_id: str) -> set[str]:
+    keys: set[str] = set()
+    for operation in deps.material_submission_repo.list_operations(submission_id):
+        for change in operation.get("changes") or []:
+            field = change.get("field")
+            if field == "oss_key":
+                values = (change.get("before"), change.get("after"))
+            elif field == "platform_reject_attachments":
+                values = [
+                    key for side in (change.get("before"), change.get("after"))
+                    for key in (side if isinstance(side, list) else [])
+                ]
+            else:
+                continue
+            keys.update(str(value).strip() for value in values if str(value or "").strip())
+    return keys
+
+
 def _template_status(value: str) -> str:
     status = (value or "").strip().lower()
     if status not in ("active", "inactive"):
@@ -1735,6 +1793,7 @@ def admin_upload_signed_url(key: str = Query(...), dl: int = Query(0),
         else:
             submission = _require_submission_access(user, submission_id)
             allowed_keys = {submission.oss_key, *(submission.platform_reject_attachments or [])}
+            allowed_keys.update(_submission_operation_asset_keys(submission_id))
             if k not in allowed_keys:
                 raise HTTPException(403, "无权访问该文件")
     try:
@@ -1957,13 +2016,19 @@ def batch_set_material_submission_permissions(
         targets.append(account)
     for submission_id in submission_ids:
         submission = _require_submission_access(user, submission_id)
-        grants = deps.material_submission_repo.permissions_for(submission_id)
+        before = deps.material_submission_repo.permissions_for(submission_id)
+        grants = dict(before)
         for account in targets:
             grants[account.id] = permission_type
         owner = known_users.get(submission.created_by)
         if owner is not None and owner.role != "admin":
             grants[owner.id] = "read_edit"
         deps.material_submission_repo.replace_permissions(submission_id, grants, by=user["id"])
+        changes = _submission_permission_changes(
+            before, deps.material_submission_repo.permissions_for(submission_id),
+        )
+        if changes:
+            _record_submission_operation(submission_id, "permission", user, changes)
     return {
         "submission_count": len(submission_ids),
         "user_count": len(targets),
@@ -2158,9 +2223,23 @@ def set_material_submission_user_permissions(
     if missing_ids:
         raise HTTPException(400, f"素材提报不存在: {missing_ids[0]}")
 
+    before = deps.material_submission_repo.permissions_for_user(account.id)
     changed_count = deps.material_submission_repo.replace_user_permissions(
         account.id, desired, by=user["id"]
     )
+    after = deps.material_submission_repo.permissions_for_user(account.id)
+    for submission in submissions:
+        old_value = before.get(submission.id, "")
+        new_value = after.get(submission.id, "")
+        if old_value == new_value:
+            continue
+        _record_submission_operation(submission.id, "permission", user, [{
+            "field": "permission_type",
+            "user_id": account.id,
+            "user_name": account.name,
+            "before": old_value,
+            "after": new_value,
+        }])
     effective = dict(desired)
     for submission in submissions:
         if submission.created_by == account.id:
@@ -2182,6 +2261,24 @@ def set_material_submission_user_permissions(
 @router.get("/admin/material-submissions/{submission_id}")
 def get_material_submission_detail(submission_id: str, user: dict = Depends(_user)):
     return _submission_out(_require_submission_access(user, submission_id), user)
+
+
+@router.get("/admin/material-submissions/{submission_id}/operations")
+def get_material_submission_operations(submission_id: str, user: dict = Depends(_user)):
+    submission = _require_submission_access(user, submission_id)
+    operations = deps.material_submission_repo.list_operations(submission_id)
+    if not any(item.get("action") == "create" for item in operations):
+        operations.append({
+            "id": f"created-{submission.id}",
+            "action": "create",
+            "operator_id": submission.created_by,
+            "changes": [],
+            "operation_time": submission.created_time,
+        })
+    for item in operations:
+        item["operator_name"] = _owner_name(item.get("operator_id", ""))
+    operations.sort(key=lambda item: str(item.get("operation_time", "")), reverse=True)
+    return {"submission_id": submission_id, "operations": operations}
 
 
 @router.get("/admin/material-submissions/{submission_id}/permissions")
@@ -2206,6 +2303,7 @@ def set_material_submission_permissions(submission_id: str, body: schemas.Materi
                                         user: dict = Depends(_user)):
     _require_perm(user, "admin.grant")
     submission = _require_submission_access(user, submission_id)
+    before = deps.material_submission_repo.permissions_for(submission_id)
     known_users = {account.id: account for account in deps.user_repo.list()}
     grants: dict[str, str] = {}
     for grant in body.grants:
@@ -2222,6 +2320,11 @@ def set_material_submission_permissions(submission_id: str, body: schemas.Materi
     if owner is not None and owner.role != "admin":
         grants[submission.created_by] = "read_edit"
     deps.material_submission_repo.replace_permissions(submission_id, grants, by=user["id"])
+    changes = _submission_permission_changes(
+        before, deps.material_submission_repo.permissions_for(submission_id),
+    )
+    if changes:
+        _record_submission_operation(submission_id, "permission", user, changes)
     return get_material_submission_permissions(submission_id, user)
 
 def _submission_in_to_model(body: schemas.MaterialSubmissionIn, *, sid: str, by: str) -> MaterialSubmission:
@@ -2296,6 +2399,7 @@ def create_material_submission(body: schemas.MaterialSubmissionIn, user: dict = 
     _require_auth(user)
     s = _submission_in_to_model(body, sid=next_id_str(), by=user["id"])
     deps.material_submission_repo.add(s, by=user["id"])
+    _record_submission_operation(s.id, "create", user, [])
     if user.get("role") != "admin":
         deps.material_submission_repo.replace_permissions(s.id, {user["id"]: "read_edit"}, by=user["id"])
     return _submission_out(deps.material_submission_repo.get(s.id) or s, user)
@@ -2328,6 +2432,9 @@ def update_material_submission(submission_id: str, body: schemas.MaterialSubmiss
     elif "upload_date" not in fields_set:
         s.upload_date = cur.upload_date
     deps.material_submission_repo.add(s, by=user["id"])
+    changes = _submission_changes(cur, s)
+    if changes:
+        _record_submission_operation(s.id, "update", user, changes)
     return _submission_out(deps.material_submission_repo.get(s.id) or s, user)
 
 
@@ -2335,8 +2442,12 @@ def update_material_submission(submission_id: str, body: schemas.MaterialSubmiss
 def process_material_submission(submission_id: str, body: schemas.MaterialSubmissionProcessIn,
                                 user: dict = Depends(_user)):
     cur = _require_submission_access(user, submission_id, edit=True)
+    before = MaterialSubmission(**vars(cur))
     cur = _apply_submission_process_fields(cur, body)
     deps.material_submission_repo.add(cur, by=user["id"])
+    changes = _submission_changes(before, cur)
+    if changes:
+        _record_submission_operation(cur.id, "process", user, changes)
     return _submission_out(deps.material_submission_repo.get(cur.id) or cur, user)
 
 

@@ -176,3 +176,21 @@ def ensure_submission_tables(
         )
         c.execute(f"DELETE FROM {permission_table} WHERE user_id = 'admin'")
         c.execute(f"COMMENT ON TABLE {permission_table} IS '素材提报数据权限关联表。read=阅读，read_edit=阅读并编辑。'")
+        operation_table = f"{submission_table}_operation"
+        c.execute(
+            f"""
+            CREATE TABLE IF NOT EXISTS {operation_table} (
+                id             BIGINT PRIMARY KEY,
+                submission_id  BIGINT NOT NULL REFERENCES {submission_table}(id),
+                action         TEXT NOT NULL,
+                operator_id    TEXT NOT NULL DEFAULT '',
+                changes        JSONB NOT NULL DEFAULT '[]'::jsonb,
+                operation_time TIMESTAMPTZ NOT NULL DEFAULT now()
+            )
+            """
+        )
+        c.execute(
+            f"CREATE INDEX IF NOT EXISTS idx_{operation_table}_submission_time "
+            f"ON {operation_table} (submission_id, operation_time DESC, id DESC)"
+        )
+        c.execute(f"COMMENT ON TABLE {operation_table} IS '素材提报操作记录。保存创建和每次编辑的字段变化。'")
