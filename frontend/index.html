@@ -174,6 +174,17 @@
   .gmhd{display:flex;justify-content:space-between;align-items:center;padding:18px 20px;border-bottom:1px solid var(--line)}
   .gmbody{padding:16px 20px;overflow:auto}
   .gmfoot{display:flex;justify-content:flex-end;gap:10px;padding:14px 20px;border-top:1px solid var(--line)}
+  #confirm-scrim{z-index:100;background:rgba(35,25,22,.46);backdrop-filter:blur(3px)}
+  .confirm-modal{z-index:101;width:min(430px,calc(100vw - 32px));overflow:hidden;border-radius:18px;box-shadow:0 28px 80px rgba(45,20,15,.24),0 2px 8px rgba(45,20,15,.08)}
+  .confirm-modal .confirm-body{display:flex;gap:15px;padding:22px 22px 18px}
+  .confirm-icon{width:42px;height:42px;flex:none;display:flex;align-items:center;justify-content:center;border-radius:13px;background:color-mix(in oklab,var(--block) 10%,var(--panel));border:1px solid color-mix(in oklab,var(--block) 22%,var(--line));color:var(--block)}
+  .confirm-icon svg{width:21px;height:21px;fill:none;stroke:currentColor;stroke-width:2;stroke-linecap:round;stroke-linejoin:round}
+  .confirm-copy{min-width:0;padding-top:1px}.confirm-copy h3{margin:0 0 8px;font:650 18px/1.3 "Fraunces",Inter;color:var(--ink)}
+  .confirm-copy p{margin:0;color:var(--dim);font-size:13px;line-height:1.65;white-space:pre-line}
+  .confirm-modal .gmfoot{padding:14px 22px 18px;border-top:0;background:color-mix(in oklab,var(--raise) 55%,var(--panel))}
+  .confirm-modal .gmfoot .btn{min-width:86px;justify-content:center}
+  .confirm-modal .confirm-danger{background:var(--block);border-color:var(--block);color:#fff;box-shadow:0 8px 18px color-mix(in oklab,var(--block) 20%,transparent)}
+  .confirm-modal .confirm-danger:hover{filter:brightness(.96);transform:translateY(-1px)}
   .permrow{display:flex;gap:11px;align-items:flex-start;padding:11px 12px;border:1px solid var(--line);border-radius:10px;margin-bottom:8px;cursor:pointer}
   .permrow:hover{border-color:var(--line-2)}.permrow input{width:auto;margin:2px 0 0;accent-color:var(--mint)}
   .permrow .pl{font-weight:600;font-size:13px}.permrow .pd{color:var(--dim);font-size:12px;margin-top:3px;line-height:1.4}
@@ -318,10 +329,20 @@
   .sb-table.sb-submission-table .cell-title .sb-title-link{max-height:4.65em;-webkit-line-clamp:3}
   .sb-table{width:100%;min-width:0;table-layout:fixed;border-collapse:separate;border-spacing:0}
   .sb-table th,.sb-table td{padding:10px 8px;border-bottom:1px solid var(--line);vertical-align:top;text-align:left;font-size:12.5px;background:transparent}
-  .sb-table th{position:sticky;top:0;background:var(--bg);z-index:1;font:600 12px Inter;color:var(--dim);white-space:nowrap}
+  .sb-table th{position:sticky;top:0;background:var(--bg);z-index:1;vertical-align:middle;font:600 12px Inter;color:var(--dim);white-space:nowrap}
   .sb-table th.head-content{background:#faf8f6;color:#625650;border-bottom-color:#e7dfda;box-shadow:inset 0 3px #cbbcb3}
   .sb-table th.head-workflow{background:#f6f9f8;color:#526763;border-bottom-color:#dce6e3;box-shadow:inset 0 3px #a9beb9}
   .sb-table th.head-audit{background:#f8f7fb;color:#625d73;border-bottom-color:#e4e1ec;box-shadow:inset 0 3px #b8b1c8}
+  .sb-sort-head{display:inline-flex;align-items:center;gap:7px}
+  .sb-sort-btn{display:inline-flex;width:14px;height:22px;flex-direction:column;align-items:center;justify-content:center;gap:2px;padding:0;border:0;background:transparent;cursor:pointer}
+  .sb-sort-btn:focus-visible{border-radius:4px;outline:2px solid color-mix(in oklab,var(--mint) 35%,transparent);outline-offset:2px}
+  .sb-sort-arrow{display:block;width:0;height:0;border-right:5px solid transparent;border-left:5px solid transparent;transition:border-color .15s ease}
+  .sb-sort-arrow.up{border-bottom:7px solid #b9c2ca}
+  .sb-sort-arrow.down{border-top:7px solid #b9c2ca}
+  .sb-sort-btn:hover .sb-sort-arrow.up{border-bottom-color:#87949d}
+  .sb-sort-btn:hover .sb-sort-arrow.down{border-top-color:#87949d}
+  .sb-sort-btn.asc .sb-sort-arrow.up{border-bottom-color:var(--mint)}
+  .sb-sort-btn.desc .sb-sort-arrow.down{border-top-color:var(--mint)}
   .sb-table td{color:var(--ink)}
   .sb-table tr:hover td{background:color-mix(in oklab,var(--raise) 55%,transparent)}
   .sb-table .cell-main{width:7%}
@@ -534,7 +555,7 @@
         <div class="row" style="align-items:flex-end;flex-wrap:wrap;gap:12px;margin-bottom:18px">
           <div class="field f-grow" style="margin:0"><label>关键词</label><input id="req-q" placeholder="搜索需求描述或回复" onkeydown="if(event.key==='Enter')applyRequirementFilters()"></div>
           <div class="field f-fixed" style="margin:0"><label>紧急程度</label><select id="req-urgency"><option value="">全部</option><option value="low">低</option><option value="medium">中</option><option value="high">高</option></select></div>
-          <div class="field f-fixed" style="margin:0"><label>状态</label><select id="req-status"><option value="">全部</option><option value="not_started">未开始</option><option value="in_progress">进行中</option><option value="pending_acceptance">待验收</option><option value="completed">已完成</option><option value="acceptance_failed">验收失败</option></select></div>
+          <div class="field f-fixed" style="margin:0"><label>状态</label><select id="req-status"><option value="">全部</option><option value="not_started">未开始</option><option value="pending_reply">待回复</option><option value="in_progress">进行中</option><option value="pending_acceptance">待验收</option><option value="completed">已完成</option><option value="acceptance_failed">验收失败</option></select></div>
           <button class="btn key f-auto" onclick="applyRequirementFilters()">查询</button><button class="btn f-auto" onclick="resetRequirementFilters()">重置</button>
         </div>
         <div id="req-list"></div><div class="pager" id="req-pager"></div>
@@ -688,6 +709,14 @@
   <div class="gmbody" id="pv-body" style="padding:0"></div>
   <div class="gmfoot" id="pv-foot"></div>
 </div>
+<div class="scrim" id="confirm-scrim" onclick="closeAppConfirm(false)"></div>
+<div class="gmodal confirm-modal" id="confirm-modal" role="alertdialog" aria-modal="true" aria-labelledby="confirm-title" aria-describedby="confirm-message">
+  <div class="confirm-body">
+    <div class="confirm-icon" aria-hidden="true"><svg viewBox="0 0 24 24"><path d="M12 8v5M12 17h.01"/><path d="M10.3 3.8 2.4 18a2 2 0 0 0 1.8 3h15.6a2 2 0 0 0 1.8-3L13.7 3.8a2 2 0 0 0-3.4 0Z"/></svg></div>
+    <div class="confirm-copy"><h3 id="confirm-title">确认操作</h3><p id="confirm-message"></p></div>
+  </div>
+  <div class="gmfoot"><button class="btn" id="confirm-cancel" onclick="closeAppConfirm(false)">取消</button><button class="btn confirm-danger" id="confirm-submit" onclick="closeAppConfirm(true)">确认</button></div>
+</div>
 <div class="toasts" id="toasts"></div>
 
 <script>
@@ -695,6 +724,24 @@ const $=s=>document.querySelector(s),$$=s=>document.querySelectorAll(s);
 let ME=JSON.parse(localStorage.getItem('me')||'null');
 const H=()=>ME?{'Authorization':'Bearer '+ME.token}:{};
 let expiring=false;
+let APP_CONFIRM_RESOLVE=null,APP_CONFIRM_FOCUS=null;
+function appConfirm(message,{title='确认操作',confirmText='确认',danger=true}={}){
+  if(APP_CONFIRM_RESOLVE)closeAppConfirm(false);
+  APP_CONFIRM_FOCUS=document.activeElement;
+  $('#confirm-title').textContent=title;$('#confirm-message').textContent=message;
+  const submit=$('#confirm-submit');submit.textContent=confirmText;submit.classList.toggle('confirm-danger',danger);submit.classList.toggle('key',!danger);
+  $('#confirm-scrim').classList.add('on');$('#confirm-modal').classList.add('on');
+  setTimeout(()=>$('#confirm-cancel').focus(),0);
+  return new Promise(resolve=>{APP_CONFIRM_RESOLVE=resolve});
+}
+function closeAppConfirm(result=false){
+  if(!APP_CONFIRM_RESOLVE)return;
+  const resolve=APP_CONFIRM_RESOLVE;APP_CONFIRM_RESOLVE=null;
+  $('#confirm-scrim').classList.remove('on');$('#confirm-modal').classList.remove('on');
+  const focus=APP_CONFIRM_FOCUS;APP_CONFIRM_FOCUS=null;if(focus&&document.contains(focus))focus.focus();
+  resolve(Boolean(result));
+}
+document.addEventListener('keydown',event=>{if(event.key==='Escape'&&APP_CONFIRM_RESOLVE){event.preventDefault();closeAppConfirm(false)}});
 function sessionExpired(){if(expiring)return;expiring=true;localStorage.removeItem('me');ME=null;toast('登录已过期,请重新登录',true);setTimeout(()=>location.reload(),900)}
 const api=async(m,p,b,isForm)=>{const o={method:m,headers:{...H()}};if(b){if(isForm){o.body=b}else{o.headers['Content-Type']='application/json';o.body=JSON.stringify(b)}}
   let r,d={};try{r=await fetch(p,o)}catch(e){return{ok:false,status:0,data:{}}}
@@ -733,8 +780,8 @@ async function submitAuth(){const name=$('#g-name').value.trim(),password=$('#g-
   const r=await api('POST','/users/login',{name,password});
   if(!r.ok){$('#g-msg').textContent='用户名或密码错误';return}
   ME={...r.data.user,token:r.data.token};localStorage.setItem('me',JSON.stringify(ME));boot()}
-function logout(){
-  if(!ME||!confirm('确认退出登录吗？'))return;
+async function logout(){
+  if(!ME||!await appConfirm('退出后需要重新登录才能继续使用。',{title:'确认退出登录？',confirmText:'退出登录'}))return;
   localStorage.removeItem('me');ME=null;location.hash='';location.reload();
 }
 
@@ -824,7 +871,7 @@ const V={mine:{page:1,size:PAGE_SIZE,total:0,type:'',q:'',project:''},
   users:{page:1,size:20,total:0,q:''},
   roles:{page:1,size:20,total:0,q:''},
   requirements:{page:1,size:20,total:0,q:'',urgency:'',status:''},
-  submissions:{page:1,size:20,total:0,drama_name:'',title_name:'',can_upload_status:'',designated_upload_account_name:'',upload_account_name:'',created_by:'',publish_status:''},
+  submissions:{page:1,size:10,total:0,drama_name:'',title_name:'',can_upload_status:'',designated_upload_account_name:'',upload_account_name:'',created_by:'',publish_status:'',sort_by:'created_time',sort_order:'desc'},
   submissionAccess:{page:1,size:20,total:0,drama_name:'',title_name:'',can_upload_status:'',designated_upload_account_name:'',upload_account_name:'',created_by:'',publish_status:''}};
 function setCnt(sec,n){const e=$('#cnt-'+sec);if(e)e.textContent=n}
 const debounce=(fn,ms=300)=>{let t;return(...a)=>{clearTimeout(t);t=setTimeout(()=>fn(...a),ms)}};
@@ -1413,7 +1460,7 @@ async function startTrainingRun(){
   await loadTrainingData()}
 async function deleteTrainingSetCurrent(id){
   if(!id)return;
-  if(!confirm('删除训练集会级联删除该项目全部训练样本,确认继续?'))return;
+  if(!await appConfirm('删除训练集会同时删除该项目下的全部训练样本，且无法恢复。',{title:'删除训练集？',confirmText:'确认删除'}))return;
   const r=await api('DELETE','/training/sets/'+id);
   if(r.ok){toast('训练集已删除');clearTrainingForm();loadTrainingData()}else toast(r.data.detail||'删除失败',true)}
 async function loadRules(){await ensureProjects('#ru-project',true);fillCondPresets();   // 作用域下拉 + 条件预设
@@ -1795,6 +1842,8 @@ function submissionFileExtension(key){
 function submissionFileIsImage(ext){return /^(jpg|jpeg|png|gif|webp|svg|bmp|ico)$/i.test(ext)}
 function submissionFileIsVideo(ext){return /^(mp4|mov|avi|mkv|webm|flv|wmv|m4v)$/i.test(ext)}
 async function getSubmissionFileUrl(key,dl=0,submissionId=''){
+  const row=submissionId?MATERIAL_SUBMISSION_ROWS[submissionId]:null;
+  if(!dl&&row&&row.oss_key===key&&row.video_url) return row.video_url;
   const params={key,dl:String(dl)};
   if(submissionId) params.submission_id=submissionId;
   const r=await api('GET','/admin/uploads/url?'+new URLSearchParams(params));
@@ -1840,10 +1889,10 @@ function closeSubmissionPreview(){
 async function lazyLoadSubmissionPreviews(){
   const thumbs=$$('.sb-thumb:not(.loaded)');
   for(const el of thumbs){
-    const key=el.dataset.key, kind=el.dataset.kind, submissionId=el.dataset.detailId||'';
+    const key=el.dataset.key, kind=el.dataset.kind, submissionId=el.dataset.detailId||'',directUrl=el.dataset.url||'';
     if(!key) continue;
     el.classList.add('loaded');
-    const url=await getSubmissionFileUrl(key,0,submissionId);
+    const url=directUrl||await getSubmissionFileUrl(key,0,submissionId);
     if(!url) continue;
     if(kind==='video'){
       el.innerHTML=`<video src="${esc(url)}" muted preload="metadata"></video>`;
@@ -1989,7 +2038,7 @@ function renderSubmissionTableCell(kind,s){
     const ext=submissionFileExtension(oss);
     const canPreview=submissionFileIsImage(ext)||submissionFileIsVideo(ext);
     if(!canPreview) return `<button class="sb-title-link" type="button" onclick="openMaterialSubmissionDetail('${s.id}')">${esc(submissionUploadedFileName(oss))}</button>`;
-    return `<div class="sb-thumb" data-key="${esc(oss)}" data-kind="${submissionFileIsVideo(ext)?'video':'image'}" data-detail-id="${s.id}" title="查看提报详情" style="width:110px;max-width:100%;height:62px;box-sizing:border-box;border-radius:7px;overflow:hidden;background:var(--raise);border:1px solid var(--line);display:flex;align-items:center;justify-content:center;color:var(--dim);font-size:12px;cursor:pointer">▶</div>`;
+    return `<div class="sb-thumb" data-key="${esc(oss)}" data-url="${esc(s.video_url||'')}" data-kind="${submissionFileIsVideo(ext)?'video':'image'}" data-detail-id="${s.id}" title="查看提报详情" style="width:110px;max-width:100%;height:62px;box-sizing:border-box;border-radius:7px;overflow:hidden;background:var(--raise);border:1px solid var(--line);display:flex;align-items:center;justify-content:center;color:var(--dim);font-size:12px;cursor:pointer">▶</div>`;
   }
   if(kind==='video_file_name') return submissionValueHtml(s.video_file_name);
   if(kind==='status_upload') return submissionStatusChip('upload',s.can_upload_status);
@@ -2067,7 +2116,7 @@ async function openMaterialSubmissionDetail(id,returnToBatch=false){
   if(!r.ok){$('#d-body').innerHTML='<div class="empty"><b class="disp">加载失败</b>请稍后重试。</div>';toast(r.data.detail||'加载提报失败',true);return}
   const x=r.data||{};
   const [mediaUrl,operationResult]=await Promise.all([
-    x.oss_key?getSubmissionFileUrl(x.oss_key,0,x.id||id):Promise.resolve(''),
+    x.oss_key?Promise.resolve(x.video_url||getSubmissionFileUrl(x.oss_key,0,x.id||id)):Promise.resolve(''),
     api('GET',`/admin/material-submissions/${x.id||id}/operations`)
   ]);
   const operations=operationResult.ok?(operationResult.data.operations||[]):[];
@@ -2305,7 +2354,20 @@ function submissionQuery(v){const qs=new URLSearchParams({page:v.page,size:v.siz
   if(v.upload_account_name)qs.set('upload_account_name',v.upload_account_name);
   if(v.created_by)qs.set('created_by',v.created_by);
   if(v.publish_status!=='')qs.set('publish_status',v.publish_status);
+  if(v.sort_by){qs.set('sort_by',v.sort_by);qs.set('sort_order',v.sort_order)}
   return qs.toString()}
+function submissionSortHead(key,label){
+  const v=V.submissions,active=v.sort_by===key,order=active?v.sort_order:'';
+  const hint=order==='asc'?'升序，点击切换为降序':order==='desc'?'降序，点击取消排序':`按${label}排序`;
+  return `<span class="sb-sort-head"><span>${label}</span><button type="button" class="sb-sort-btn ${order}" title="${hint}" aria-label="${hint}" aria-pressed="${active?'true':'false'}" onclick="toggleSubmissionSort('${key}')"><span class="sb-sort-arrow up"></span><span class="sb-sort-arrow down"></span></button></span>`;
+}
+function toggleSubmissionSort(key){
+  const v=V.submissions;
+  if(v.sort_by!==key){v.sort_by=key;v.sort_order='asc'}
+  else if(v.sort_order==='asc')v.sort_order='desc';
+  else{v.sort_by='';v.sort_order=''}
+  v.page=1;loadMaterialSubmissions();
+}
 async function loadMaterialSubmissions(){
   const v=V.submissions;showSkeleton('#sb-list',v.size);
   refreshSubmissionCreatorOptions();
@@ -2328,7 +2390,7 @@ async function loadMaterialSubmissions(){
     ['created_by_name','创建账号','cell-balanced head-audit'],
     ['created_time','创建时间','cell-balanced head-audit'],
   ];
-  $('#sb-list').innerHTML=rows.length?`<div class="sb-table-wrap sb-submission-table-wrap"><table class="sb-table sb-submission-table"><thead><tr>${cols.map(([,label,cls])=>`<th class="${cls}">${label}</th>`).join('')}<th class="cell-actions">操作</th></tr></thead><tbody>${rows.map(s=>`<tr>${cols.map(([key,,cls])=>`<td class="${cls}">${renderSubmissionTableCell(key,s)}</td>`).join('')}<td class="cell-actions"><div class="sb-row-actions"><button class="btn key sb-icon-btn" title="详情" aria-label="详情" onclick="openMaterialSubmissionDetail('${s.id}')">ⓘ</button><button class="btn key sb-icon-btn" title="下载" aria-label="下载" data-key="${encodeURIComponent(s.oss_key||'')}" onclick="downloadMaterialSubmissionFile(decodeURIComponent(this.dataset.key),'${s.id}')">↓</button>${s.can_edit?`<button class="btn key sb-icon-btn" title="编辑" aria-label="编辑" onclick="openMaterialSubmissionEdit('${s.id}')">✎</button><button class="btn block sb-icon-btn" title="删除" aria-label="删除" onclick="deleteMaterialSubmissions(['${s.id}'])">×</button>`:''}</div></td></tr>`).join('')}</tbody></table></div>`:'<div class="empty"><b class="disp">还没有素材提报</b>点右上角“新建”创建一条提报记录。</div>';
+  $('#sb-list').innerHTML=rows.length?`<div class="sb-table-wrap sb-submission-table-wrap"><table class="sb-table sb-submission-table"><thead><tr>${cols.map(([key,label,cls])=>`<th class="${cls}">${key==='upload_date'||key==='created_time'?submissionSortHead(key,label):label}</th>`).join('')}<th class="cell-actions">操作</th></tr></thead><tbody>${rows.map(s=>`<tr>${cols.map(([key,,cls])=>`<td class="${cls}">${renderSubmissionTableCell(key,s)}</td>`).join('')}<td class="cell-actions"><div class="sb-row-actions"><button class="btn key sb-icon-btn" title="详情" aria-label="详情" onclick="openMaterialSubmissionDetail('${s.id}')">ⓘ</button><button class="btn key sb-icon-btn" title="下载" aria-label="下载" data-key="${encodeURIComponent(s.oss_key||'')}" onclick="downloadMaterialSubmissionFile(decodeURIComponent(this.dataset.key),'${s.id}')">↓</button>${s.can_edit?`<button class="btn key sb-icon-btn" title="编辑" aria-label="编辑" onclick="openMaterialSubmissionEdit('${s.id}')">✎</button><button class="btn block sb-icon-btn" title="删除" aria-label="删除" onclick="deleteMaterialSubmissions(['${s.id}'])">×</button>`:''}</div></td></tr>`).join('')}</tbody></table></div>`:'<div class="empty"><b class="disp">还没有素材提报</b>点右上角“新建”创建一条提报记录。</div>';
   renderPager('#sb-pager','submissions');
   lazyLoadSubmissionPreviews();
 }
@@ -2381,10 +2443,13 @@ async function saveMaterialSubmissionEdit(id){
 async function deleteMaterialSubmissions(ids){
   const picked=Array.isArray(ids)?ids.filter(Boolean):[];
   if(!picked.length){toast('缺少要删除的素材提报',true);return}
+  const message=picked.length===1?'该素材提报删除后将无法恢复。':`选中的 ${picked.length} 条素材提报删除后将无法恢复。`;
+  if(!await appConfirm(message,{title:picked.length===1?'删除素材提报？':`删除 ${picked.length} 条素材提报？`,confirmText:'确认删除'}))return;
   const r=await api('POST','/admin/material-submissions/batch/delete',{ids:picked});
   if(r.ok){toast(`已删除 ${picked.length} 条素材提报`);loadMaterialSubmissions()}
   else toast(r.data.detail||'删除失败',true)}
 async function deleteMaterialSubmissionFromDrawer(id){
+  if(!await appConfirm('该素材提报删除后将无法恢复。',{title:'删除素材提报？',confirmText:'确认删除'}))return;
   const r=await api('POST','/admin/material-submissions/batch/delete',{ids:[id]});
   if(r.ok){toast('已删除素材提报');closeDrawer();loadMaterialSubmissions()}
   else toast(r.data.detail||'删除失败',true)}
@@ -2593,10 +2658,10 @@ async function saveBatchSubmissionPermissions(){
 }
 /* ── 提新需求 ── */
 const REQ_URGENCY={low:'低',medium:'中',high:'高'};
-const REQ_STATUS={not_started:'未开始',in_progress:'进行中',pending_acceptance:'待验收',completed:'已完成',acceptance_failed:'验收失败'};
+const REQ_STATUS={not_started:'未开始',pending_reply:'待回复',in_progress:'进行中',pending_acceptance:'待验收',completed:'已完成',acceptance_failed:'验收失败'};
 function requirementChip(kind,value){
   const text=(kind==='urgency'?REQ_URGENCY:REQ_STATUS)[value]||value||'—';
-  const cls=kind==='urgency'?(value==='high'?'block':value==='medium'?'review':'pass'):(value==='completed'?'pass':value==='acceptance_failed'?'block':value==='in_progress'?'review':'');
+  const cls=kind==='urgency'?(value==='high'?'block':value==='medium'?'review':'pass'):(value==='completed'?'pass':value==='acceptance_failed'?'block':value==='in_progress'||value==='pending_reply'?'review':'');
   return `<span class="stamp ${cls}">${esc(text)}</span>`;
 }
 function requirementAttachmentKeys(){return String($('#req-edit-attachments')?.value||'').split(/\r?\n/).map(x=>x.trim()).filter(Boolean)}
@@ -2671,7 +2736,7 @@ function requirementEditForm(item={}){
   return `<input type="hidden" id="req-edit-id" value="${esc(x.id||'')}"><textarea id="req-edit-attachments" hidden>${esc(keys.join('\n'))}</textarea>
     <div class="field"><label>需求描述</label><textarea id="req-description" rows="7" placeholder="请描述背景、期望效果和验收标准">${esc(x.description||'')}</textarea></div>
     <div class="field"><label>紧急程度</label><select id="req-edit-urgency"><option value="low" ${x.urgency==='low'?'selected':''}>低</option><option value="medium" ${!x.urgency||x.urgency==='medium'?'selected':''}>中</option><option value="high" ${x.urgency==='high'?'selected':''}>高</option></select></div>
-    ${isNew?'':`<div class="field"><label>状态</label><select id="req-edit-status"><option value="not_started" ${!x.status||x.status==='not_started'?'selected':''}>未开始</option><option value="in_progress" ${x.status==='in_progress'?'selected':''}>进行中</option><option value="pending_acceptance" ${x.status==='pending_acceptance'?'selected':''}>待验收</option><option value="completed" ${x.status==='completed'?'selected':''}>已完成</option><option value="acceptance_failed" ${x.status==='acceptance_failed'?'selected':''}>验收失败</option></select></div>
+    ${isNew?'':`<div class="field"><label>状态</label><select id="req-edit-status"><option value="not_started" ${!x.status||x.status==='not_started'?'selected':''}>未开始</option><option value="pending_reply" ${x.status==='pending_reply'?'selected':''}>待回复</option><option value="in_progress" ${x.status==='in_progress'?'selected':''}>进行中</option><option value="pending_acceptance" ${x.status==='pending_acceptance'?'selected':''}>待验收</option><option value="completed" ${x.status==='completed'?'selected':''}>已完成</option><option value="acceptance_failed" ${x.status==='acceptance_failed'?'selected':''}>验收失败</option></select></div>
     <div class="field"><label>回复</label><textarea id="req-reply" rows="5" placeholder="处理进展或验收回复">${esc(x.reply||'')}</textarea></div>`}
     <div class="field"><label>附件</label><input id="req-files" type="file" multiple onchange="uploadRequirementAttachments()"><div id="req-upload-state" class="sb-upload-state" hidden></div><div id="req-attachment-list" style="margin-top:10px">${requirementAttachmentList(keys,true,x.id||'')}</div></div>
     <div style="display:flex;gap:10px;margin-top:18px"><button class="btn key" onclick="saveRequirement('${esc(x.id||'')}')">保存</button>${x.id?`<button class="btn block" onclick="deleteRequirement('${esc(x.id)}',true)">删除</button>`:''}</div>`;
