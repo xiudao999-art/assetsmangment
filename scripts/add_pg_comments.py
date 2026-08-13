@@ -149,7 +149,7 @@ COLUMN_COMMENTS = {
     "requirement": {
         "description": "需求内容描述。",
         "urgency": "紧急程度：low 为低，medium 为中，high 为高。",
-        "status": "处理状态：not_started 为未开始，in_progress 为处理中，pending_acceptance 为待验收，completed 为已完成，acceptance_failed 为验收未通过。",
+        "status": "处理状态：not_started 为未开始，pending_reply 为待回复，in_progress 为处理中，pending_acceptance 为待验收，completed 为已完成，acceptance_failed 为验收未通过。",
         "reply": "需求处理回复或结果说明。",
         "attachments": "需求附件列表，使用 JSONB 保存。",
     },

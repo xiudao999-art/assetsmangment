@@ -67,7 +67,7 @@ class PgRequirementRepo:
                     urgency TEXT NOT NULL DEFAULT 'medium'
                         CHECK (urgency IN ('low','medium','high')),
                     status TEXT NOT NULL DEFAULT 'not_started'
-                        CHECK (status IN ('not_started','in_progress','pending_acceptance','completed','acceptance_failed')),
+                        CHECK (status IN ('not_started','pending_reply','in_progress','pending_acceptance','completed','acceptance_failed')),
                     reply TEXT NOT NULL DEFAULT '',
                     attachments JSONB NOT NULL DEFAULT '[]'::jsonb,
                     del_flag BIGINT NOT NULL DEFAULT 0,
@@ -76,6 +76,25 @@ class PgRequirementRepo:
                     update_by TEXT NOT NULL DEFAULT '',
                     update_time TIMESTAMPTZ NOT NULL DEFAULT now()
                 )
+            """)
+            # Older deployments already have the generated requirement_status_check
+            # constraint, so CREATE TABLE IF NOT EXISTS cannot extend its allowed values.
+            c.execute("""
+                DO $$
+                BEGIN
+                    IF EXISTS (
+                        SELECT 1
+                          FROM pg_constraint
+                         WHERE conrelid = 'requirement'::regclass
+                           AND conname = 'requirement_status_check'
+                           AND pg_get_constraintdef(oid) NOT LIKE '%pending_reply%'
+                    ) THEN
+                        ALTER TABLE requirement DROP CONSTRAINT requirement_status_check;
+                        ALTER TABLE requirement ADD CONSTRAINT requirement_status_check
+                            CHECK (status IN ('not_started','pending_reply','in_progress','pending_acceptance','completed','acceptance_failed'));
+                    END IF;
+                END
+                $$
             """)
             c.execute("CREATE INDEX IF NOT EXISTS idx_requirement_live_time ON requirement (create_time DESC) WHERE del_flag=0")
             c.execute("CREATE INDEX IF NOT EXISTS idx_requirement_filter ON requirement (status, urgency) WHERE del_flag=0")

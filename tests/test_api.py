@@ -48,6 +48,20 @@ def test_requirement_crud_and_owner_permissions():
     assert detail.status_code == 200
     assert detail.json()["description"] == "希望增加批量导出功能"
 
+    pending_reply = client.put(f"/requirements/{rid}", headers=user_h, json={
+        "description": "希望增加批量导出功能",
+        "urgency": "medium",
+        "status": "pending_reply",
+        "reply": "",
+        "attachments": ["requirements/demo/spec.docx"],
+    })
+    assert pending_reply.status_code == 200
+    assert pending_reply.json()["status"] == "pending_reply"
+    pending_rows = client.get(
+        "/requirements?status=pending_reply", headers=user_h,
+    ).json()
+    assert pending_rows["total"] == 1 and pending_rows["requirements"][0]["id"] == rid
+
     updated = client.put(f"/requirements/{rid}", headers=user_h, json={
         "description": "希望增加批量导出功能",
         "urgency": "medium",
@@ -958,6 +972,7 @@ def test_material_submissions_crud_filter_and_batch_delete():
     assert s1.json()["updated_by_name"] == "admin"
     assert s1.json()["created_time"]
     assert s1.json()["updated_time"]
+    assert s1.json()["video_url"].startswith("https://oss.fake/")
 
     sid2 = client.post("/admin/material-submissions", json={
         "team_name": "二组团队QC",
@@ -986,11 +1001,37 @@ def test_material_submissions_crud_filter_and_batch_delete():
         "can_upload_status": 2,
         "designated_upload_account_name": "指定账号B-QC",
         "upload_account_name": "提报账号B-QC",
+        "upload_date": "2026-08-01",
         "publish_status": 2,
         "platform_reject_reason": "封面违规",
         "platform_reject_attachments": ["oss://reject/b1.png", "oss://reject/b2.png"]
     }, headers=ah)
     assert p2.status_code == 200
+
+    default_response = client.get("/admin/material-submissions", headers=ah).json()
+    default_order = default_response["submissions"]
+    assert default_response["size"] == 10
+    assert [item["id"] for item in default_order] == [sid2, sid1]
+    assert all(item["video_url"].startswith("https://oss.fake/") for item in default_order)
+    upload_asc = client.get(
+        "/admin/material-submissions?sort_by=upload_date&sort_order=asc", headers=ah,
+    ).json()["submissions"]
+    assert [item["id"] for item in upload_asc] == [sid2, sid1]
+    upload_desc = client.get(
+        "/admin/material-submissions?sort_by=upload_date&sort_order=desc", headers=ah,
+    ).json()["submissions"]
+    assert [item["id"] for item in upload_desc] == [sid1, sid2]
+    created_times = {item["id"]: item["created_time"] for item in default_order}
+    expected_created_desc = sorted(
+        [sid1, sid2], key=lambda sid: (created_times[sid], -int(sid)), reverse=True,
+    )
+    created_desc = client.get(
+        "/admin/material-submissions?sort_by=created_time&sort_order=desc", headers=ah,
+    ).json()["submissions"]
+    assert [item["id"] for item in created_desc] == expected_created_desc
+    assert client.get(
+        "/admin/material-submissions?sort_by=title_name&sort_order=asc", headers=ah,
+    ).status_code == 400
 
     fuzzy = client.get("/admin/material-submissions?team_name=一组&drama_name=一号&video_file_name=成片A&title_name=标题A",
                        headers=ah).json()
@@ -1319,6 +1360,14 @@ def test_admin_can_replace_permissions_for_one_submission_user():
     assert designated_page.status_code == 200
     assert designated_page.json()["total"] == 1
     assert designated_page.json()["submissions"][0]["id"] == managed_ids[1]
+
+    all_unselected = client.post(unselected_endpoint, json=unselected_query, headers=ah).json()
+    unselected_created_times = [item["created_time"] for item in all_unselected["submissions"]]
+    assert unselected_created_times == sorted(unselected_created_times, reverse=True)
+
+    selected_grants = client.get(endpoint, headers=ah).json()["grants"]
+    selected_created_times = [item["submission"]["created_time"] for item in selected_grants]
+    assert selected_created_times == sorted(selected_created_times, reverse=True)
     first_page = client.post(unselected_endpoint, json=unselected_query, headers=ah)
     assert first_page.status_code == 200
     assert first_page.json()["total"] == 2

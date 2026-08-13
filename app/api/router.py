@@ -210,12 +210,19 @@ def _require_submission_access(user: dict, submission_id: str, *, edit: bool = F
 
 def _submission_out(s: MaterialSubmission, user: dict | None = None) -> dict:
     permission_type = _submission_permission(user, s)
+    video_url = ""
+    if s.oss_key:
+        try:
+            video_url = deps.storage.signed_url(s.oss_key)
+        except Exception:
+            pass
     return {
         "id": s.id,
         "team_name": s.team_name,
         "delivery_time": s.delivery_time,
         "drama_name": s.drama_name,
         "oss_key": s.oss_key,
+        "video_url": video_url,
         "video_file_name": s.video_file_name,
         "title_name": s.title_name,
         "episode_range": s.episode_range,
@@ -1905,6 +1912,39 @@ def _visible_material_submissions(user: dict, **filters) -> list[MaterialSubmiss
     return [item for item in items if item.id in allowed_ids]
 
 
+_MATERIAL_SUBMISSION_SORT_FIELDS = {"upload_date", "created_time"}
+_MATERIAL_SUBMISSION_SORT_ORDERS = {"asc", "desc"}
+
+
+def _sort_material_submissions(items: list[MaterialSubmission], sort_by: str = "created_time",
+                               sort_order: str = "desc") -> list[MaterialSubmission]:
+    sort_by = (sort_by or "").strip()
+    sort_order = (sort_order or "").strip()
+    if sort_by and sort_by not in _MATERIAL_SUBMISSION_SORT_FIELDS:
+        raise HTTPException(400, "非法素材提报排序字段")
+    if sort_by and sort_order not in _MATERIAL_SUBMISSION_SORT_ORDERS:
+        raise HTTPException(400, "非法素材提报排序方向")
+    if not sort_by and sort_order:
+        raise HTTPException(400, "排序方向必须与排序字段同时设置")
+
+    def id_key(item: MaterialSubmission):
+        try:
+            return 0, int(item.id)
+        except (TypeError, ValueError):
+            return 1, str(item.id or "")
+
+    result = sorted(items, key=id_key)
+    if not sort_by:
+        return result
+    populated = [item for item in result if str(getattr(item, sort_by, "") or "").strip()]
+    empty = [item for item in result if not str(getattr(item, sort_by, "") or "").strip()]
+    populated.sort(
+        key=lambda item: str(getattr(item, sort_by, "") or "").strip(),
+        reverse=sort_order == "desc",
+    )
+    return populated + empty
+
+
 def _visible_submission_names(user: dict, field: str, keyword: str, limit: int) -> list[str]:
     key = (keyword or "").lower()
     seen: set[str] = set()
@@ -1960,13 +2000,14 @@ def list_material_submission_creator_accounts(user: dict = Depends(_user)):
 
 
 @router.get("/admin/material-submissions")
-def list_material_submissions(page: int = Query(1, ge=1), size: int = Query(20, ge=1, le=100),
+def list_material_submissions(page: int = Query(1, ge=1), size: int = Query(10, ge=1, le=100),
                               team_name: str = Query(""), drama_name: str = Query(""),
                               video_file_name: str = Query(""), title_name: str = Query(""),
                               can_upload_status: str = Query(""),
                               designated_upload_account_name: str = Query(""),
                               upload_account_name: str = Query(""),
                               created_by: str = Query(""), publish_status: str = Query(""),
+                              sort_by: str = Query("created_time"), sort_order: str = Query("desc"),
                               user: dict = Depends(_user)):
     can_upload_value, can_upload_empty = _status_filter_arg(can_upload_status, kind="可上传状态")
     publish_value, publish_empty = _status_filter_arg(publish_status, kind="发布状态")
@@ -1979,6 +2020,7 @@ def list_material_submissions(page: int = Query(1, ge=1), size: int = Query(20, 
         created_by=created_by,
         publish_status=publish_value, publish_status_empty=publish_empty,
     )
+    items = _sort_material_submissions(items, sort_by=sort_by, sort_order=sort_order)
 
     total = len(items)
     off, lim = _page_args(page, size)
@@ -2052,7 +2094,11 @@ def get_material_submission_user_permissions(target_user_id: str, user: dict = D
     account = _material_submission_permission_target(target_user_id)
     grants = []
     permission_by_submission = deps.material_submission_repo.permissions_for_user(account.id)
-    for submission in deps.material_submission_repo.list(offset=0, limit=None):
+    submissions = _sort_material_submissions(
+        deps.material_submission_repo.list(offset=0, limit=None),
+        sort_by="created_time", sort_order="desc",
+    )
+    for submission in submissions:
         is_owner = submission.created_by == account.id
         permission_type = "read_edit" if is_owner else permission_by_submission.get(submission.id, "")
         if permission_type in ("read", "read_edit"):
@@ -2070,7 +2116,8 @@ def get_material_submission_user_permissions(target_user_id: str, user: dict = D
 
 _REQUIREMENT_URGENCIES = {"low", "medium", "high"}
 _REQUIREMENT_STATUSES = {
-    "not_started", "in_progress", "pending_acceptance", "completed", "acceptance_failed",
+    "not_started", "pending_reply", "in_progress", "pending_acceptance", "completed",
+    "acceptance_failed",
 }
 
 
@@ -2186,6 +2233,9 @@ def list_unselected_material_submission_permissions(
         upload_account_name=body.upload_account_name, created_by=body.created_by,
         publish_status=publish_value,
         publish_status_empty=publish_empty,
+    )
+    items = _sort_material_submissions(
+        items, sort_by="created_time", sort_order="desc",
     )
     unselected = [item for item in items if item.id not in selected_ids]
     total = len(unselected)
