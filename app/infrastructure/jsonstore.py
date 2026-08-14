@@ -17,6 +17,7 @@ from app.domain.models import (
     AuditTask, JobStatus, Project, MaterialSubmission,
 )
 from app.domain.query import MaterialQuery, paginate
+from app.infrastructure.snowflake import next_id, timestamp_ms
 
 
 class Store:
@@ -36,6 +37,7 @@ class Store:
         self.projects: dict[str, Project] = {}       # 作品项目(每个项目一组审核规则)
         self.material_submissions: dict[str, MaterialSubmission] = {}
         self.material_submission_permissions: dict[tuple[str, str], str] = {}
+        self.material_submission_operations: dict[str, list[dict]] = {}
         self.audit_reports: dict[str, AuditReport] = {}
         self.audit_tasks: dict[str, AuditTask] = {}
         self._load()
@@ -129,6 +131,8 @@ class Store:
                 s["can_upload_status"] = s.pop("uploadable_status")
             if "upload_account_name" not in s:
                 s["upload_account_name"] = legacy_accounts.get(str(s.get("upload_account_id") or ""), "")
+            if "requires_decode" not in s:
+                s["requires_decode"] = 1 if s.get("drama_name") == "冰柜里的呼声-混剪" else 0
             s.pop("upload_account_id", None)
             submission = MaterialSubmission(**s)
             self.material_submissions[submission.id] = submission
@@ -140,6 +144,12 @@ class Store:
             permission_type = str(grant.get("permission_type") or "")
             if sid and uid and uid != "admin" and permission_type in ("read", "read_edit"):
                 self.material_submission_permissions[(sid, uid)] = permission_type
+        for operation in d.get("material_submission_operations", []):
+            if not isinstance(operation, dict):
+                continue
+            sid = str(operation.get("submission_id") or "")
+            if sid:
+                self.material_submission_operations.setdefault(sid, []).append(operation)
         for submission in self.material_submissions.values():
             if submission.created_by and submission.created_by != "admin":
                 self.material_submission_permissions[(submission.id, submission.created_by)] = "read_edit"
@@ -168,6 +178,11 @@ class Store:
                 "material_submission_permissions": [
                     {"submission_id": sid, "user_id": uid, "permission_type": permission_type}
                     for (sid, uid), permission_type in self.material_submission_permissions.items()
+                ],
+                "material_submission_operations": [
+                    dict(operation, submission_id=sid)
+                    for sid, operations in self.material_submission_operations.items()
+                    for operation in operations
                 ],
                 "audit_reports": {rid: self._report_to_dict(rep)
                                   for rid, rep in self.audit_reports.items()},
@@ -361,14 +376,78 @@ class JsonMaterialSubmissionRepo:
         self._s.save()
 
     def get(self, submission_id: str) -> Optional[MaterialSubmission]:
-        return self._s.material_submissions.get(submission_id)
+        item = self._s.material_submissions.get(submission_id)
+        return item if item and item.del_flag == 0 else None
 
-    def delete(self, submission_id: str, by: str = "") -> None:
-        self._s.material_submissions.pop(submission_id, None)
-        self._s.material_submission_permissions = {
-            k: v for k, v in self._s.material_submission_permissions.items() if k[0] != submission_id
-        }
+    def set_decoded_oss_key_if_current(self, submission_id: str, source_oss_key: str,
+                                       decoded_oss_key: str, by: str = "") -> bool:
+        with self._s._lock:
+            item = self._s.material_submissions.get(submission_id)
+            if (item is None or item.del_flag != 0 or item.oss_del_flag != 0
+                    or item.oss_key != source_oss_key or item.decoded_oss_key):
+                return False
+            item.decoded_oss_key = decoded_oss_key
+            item.requires_decode = 1
+            item.updated_by = by
+            item.updated_time = str(int(time.time() * 1000))
+            self._s.save()
+            return True
+
+    def get_deleted(self, submission_id: str) -> Optional[MaterialSubmission]:
+        item = self._s.material_submissions.get(submission_id)
+        return item if item and item.del_flag != 0 and item.oss_del_flag == 0 else None
+
+    def delete(self, submission_id: str, by: str = "") -> bool:
+        item = self._s.material_submissions.get(submission_id)
+        if item is None or item.del_flag != 0 or item.oss_del_flag != 0:
+            return False
+        item.del_flag = next_id()
+        item.updated_by = by
+        item.updated_time = str(int(time.time() * 1000))
         self._s.save()
+        return True
+
+    def restore(self, submission_id: str, by: str = "") -> bool:
+        item = self.get_deleted(submission_id)
+        if item is None:
+            return False
+        item.del_flag = 0
+        item.updated_by = by
+        item.updated_time = str(int(time.time() * 1000))
+        self._s.save()
+        return True
+
+    def list_expired_deleted(self, cutoff_ms: int) -> list[MaterialSubmission]:
+        return sorted(
+            (item for item in self._s.material_submissions.values()
+             if item.del_flag != 0 and item.oss_del_flag == 0
+             and timestamp_ms(item.del_flag) < cutoff_ms),
+            key=lambda item: item.del_flag,
+        )
+
+    def mark_oss_deleted(self, submission_id: str, by: str = "") -> bool:
+        item = self.get_deleted(submission_id)
+        if item is None:
+            return False
+        item.oss_del_flag = next_id()
+        item.updated_by = by
+        item.updated_time = str(int(time.time() * 1000))
+        self._s.save()
+        return True
+
+    def record_operation(self, submission_id: str, action: str, by: str,
+                         changes: list[dict]) -> None:
+        self._s.material_submission_operations.setdefault(submission_id, []).append({
+            "id": str(next_id()), "action": action, "operator_id": by,
+            "operation_time": str(int(time.time() * 1000)),
+            "changes": [dict(item) for item in changes],
+        })
+        self._s.save()
+
+    def list_operations(self, submission_id: str) -> list[dict]:
+        return [dict(item) for item in reversed(
+            self._s.material_submission_operations.get(submission_id, []),
+        )]
 
     def permission_of(self, submission_id: str, user_id: str) -> str:
         return self._s.material_submission_permissions.get((submission_id, user_id), "")
@@ -451,8 +530,13 @@ class JsonMaterialSubmissionRepo:
              designated_upload_account_name: str = "", upload_account_name: str = "",
              created_by: str = "", publish_status: int | None = None,
              publish_status_empty: bool = False,
-             offset: int = 0, limit: int | None = None) -> list[MaterialSubmission]:
-        items = sorted(self._s.material_submissions.values(), key=lambda s: int(s.id))
+             offset: int = 0, limit: int | None = None,
+             recycle_bin: bool = False, visible_to_user_id: str = "",
+             exclude_ids: set[str] | None = None,
+             sort_by: str = "", sort_order: str = "") -> list[MaterialSubmission]:
+        items = sorted((s for s in self._s.material_submissions.values()
+                        if (s.del_flag != 0 and s.oss_del_flag == 0) == recycle_bin
+                        and (recycle_bin or s.del_flag == 0)), key=lambda s: int(s.id))
         if team_name:
             items = [s for s in items if team_name.lower() in s.team_name.lower()]
         if drama_name:
@@ -475,6 +559,23 @@ class JsonMaterialSubmissionRepo:
             items = [s for s in items if s.publish_status == publish_status]
         elif publish_status_empty:
             items = [s for s in items if s.publish_status is None]
+        if visible_to_user_id:
+            visible_ids = self.submission_ids_for_user(visible_to_user_id)
+            items = [s for s in items if s.id in visible_ids]
+        if exclude_ids:
+            items = [s for s in items if s.id not in exclude_ids]
+        if sort_by:
+            if sort_by not in {"team_name", "upload_date", "created_time"}:
+                raise ValueError("非法素材提报排序字段")
+            if sort_order not in {"asc", "desc"}:
+                raise ValueError("非法素材提报排序方向")
+            populated = [s for s in items if str(getattr(s, sort_by, "") or "").strip()]
+            empty = [s for s in items if not str(getattr(s, sort_by, "") or "").strip()]
+            populated.sort(
+                key=lambda s: str(getattr(s, sort_by, "") or "").strip(),
+                reverse=sort_order == "desc",
+            )
+            items = populated + empty
         return items if limit is None else items[offset:offset + limit]
 
     def count(self, team_name: str = "", drama_name: str = "", video_file_name: str = "",
@@ -482,7 +583,8 @@ class JsonMaterialSubmissionRepo:
               can_upload_status_empty: bool = False,
               designated_upload_account_name: str = "", upload_account_name: str = "",
               created_by: str = "", publish_status: int | None = None,
-              publish_status_empty: bool = False) -> int:
+              publish_status_empty: bool = False, recycle_bin: bool = False,
+              visible_to_user_id: str = "", exclude_ids: set[str] | None = None) -> int:
         return len(self.list(team_name=team_name, drama_name=drama_name,
                              video_file_name=video_file_name, title_name=title_name,
                              can_upload_status=can_upload_status,
@@ -491,7 +593,10 @@ class JsonMaterialSubmissionRepo:
                              upload_account_name=upload_account_name,
                              created_by=created_by,
                              publish_status=publish_status,
-                             publish_status_empty=publish_status_empty))
+                             publish_status_empty=publish_status_empty,
+                             recycle_bin=recycle_bin,
+                             visible_to_user_id=visible_to_user_id,
+                             exclude_ids=exclude_ids))
 
 
 # ── 审核报告 ──

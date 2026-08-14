@@ -246,6 +246,8 @@
   .suggest-wrap{position:relative}
   .suggest-dropdown{position:absolute;top:calc(100% + 6px);left:0;right:0;z-index:45;border:1px solid var(--line-2);border-radius:11px;background:var(--panel);box-shadow:0 16px 34px rgba(45,20,15,.10);padding:6px;display:grid;gap:4px}
   .suggest-dropdown[hidden]{display:none}.bp-filter .suggest-dropdown{z-index:95;max-height:260px;overflow:auto;box-shadow:0 18px 42px rgba(45,20,15,.18)}
+  #sec-submissions .suggest-dropdown,#sec-submission-trash .suggest-dropdown,.drawer .suggest-dropdown{z-index:95;max-height:260px;overflow-x:hidden;overflow-y:auto;align-content:start;overscroll-behavior:contain;scrollbar-gutter:stable;box-shadow:0 18px 42px rgba(45,20,15,.18)}
+  .drawer .suggest-dropdown{max-height:min(260px,36vh)}
   .suggest-item{display:flex;align-items:center;gap:10px;width:100%;padding:9px 11px;border:1px solid transparent;border-radius:8px;background:transparent;color:var(--ink);cursor:pointer;font:500 13px/1.45 Inter;text-align:left}
   .suggest-item:hover{background:var(--raise);border-color:var(--line)}
   .suggest-empty{padding:10px 11px;color:var(--faint);font-size:12px}
@@ -274,6 +276,17 @@
   .sb-detail-head p{margin:5px 0 0;color:var(--dim);font-size:12.5px}
   .sb-detail-media{aspect-ratio:16/9;margin-bottom:18px;border:1px solid var(--line);border-radius:14px;overflow:hidden;background:#140d0b;box-shadow:0 14px 32px rgba(45,20,15,.10);display:flex;align-items:center;justify-content:center}
   .sb-detail-media video,.sb-detail-media img{width:100%;height:100%;object-fit:contain}
+  .sb-detail-video-shell{position:relative;width:100%;height:100%;background:#140d0b}
+  .sb-detail-video-shell video{display:block}
+  .sb-detail-decoding{position:absolute;inset:0;z-index:2;display:flex;flex-direction:column;align-items:center;justify-content:center;gap:12px;background:rgba(20,13,11,.82);color:#fff;pointer-events:none}
+  .sb-detail-decoding[hidden]{display:none}
+  .sb-detail-decoding b{font-size:15px;letter-spacing:.08em;text-shadow:0 1px 8px rgba(0,0,0,.45)}
+  .sb-detail-decode-progress{width:min(320px,62%);height:9px;border-radius:999px;overflow:hidden;background:rgba(255,255,255,.18);box-shadow:inset 0 1px 3px rgba(0,0,0,.35)}
+  .sb-detail-decode-progress i{display:block;width:0;height:100%;border-radius:inherit;background:linear-gradient(90deg,#ff6b42,#ffb15f);box-shadow:0 0 12px rgba(255,125,70,.5);transition:width .45s ease}
+  .sb-detail-decode-percent{font-size:13px;font-variant-numeric:tabular-nums;color:rgba(255,255,255,.82)}
+  .sb-detail-decode-reason{font-size:12px;color:rgba(255,255,255,.58)}
+  .sb-detail-decoding.error .sb-detail-decode-progress,.sb-detail-decoding.error .sb-detail-decode-percent,.sb-detail-decoding.error .sb-detail-decode-reason{display:none}
+  .sb-detail-decoding.error b{color:#ffd7d0;letter-spacing:0}
   .sb-detail-media-block .sb-detail-media{margin-bottom:0;border-radius:14px 14px 0 0}
   .sb-detail-media-actions{display:flex;align-items:center;gap:14px;margin-bottom:18px;padding:12px 14px;border:1px solid var(--line);border-top:0;border-radius:0 0 14px 14px;background:linear-gradient(90deg,var(--panel),color-mix(in oklab,var(--raise) 42%,var(--panel)))}
   .sb-detail-media-name{flex:1;min-width:0;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;color:var(--dim);font-size:12.5px;line-height:1.5}
@@ -315,10 +328,10 @@
   .sb-upload-progress-bar{display:block;height:100%;border-radius:inherit;background:linear-gradient(90deg,#6f938b,#2f655a);transition:width .18s ease}
   .sb-upload-progress-meta{color:var(--faint);font:500 10.5px/1.35 "IBM Plex Mono"}
   @keyframes sbspin{to{transform:rotate(360deg)}}
-  #sec-submissions,#sec-requirements{min-width:0}
+  #sec-submissions,#sec-submission-trash,#sec-requirements{min-width:0}
   .sb-table-wrap{width:100%;margin-top:10px;overflow-x:hidden;padding-bottom:6px}
   .sb-submission-table-wrap{overflow-x:auto;scrollbar-gutter:stable}
-  .sb-table.sb-submission-table{min-width:1370px}
+  .sb-table.sb-submission-table{min-width:1460px}
   .sb-table.sb-submission-table .cell-file{width:126px;min-width:126px;max-width:126px}
   .sb-table.sb-submission-table .cell-title{width:140px;min-width:140px;max-width:140px}
   .sb-table.sb-submission-table .cell-drama{width:140px;min-width:140px;max-width:140px}
@@ -402,14 +415,14 @@
   .bp-modal .gmbody{display:flex;min-height:0;flex-direction:column;gap:5px;padding:6px 12px;overflow:hidden}
   .bp-control{display:grid;grid-template-columns:minmax(210px,.9fr) minmax(190px,.7fr) minmax(280px,1.15fr);gap:7px;align-items:end;padding:5px 8px;border:1px solid var(--line);border-radius:9px;background:linear-gradient(135deg,color-mix(in oklab,var(--raise) 84%,var(--panel)),var(--panel))}
   .bp-control .field,.bp-filter .field{margin:0}.bp-control label,.bp-filter label{margin-bottom:3px;font-size:10px}.bp-control input,.bp-control select,.bp-filter input,.bp-filter select{height:32px;padding-top:5px;padding-bottom:5px}.bp-note{min-height:32px;display:flex;align-items:center;padding:4px 8px;border-radius:7px;background:color-mix(in oklab,var(--mint) 7%,var(--panel));border:1px solid color-mix(in oklab,var(--mint) 20%,var(--line));color:var(--dim);font-size:10px;line-height:1.3}
-  .bp-filter{position:relative;z-index:4;display:grid;grid-template-columns:minmax(125px,1fr) minmax(105px,.75fr) 94px repeat(2,minmax(125px,.8fr)) 94px minmax(115px,.75fr) auto auto;gap:6px;align-items:end}.bp-filter .btn{height:32px;min-height:32px;padding:5px 11px}
+  .bp-filter{position:relative;z-index:4;display:grid;grid-template-columns:minmax(125px,1fr) minmax(105px,.75fr) minmax(125px,1fr) 94px repeat(2,minmax(125px,.8fr)) 94px minmax(115px,.75fr) auto auto;gap:6px;align-items:end}.bp-filter .btn{height:32px;min-height:32px;padding:5px 11px}
   .bp-dual{position:relative;z-index:1;display:grid;flex:1;min-height:0;grid-template-rows:auto repeat(2,minmax(0,1fr));gap:5px}
   .bp-shared-head{min-width:0;overflow-x:hidden;overflow-y:hidden;border:1px solid var(--line);border-radius:9px;background:color-mix(in oklab,var(--bg) 66%,var(--panel))}
   .bp-shared-head .bp-table-head{border-bottom:0}
   .bp-pane{display:flex;min-width:0;min-height:0;flex-direction:column;border:1px solid var(--line);border-radius:12px;overflow:hidden;background:var(--panel)}
   .bp-pane-head{display:flex;align-items:center;justify-content:space-between;gap:8px;padding:5px 8px;border-bottom:1px solid var(--line);background:color-mix(in oklab,var(--raise) 70%,var(--panel))}
   .bp-pane-head b{font:600 14px "Fraunces"}.bp-pane-head span{color:var(--dim);font:500 11px "IBM Plex Mono"}
-  .bp-table-head,.bp-video-row{display:grid;grid-template-columns:26px 42px minmax(72px,.85fr) minmax(52px,.6fr) 44px repeat(6,minmax(58px,.63fr)) 112px;gap:5px;align-items:center;min-width:0}
+  .bp-table-head,.bp-video-row{display:grid;grid-template-columns:26px 42px minmax(72px,.85fr) minmax(52px,.6fr) 44px 44px repeat(6,minmax(58px,.63fr)) 112px;gap:5px;align-items:center;min-width:0}
   .bp-table-head span{min-width:0;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
   .bp-table-head{padding:4px 8px;border-bottom:1px solid var(--line);color:var(--dim);font-size:10.5px;font-weight:600;background:color-mix(in oklab,var(--bg) 66%,var(--panel))}
   .bp-list{flex:1;min-height:0;overflow-x:hidden;overflow-y:hidden}.bp-video-row{height:42px;min-height:42px;padding:4px 8px;overflow:hidden;border-bottom:1px solid var(--line);cursor:pointer;transition:.15s}
@@ -525,6 +538,7 @@
               </div>
             </div>
             <div class="field f-grow" style="margin:0"><label>标题名</label><input id="sb-ft-title" placeholder="模糊筛选标题名"></div>
+            <div class="field f-grow" style="margin:0"><label>团队名称</label><div class="suggest-wrap"><input id="sb-ft-team" placeholder="模糊筛选团队名称" autocomplete="off" onfocus="openSubmissionSuggest('sb-ft-team')" oninput="onSubmissionSuggestInput('sb-ft-team')" onblur="scheduleSubmissionSuggestClose('sb-ft-team')"><div id="sb-ft-team-suggest" class="suggest-dropdown" hidden></div></div></div>
           </div>
           <div class="row" style="align-items:flex-end;flex-wrap:wrap;gap:12px;margin-top:12px">
             <div class="field f-fixed" style="margin:0"><label>可上传状态</label><select id="sb-ft-can-upload"><option value="">全部</option><option value="__empty__">空</option><option value="1">可上传</option><option value="2">不可上传</option><option value="3">已修改</option></select></div>
@@ -544,11 +558,31 @@
             </div>
             <div class="field f-fixed" style="margin:0"><label>发布状态</label><select id="sb-ft-publish"><option value="">全部</option><option value="__empty__">空</option><option value="1">成功</option><option value="2">失败</option></select></div>
             <div class="field" style="margin:0;flex:0 0 170px"><label>创建账号</label><select id="sb-ft-created-by"><option value="">全部</option></select></div>
-            <button class="btn key f-auto" onclick="applySubmissionFilters()">查询</button>
+            <button class="btn key f-auto" id="sb-query-btn" onclick="applySubmissionFilters()">查询</button>
             <button class="btn f-auto" onclick="resetSubmissionFilters()">重置</button>
           </div>
           <div id="sb-list"></div>
           <div class="pager" id="sb-pager"></div>
+        </div>
+      </section>
+      <section id="sec-submission-trash">
+        <div style="margin-bottom:18px">
+          <div class="row" style="align-items:flex-end;flex-wrap:wrap;gap:12px">
+            <div class="field f-grow" style="margin:0"><label>剧名</label><div class="suggest-wrap"><input id="tb-ft-drama" placeholder="模糊筛选剧名" autocomplete="off" onfocus="openSubmissionSuggest('tb-ft-drama')" oninput="onSubmissionSuggestInput('tb-ft-drama')" onblur="scheduleSubmissionSuggestClose('tb-ft-drama')"><div id="tb-ft-drama-suggest" class="suggest-dropdown" hidden></div></div></div>
+            <div class="field f-grow" style="margin:0"><label>标题名</label><input id="tb-ft-title" placeholder="模糊筛选标题名"></div>
+            <div class="field f-grow" style="margin:0"><label>团队名称</label><div class="suggest-wrap"><input id="tb-ft-team" placeholder="模糊筛选团队名称" autocomplete="off" onfocus="openSubmissionSuggest('tb-ft-team')" oninput="onSubmissionSuggestInput('tb-ft-team')" onblur="scheduleSubmissionSuggestClose('tb-ft-team')"><div id="tb-ft-team-suggest" class="suggest-dropdown" hidden></div></div></div>
+          </div>
+          <div class="row" style="align-items:flex-end;flex-wrap:wrap;gap:12px;margin-top:12px">
+            <div class="field f-fixed" style="margin:0"><label>可上传状态</label><select id="tb-ft-can-upload"><option value="">全部</option><option value="__empty__">空</option><option value="1">可上传</option><option value="2">不可上传</option><option value="3">已修改</option></select></div>
+            <div class="field" style="margin:0;flex:0 0 210px"><label>指定上传账号</label><div class="suggest-wrap"><input id="tb-ft-designated-account-name" placeholder="精准筛选指定上传账号名称" autocomplete="off" onfocus="openSubmissionSuggest('tb-ft-designated-account-name')" oninput="onSubmissionSuggestInput('tb-ft-designated-account-name')" onblur="scheduleSubmissionSuggestClose('tb-ft-designated-account-name')"><div id="tb-ft-designated-account-name-suggest" class="suggest-dropdown" hidden></div></div></div>
+            <div class="field" style="margin:0;flex:0 0 210px"><label>上传账号</label><div class="suggest-wrap"><input id="tb-ft-account-name" placeholder="精准筛选上传账号名称" autocomplete="off" onfocus="openSubmissionSuggest('tb-ft-account-name')" oninput="onSubmissionSuggestInput('tb-ft-account-name')" onblur="scheduleSubmissionSuggestClose('tb-ft-account-name')"><div id="tb-ft-account-name-suggest" class="suggest-dropdown" hidden></div></div></div>
+            <div class="field f-fixed" style="margin:0"><label>发布状态</label><select id="tb-ft-publish"><option value="">全部</option><option value="__empty__">空</option><option value="1">成功</option><option value="2">失败</option></select></div>
+            <div class="field" style="margin:0;flex:0 0 170px"><label>创建账号</label><select id="tb-ft-created-by"><option value="">全部</option></select></div>
+            <button class="btn key f-auto" id="tb-query-btn" onclick="applySubmissionTrashFilters()">查询</button>
+            <button class="btn f-auto" onclick="resetSubmissionTrashFilters()">重置</button>
+          </div>
+          <div id="tb-list"></div>
+          <div class="pager" id="tb-pager"></div>
         </div>
       </section>
       <section id="sec-requirements">
@@ -692,6 +726,7 @@
     <div class="bp-filter">
       <div class="field"><label>剧名</label><div class="suggest-wrap"><input id="bp-drama" placeholder="模糊筛选剧名" autocomplete="off" onfocus="openSubmissionSuggest('bp-drama')" onclick="openSubmissionSuggest('bp-drama')" oninput="onSubmissionSuggestInput('bp-drama')" onblur="scheduleSubmissionSuggestClose('bp-drama')" onkeydown="if(event.key==='Enter')applyBatchPermissionFilters()"><div id="bp-drama-suggest" class="suggest-dropdown" hidden></div></div></div>
       <div class="field"><label>标题名</label><input id="bp-title" placeholder="模糊筛选标题名" onkeydown="if(event.key==='Enter')applyBatchPermissionFilters()"></div>
+      <div class="field"><label>团队名称</label><div class="suggest-wrap"><input id="bp-team" placeholder="模糊筛选团队名称" autocomplete="off" onfocus="openSubmissionSuggest('bp-team')" onclick="openSubmissionSuggest('bp-team')" oninput="onSubmissionSuggestInput('bp-team')" onblur="scheduleSubmissionSuggestClose('bp-team')" onkeydown="if(event.key==='Enter')applyBatchPermissionFilters()"><div id="bp-team-suggest" class="suggest-dropdown" hidden></div></div></div>
       <div class="field"><label>可上传状态</label><select id="bp-can-upload"><option value="">全部</option><option value="__empty__">空</option><option value="1">可上传</option><option value="2">不可上传</option><option value="3">已修改</option></select></div>
       <div class="field"><label>指定上传账号</label><div class="suggest-wrap"><input id="bp-designated-account-name" placeholder="精准筛选指定上传账号名称" autocomplete="off" onfocus="openSubmissionSuggest('bp-designated-account-name')" onclick="openSubmissionSuggest('bp-designated-account-name')" oninput="onSubmissionSuggestInput('bp-designated-account-name')" onblur="scheduleSubmissionSuggestClose('bp-designated-account-name')" onkeydown="if(event.key==='Enter')applyBatchPermissionFilters()"><div id="bp-designated-account-name-suggest" class="suggest-dropdown" hidden></div></div></div>
       <div class="field"><label>上传账号</label><div class="suggest-wrap"><input id="bp-account-name" placeholder="精准筛选上传账号名称" autocomplete="off" onfocus="openSubmissionSuggest('bp-account-name')" onclick="openSubmissionSuggest('bp-account-name')" oninput="onSubmissionSuggestInput('bp-account-name')" onblur="scheduleSubmissionSuggestClose('bp-account-name')" onkeydown="if(event.key==='Enter')applyBatchPermissionFilters()"><div id="bp-account-name-suggest" class="suggest-dropdown" hidden></div></div></div>
@@ -709,7 +744,7 @@
   <div class="gmbody" id="pv-body" style="padding:0"></div>
   <div class="gmfoot" id="pv-foot"></div>
 </div>
-<div class="scrim" id="confirm-scrim" onclick="closeAppConfirm(false)"></div>
+<div class="scrim" id="confirm-scrim" onclick="closeAppConfirm(null)"></div>
 <div class="gmodal confirm-modal" id="confirm-modal" role="alertdialog" aria-modal="true" aria-labelledby="confirm-title" aria-describedby="confirm-message">
   <div class="confirm-body">
     <div class="confirm-icon" aria-hidden="true"><svg viewBox="0 0 24 24"><path d="M12 8v5M12 17h.01"/><path d="M10.3 3.8 2.4 18a2 2 0 0 0 1.8 3h15.6a2 2 0 0 0 1.8-3L13.7 3.8a2 2 0 0 0-3.4 0Z"/></svg></div>
@@ -724,11 +759,13 @@ const $=s=>document.querySelector(s),$$=s=>document.querySelectorAll(s);
 let ME=JSON.parse(localStorage.getItem('me')||'null');
 const H=()=>ME?{'Authorization':'Bearer '+ME.token}:{};
 let expiring=false;
+let REFRESH_PROMISE=null;
 let APP_CONFIRM_RESOLVE=null,APP_CONFIRM_FOCUS=null;
-function appConfirm(message,{title='确认操作',confirmText='确认',danger=true}={}){
+function appConfirm(message,{title='确认操作',confirmText='确认',cancelText='取消',danger=true}={}){
   if(APP_CONFIRM_RESOLVE)closeAppConfirm(false);
   APP_CONFIRM_FOCUS=document.activeElement;
   $('#confirm-title').textContent=title;$('#confirm-message').textContent=message;
+  $('#confirm-cancel').textContent=cancelText;
   const submit=$('#confirm-submit');submit.textContent=confirmText;submit.classList.toggle('confirm-danger',danger);submit.classList.toggle('key',!danger);
   $('#confirm-scrim').classList.add('on');$('#confirm-modal').classList.add('on');
   setTimeout(()=>$('#confirm-cancel').focus(),0);
@@ -739,15 +776,41 @@ function closeAppConfirm(result=false){
   const resolve=APP_CONFIRM_RESOLVE;APP_CONFIRM_RESOLVE=null;
   $('#confirm-scrim').classList.remove('on');$('#confirm-modal').classList.remove('on');
   const focus=APP_CONFIRM_FOCUS;APP_CONFIRM_FOCUS=null;if(focus&&document.contains(focus))focus.focus();
-  resolve(Boolean(result));
+  resolve(result);
 }
-document.addEventListener('keydown',event=>{if(event.key==='Escape'&&APP_CONFIRM_RESOLVE){event.preventDefault();closeAppConfirm(false)}});
+document.addEventListener('keydown',event=>{if(event.key==='Escape'&&APP_CONFIRM_RESOLVE){event.preventDefault();closeAppConfirm(null)}});
 function sessionExpired(){if(expiring)return;expiring=true;localStorage.removeItem('me');ME=null;toast('登录已过期,请重新登录',true);setTimeout(()=>location.reload(),900)}
-const api=async(m,p,b,isForm)=>{const o={method:m,headers:{...H()}};if(b){if(isForm){o.body=b}else{o.headers['Content-Type']='application/json';o.body=JSON.stringify(b)}}
-  let r,d={};try{r=await fetch(p,o)}catch(e){return{ok:false,status:0,data:{}}}
-  try{d=await r.json()}catch(e){}
-  if(r.status===401&&ME){sessionExpired();return{ok:false,status:401,data:d}}  // 会话失效→踢回登录(不再静默失败)
-  return{ok:r.ok,status:r.status,data:d}};
+async function refreshSession(){
+  if(!ME?.refreshToken)return false;
+  if(!REFRESH_PROMISE){
+    REFRESH_PROMISE=(async()=>{
+      let r,d={};
+      try{r=await fetch('/users/refresh',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({refreshToken:ME.refreshToken})})}
+      catch(e){return false}
+      try{d=await r.json()}catch(e){}
+      if(!r.ok||!d.token||!d.refreshToken)return false;
+      ME={...ME,...(d.user||{}),token:d.token,refreshToken:d.refreshToken};
+      localStorage.setItem('me',JSON.stringify(ME));
+      return true;
+    })().finally(()=>{REFRESH_PROMISE=null});
+  }
+  return REFRESH_PROMISE;
+}
+const api=async(m,p,b,isForm,requestOptions={})=>{
+  const request=async retried=>{
+    const requestToken=ME?.token;
+    const o={method:m,headers:{...H()},...requestOptions};if(b){if(isForm){o.body=b}else{o.headers['Content-Type']='application/json';o.body=JSON.stringify(b)}}
+    let r,d={};try{r=await fetch(p,o)}catch(e){return{ok:false,status:0,data:{},aborted:e?.name==='AbortError'}}
+    try{d=await r.json()}catch(e){}
+    if(r.status===401&&ME&&p!=='/users/login'&&p!=='/users/refresh'){
+      if(!retried&&requestToken&&ME.token!==requestToken)return request(true);
+      if(!retried&&await refreshSession())return request(true);
+      sessionExpired();
+    }
+    return{ok:r.ok,status:r.status,data:d};
+  };
+  return request(false);
+};
 const GLYPH={image:'▦',meme:'☺',video:'►',style:'◈',corpus:'¶',music:'♫',audio:'♪'};
 const LT={image:'图片',meme:'表情包',video:'视频',style:'风格',corpus:'语料',music:'音乐',audio:'声音'};
 const MAX_UPLOAD=1024*1024*1024;   // 单文件上限 1GB
@@ -779,15 +842,16 @@ async function submitAuth(){const name=$('#g-name').value.trim(),password=$('#g-
   }
   const r=await api('POST','/users/login',{name,password});
   if(!r.ok){$('#g-msg').textContent='用户名或密码错误';return}
-  ME={...r.data.user,token:r.data.token};localStorage.setItem('me',JSON.stringify(ME));boot()}
+  ME={...r.data.user,token:r.data.token,refreshToken:r.data.refreshToken};localStorage.setItem('me',JSON.stringify(ME));boot()}
 async function logout(){
   if(!ME||!await appConfirm('退出后需要重新登录才能继续使用。',{title:'确认退出登录？',confirmText:'退出登录'}))return;
   localStorage.removeItem('me');ME=null;location.hash='';location.reload();
 }
 
 /* ── 导航(按角色)── */
-const NAV_USER=[['提报','submissions','素材提报','管理我上传及获授权的视频素材']];
+const NAV_USER=[['提报','submissions','素材提报','管理我上传及获授权的视频素材'],['提报','submission-trash','回收站','暂存 7 天内删除的素材提报']];
 const NAV_ADMIN=[['协作','requirements','提新需求','查看、回复并处理产品需求'],['提报','submissions','素材提报','统一管理视频素材的提报、上传与发布状态'],
+  ['提报','submission-trash','回收站','暂存 7 天内删除的素材提报'],
   ['管理','all','全部物料','所有用户的物料'],['管理','review','审核队列','人工复核待定物料'],['管理','works','作品审核记录','按项目 + 按天看作品审核记录'],
   ['我的','mine','我的物料库','我上传的与我收藏的物料'],['我的','ingest','内容审核','审核视频/图片/文字/声音'],['我的','pending','待审核','审核任务与状态'],
   ['发现','public','公共物料库','所有人共享的物料'],['发现','search','搜索','在公共物料里检索'],
@@ -797,6 +861,7 @@ const ICO={mine:'<rect x="3" y="3" width="7" height="7" rx="1"/><rect x="14" y="
   ingest:'<path d="M9 12l2 2 4-4"/><path d="M12 3a9 9 0 100 18 9 9 0 000-18z"/>',pending:'<circle cx="12" cy="12" r="9"/><path d="M12 8v4l3 2"/>',public:'<circle cx="12" cy="12" r="9"/><path d="M3 12h18M12 3a15 15 0 010 18M12 3a15 15 0 000 18"/>',
   search:'<circle cx="11" cy="11" r="7"/><path d="M21 21l-4-4"/>',all:'<path d="M4 6h16M4 12h16M4 18h16"/>',review:'<path d="M9 12l2 2 4-4"/><circle cx="12" cy="12" r="9"/>',
   submissions:'<path d="M6 3h9l3 3v15H6z"/><path d="M15 3v4h4"/><path d="M9 11h6M9 15h6M9 19h4"/>',
+  'submission-trash':'<path d="M4 7h16"/><path d="M9 7V4h6v3"/><path d="M7 7l1 14h8l1-14"/><path d="M10 11v6M14 11v6"/>',
 
 
   works:'<rect x="5" y="4" width="14" height="17" rx="2"/><path d="M8 9h8M8 13h8M8 17h4"/>',
@@ -810,21 +875,23 @@ function buildNav(){const items=ME.role==='admin'?NAV_ADMIN:NAV_USER;const group
   $('#nav').innerHTML=Object.entries(groups).map(([g,rows])=>`<div class="navgroup"><span>${g}</span>${rows.map(([sec,t,sub])=>`<div class="nav" data-sec="${sec}" title="${t}" tabindex="0" role="button" aria-label="${t}"><svg class="ico" viewBox="0 0 24 24">${ICO[sec]}</svg><span class="nav-t">${t}</span><span class="cnt" id="cnt-${sec}"></span></div>`).join('')}</div>`).join('');
   $$('.nav').forEach(n=>{n.onclick=()=>go(n.dataset.sec);n.onkeydown=e=>{if(e.key==='Enter'||e.key===' '){e.preventDefault();go(n.dataset.sec)}}});}
 const SUB={};
+let NAV_HASH_WRITE='';
 function go(sec){const navset=(ME.role==='admin'?NAV_ADMIN:NAV_USER);
   if(!navset.some(x=>x[1]===sec))sec=(ME.role==='admin'?'all':'submissions');  // 角色门控:越权/无效 sec 回落(挡 hashchange 直改 URL)
   $$('.nav').forEach(n=>n.classList.toggle('on',n.dataset.sec===sec));$$('section').forEach(s=>s.classList.toggle('on',s.id==='sec-'+sec));
-  document.querySelector('.wrap')?.classList.toggle('submissions-wide',sec==='submissions'||sec==='requirements');
+  document.querySelector('.wrap')?.classList.toggle('submissions-wide',sec==='submissions'||sec==='submission-trash'||sec==='requirements');
   const meta=navset.find(x=>x[1]===sec);if(meta){$('#title').textContent=meta[2];$('#sub').textContent=meta[3]}
   const action=$('#action');if(action){
     if(sec==='submissions')action.innerHTML=(ME.role==='admin'?'<button class="btn" onclick="openBatchPermissionModal()">批量分配</button>':'')+'<button class="btn key" onclick="openMaterialSubmissionEdit()">新建</button>';
     else if(sec==='requirements')action.innerHTML='<button class="btn key" onclick="openRequirementEdit()">提新需求</button>';
     else action.innerHTML='';
   }
-  location.hash=sec;
+  const nextHash='#'+sec;
+  if(location.hash!==nextHash){NAV_HASH_WRITE=nextHash;location.hash=sec}
   if(sec!=='pending'&&typeof pendingTimer!=='undefined')clearTimeout(pendingTimer);  // 离开待审核→停轮询
   if(sec!=='rules-training'&&typeof trainingTimer!=='undefined')clearTimeout(trainingTimer);
   if(sec==='ingest'){if(typeof resetAudit==='function')resetAudit();if(typeof resetBatch==='function')resetBatch()}
-  if(sec==='mine')loadMine();if(sec==='public')loadPublic();if(sec==='all')loadAll();if(sec==='review')loadReview();if(sec==='works')loadWorks();if(sec==='roles')loadPerms();if(sec==='users')loadUsers();if(sec==='rules')loadRules();if(sec==='rules-training')loadTrainingPage();if(sec==='pending')loadPending();if(sec==='whitelist')loadWhitelist();if(sec==='blockwords')loadBlockwords();if(sec==='projects')loadProjects();if(sec==='submissions')loadMaterialSubmissions();if(sec==='requirements')loadRequirements();
+  if(sec==='mine')loadMine();if(sec==='public')loadPublic();if(sec==='all')loadAll();if(sec==='review')loadReview();if(sec==='works')loadWorks();if(sec==='roles')loadPerms();if(sec==='users')loadUsers();if(sec==='rules')loadRules();if(sec==='rules-training')loadTrainingPage();if(sec==='pending')loadPending();if(sec==='whitelist')loadWhitelist();if(sec==='blockwords')loadBlockwords();if(sec==='projects')loadProjects();if(sec==='submissions'){refreshSubmissionCreatorOptions();loadMaterialSubmissions()}if(sec==='submission-trash'){refreshSubmissionCreatorOptions(true);loadSubmissionTrash()}if(sec==='requirements')loadRequirements();
   if(window.matchMedia('(max-width:900px)').matches)toggleNavOpen(false)}   // 手机上选完自动收起抽屉
 
 /* ── 折叠导航(桌面,默认收起)/ 手机抽屉 ── */
@@ -871,8 +938,9 @@ const V={mine:{page:1,size:PAGE_SIZE,total:0,type:'',q:'',project:''},
   users:{page:1,size:20,total:0,q:''},
   roles:{page:1,size:20,total:0,q:''},
   requirements:{page:1,size:20,total:0,q:'',urgency:'',status:''},
-  submissions:{page:1,size:10,total:0,drama_name:'',title_name:'',can_upload_status:'',designated_upload_account_name:'',upload_account_name:'',created_by:'',publish_status:'',sort_by:'created_time',sort_order:'desc'},
-  submissionAccess:{page:1,size:20,total:0,drama_name:'',title_name:'',can_upload_status:'',designated_upload_account_name:'',upload_account_name:'',created_by:'',publish_status:''}};
+  submissions:{page:1,size:10,total:0,team_name:'',drama_name:'',title_name:'',can_upload_status:'',designated_upload_account_name:'',upload_account_name:'',created_by:'',publish_status:'',sort_by:'created_time',sort_order:'desc'},
+  trash:{page:1,size:10,total:0,team_name:'',drama_name:'',title_name:'',can_upload_status:'',designated_upload_account_name:'',upload_account_name:'',created_by:'',publish_status:'',sort_by:'created_time',sort_order:'desc'},
+  submissionAccess:{page:1,size:20,total:0,team_name:'',drama_name:'',title_name:'',can_upload_status:'',designated_upload_account_name:'',upload_account_name:'',created_by:'',publish_status:'',sort_by:'created_time',sort_order:'desc'}};
 function setCnt(sec,n){const e=$('#cnt-'+sec);if(e)e.textContent=n}
 const debounce=(fn,ms=300)=>{let t;return(...a)=>{clearTimeout(t);t=setTimeout(()=>fn(...a),ms)}};
 
@@ -920,7 +988,7 @@ async function loadSearch(){const v=V.search;showSkeleton('#results',v.size);
   const r=await api('GET','/search?'+new URLSearchParams({q:v.q,page:v.page,size:v.size}));
   v.total=r.data.total??(r.data.results||[]).length;
   grid('#results',r.data.results||[],'public','没有命中','换个词。只有审核通过并发布的物料才会被搜到。');renderPager('#search-pager','search')}
-const LOADER={mine:loadMine,public:loadPublic,all:loadAll,search:loadSearch,pending:loadPending,review:loadQueue,users:loadUsers,roles:loadPerms,requirements:loadRequirements,submissions:loadMaterialSubmissions,submissionAccess:loadBatchPermissionVideos};
+const LOADER={mine:loadMine,public:loadPublic,all:loadAll,search:loadSearch,pending:loadPending,review:loadQueue,users:loadUsers,roles:loadPerms,requirements:loadRequirements,submissions:loadMaterialSubmissions,trash:loadSubmissionTrash,submissionAccess:loadBatchPermissionVideos};
 
 const onMineKw=debounce(()=>{V.mine.q=$('#mine-q').value.trim();V.mine.page=1;loadMine()});
 const onPubKw=debounce(()=>{V.public.q=$('#pub-q').value.trim();V.public.page=1;loadPublic()});
@@ -1728,7 +1796,7 @@ async function genSummary(id,canDel,canDl){toast('生成中…解析物料(视�
   if(r.ok){if(ALLSEEN[id])Object.assign(ALLSEEN[id],r.data);openDrawer(id,canDel,canDl);toast('AI 摘要已生成');refreshLib()}
   else if(r.status!==401)toast(r.data.detail||'生成失败',true)}
 function refreshLib(){const s=(location.hash||'').slice(1);if(LOADER[s])LOADER[s]()}   // 刷新当前所在列表(我的/公共/全部/搜索)
-function closeDrawer(){stopDrawerMedia();$('#scrim').classList.remove('on','batch-detail');$('#drawer').classList.remove('on','batch-detail','requirement-detail')}   // 关抽屉停播音视频(yuwenkun)
+function closeDrawer(){stopDrawerMedia();resumeSubmissionListVideoPreloads();$('#scrim').classList.remove('on','batch-detail');$('#drawer').classList.remove('on','batch-detail','requirement-detail')}   // 关抽屉停播音视频(yuwenkun)
 async function delMat(id){const r=await api('DELETE','/materials/'+id);if(r.ok){toast('已删除');closeDrawer();refreshLib()}else if(r.status!==401)toast(r.data.detail||'删除失败',true)}
 
 /* ── 提报：素材提报 ── */
@@ -1737,7 +1805,12 @@ const PUB_ST={1:'成功',2:'失败'};
 let SUBMISSION_ACCOUNT_NAME_OPTIONS=[];
 let SUBMISSION_DESIGNATED_ACCOUNT_NAME_OPTIONS=[];
 let SUBMISSION_DRAMA_NAME_OPTIONS=[];
+let SUBMISSION_TEAM_NAME_OPTIONS=[];
 let SUBMISSION_CREATOR_OPTIONS=[];
+const SUBMISSION_CREATOR_CACHE={active:null,trash:null};
+const SUBMISSION_CREATOR_PROMISE={active:null,trash:null};
+const SUBMISSION_LIST_REQUEST={active:{controller:null,sequence:0},trash:{controller:null,sequence:0}};
+const ASSET_DESK_FRONTEND_BUILD='20260814-submission-paging-v3';
 const SUBMISSION_SUGGEST_TIMERS={};
 let PREVIEW_KEY='';
 let PREVIEW_SUBMISSION_ID='';
@@ -1791,25 +1864,27 @@ function submissionAuditTimeHtml(value){
   const parts=text.split(/\s+/),date=parts.shift()||'',time=parts.join(' ');
   return `<span class="sb-date-time"><span>${esc(date)}</span>${time?`<span>${esc(time)}</span>`:''}</span>`;
 }
-const SUBMISSION_OPERATION_FIELD_LABELS={team_name:'团队名称',delivery_time:'视频交付时间',drama_name:'剧名',oss_key:'视频文件',video_file_name:'视频文件名',title_name:'标题名',episode_range:'集数区间',revision_comment:'修改意见',can_upload_status:'可上传状态',designated_upload_account_name:'指定上传账号',upload_account_name:'上传账号',upload_date:'上传日期',publish_status:'发布状态',platform_reject_reason:'平台拒审理由',platform_reject_attachments:'拒审附件',permission_type:'数据权限'};
+const SUBMISSION_OPERATION_FIELD_LABELS={team_name:'团队名称',delivery_time:'视频交付时间',drama_name:'剧名',oss_key:'视频文件',decoded_oss_key:'兼容视频文件',requires_decode:'兼容解码',video_file_name:'视频文件名',title_name:'标题名',episode_range:'集数区间',revision_comment:'修改意见',can_upload_status:'可上传状态',designated_upload_account_name:'指定上传账号',upload_account_name:'上传账号',upload_date:'上传日期',publish_status:'发布状态',platform_reject_reason:'平台拒审理由',platform_reject_attachments:'拒审附件',permission_type:'数据权限',deleted:'删除状态',oss_assets:'OSS 文件'};
 function submissionOperationValue(field,value){
+  if(field==='deleted')return value?'已删除':'正常';
   if(field==='permission_type')return ({read:'阅读',read_edit:'阅读并编辑'})[value]||'无权限';
   if(value===null||value===undefined||value==='')return '未填写';
   if(field==='can_upload_status')return ({1:'可上传',2:'不可上传',3:'已修改'})[value]||String(value);
   if(field==='publish_status')return ({1:'成功',2:'失败'})[value]||String(value);
-  if(field==='oss_key')return submissionUploadedFileName(String(value))||String(value);
+  if(field==='requires_decode')return Number(value)===1?'需要':'不需要';
+  if(field==='oss_key'||field==='decoded_oss_key')return submissionUploadedFileName(String(value))||String(value);
   if(field==='platform_reject_attachments')return (Array.isArray(value)?value:[]).map(submissionUploadedFileName).filter(Boolean).join('、')||'无';
   return String(value);
 }
 function submissionOperationValueHtml(field,value,submissionId){
-  if(field!=='oss_key'&&field!=='platform_reject_attachments')return esc(submissionOperationValue(field,value));
-  const keys=(field==='oss_key'?[value]:(Array.isArray(value)?value:[])).map(x=>String(x||'').trim()).filter(Boolean);
-  if(!keys.length)return esc(field==='oss_key'?'未填写':'无');
+  if(field!=='oss_key'&&field!=='decoded_oss_key'&&field!=='platform_reject_attachments')return esc(submissionOperationValue(field,value));
+  const keys=((field==='oss_key'||field==='decoded_oss_key')?[value]:(Array.isArray(value)?value:[])).map(x=>String(x||'').trim()).filter(Boolean);
+  if(!keys.length)return esc((field==='oss_key'||field==='decoded_oss_key')?'未填写':'无');
   return keys.map(key=>`<button type="button" class="sb-operation-file" data-key="${encodeURIComponent(key)}" data-submission-id="${esc(submissionId)}" title="查看 ${esc(submissionUploadedFileName(key))}" onclick="previewSubmissionFile(decodeURIComponent(this.dataset.key),this.dataset.submissionId)">${esc(submissionUploadedFileName(key))}</button>`).join('、');
 }
 function renderSubmissionOperations(items,submissionId=''){
   if(!items.length)return '<div class="empty">暂无操作记录</div>';
-  const actionLabels={create:'创建素材提报',update:'编辑素材提报',process:'更新上传与发布信息',permission:'分配素材提报权限'};
+  const actionLabels={create:'创建素材提报',update:'编辑素材提报',process:'更新上传与发布信息',permission:'分配素材提报权限',delete:'删除至回收站',restore:'从回收站恢复',oss_delete:'清理 OSS 文件'};
   return `<div class="sb-operation-list">${items.map(item=>{
     const changes=Array.isArray(item.changes)?item.changes:[];
     const changeHtml=changes.map(change=>{
@@ -1841,19 +1916,124 @@ function submissionFileExtension(key){
 }
 function submissionFileIsImage(ext){return /^(jpg|jpeg|png|gif|webp|svg|bmp|ico)$/i.test(ext)}
 function submissionFileIsVideo(ext){return /^(mp4|mov|avi|mkv|webm|flv|wmv|m4v)$/i.test(ext)}
+function suspendSubmissionListVideoPreloads(){
+  $$('.sb-submission-table-wrap .sb-thumb video').forEach(video=>{
+    const src=video.currentSrc||video.getAttribute('src')||'';
+    if(!src||video.dataset.suspendedSrc)return;
+    video.dataset.suspendedSrc=src;
+    try{video.pause()}catch(_){}
+    video.removeAttribute('src');
+    try{video.load()}catch(_){}
+  });
+}
+function resumeSubmissionListVideoPreloads(){
+  $$('.sb-submission-table-wrap .sb-thumb video[data-suspended-src]').forEach(video=>{
+    const src=video.dataset.suspendedSrc||'';
+    delete video.dataset.suspendedSrc;
+    if(src){video.src=src;video.preload='metadata'}
+  });
+}
 async function getSubmissionFileUrl(key,dl=0,submissionId=''){
   const row=submissionId?MATERIAL_SUBMISSION_ROWS[submissionId]:null;
   if(!dl&&row&&row.oss_key===key&&row.video_url) return row.video_url;
+  if(!dl&&row&&row.decoded_oss_key===key&&row.decoded_video_url) return row.decoded_video_url;
   const params={key,dl:String(dl)};
   if(submissionId) params.submission_id=submissionId;
+  if(row&&row.recycle_bin) params.recycle_bin='true';
   const r=await api('GET','/admin/uploads/url?'+new URLSearchParams(params));
   if(!r.ok){toast('获取文件链接失败',true);return null}
   return r.data.url||null;
 }
+async function resolveSubmissionPlayback(row,sourceUrl){
+  const source={url:sourceUrl,key:row?.oss_key||'',usingDecoded:false};
+  if(!submissionRequiresDecode(row)||!row?.decoded_oss_key||!sourceUrl)return source;
+  const decodedUrl=row.decoded_video_url||await getSubmissionFileUrl(row.decoded_oss_key,0,row.id||'');
+  return decodedUrl?{url:decodedUrl,key:row.decoded_oss_key,usingDecoded:true}:source;
+}
+function submissionRequiresDecode(row){return Number(row?.requires_decode)===1}
+function setSubmissionDecodingState(decoding,text,{error=false,progress=0}={}){
+  decoding.hidden=false;
+  decoding.classList.toggle('error',error);
+  const label=decoding.querySelector('b');
+  if(label)label.textContent=text;
+  const normalized=Math.max(0,Math.min(100,Number(progress)||0));
+  const fill=decoding.querySelector('.sb-detail-decode-progress i');
+  const percent=decoding.querySelector('.sb-detail-decode-percent');
+  if(fill)fill.style.width=normalized+'%';
+  if(percent)percent.textContent=Math.round(normalized)+'%';
+}
+function loadDecodedSubmissionVideo(video,decoding,decodedUrl){
+  decoding.classList.remove('error');
+  const hideDecoding=()=>{if(video.videoWidth>0&&video.videoHeight>0)decoding.hidden=true};
+  video.addEventListener('loadeddata',hideDecoding,{once:true});
+  video.addEventListener('canplay',hideDecoding,{once:true});
+  video.src=decodedUrl;
+  video.load();
+}
+function submissionDecodeStageText(stage){
+  if(stage==='queued')return '等待解码…';
+  if(stage==='downloading')return '正在读取源视频…';
+  if(stage==='uploading')return '正在保存兼容视频…';
+  return '解码中…';
+}
+async function runSubmissionDecode(row,shell,video,decoding){
+  const submissionId=String(row?.id||'');
+  let response=await api('POST',`/admin/material-submissions/${submissionId}/decode`);
+  for(let attempt=0;attempt<3600;attempt++){
+    if(!shell.isConnected||shell.dataset.submissionId!==submissionId)return;
+    if(!response.ok){
+      setSubmissionDecodingState(decoding,response.data?.detail||'解码服务暂不可用',{error:true});
+      return;
+    }
+    const status=response.data||{};
+    if(status.status==='done'&&status.decoded_oss_key){
+      row.decoded_oss_key=status.decoded_oss_key;
+      row.decoded_video_url=status.decoded_video_url||'';
+      MATERIAL_SUBMISSION_ROWS[submissionId]=row;
+      const decodedUrl=status.decoded_video_url||await getSubmissionFileUrl(status.decoded_oss_key,0,submissionId);
+      if(decodedUrl)loadDecodedSubmissionVideo(video,decoding,decodedUrl);
+      else setSubmissionDecodingState(decoding,'兼容视频地址获取失败',{error:true});
+      return;
+    }
+    if(status.status==='not_required'){
+      decoding.hidden=true;
+      return;
+    }
+    if(status.status==='error'){
+      setSubmissionDecodingState(decoding,status.error||'解码失败，请稍后重试',{error:true});
+      return;
+    }
+    setSubmissionDecodingState(decoding,submissionDecodeStageText(status.stage),{progress:status.progress});
+    await new Promise(resolve=>setTimeout(resolve,2000));
+    response=await api('GET',`/admin/material-submissions/${submissionId}/decode`);
+  }
+  setSubmissionDecodingState(decoding,'解码超时，请重新打开详情',{error:true});
+}
+async function activateSubmissionDetailPlayback(row,sourceUrl){
+  const submissionId=String(row?.id||'');
+  const shell=$('#sb-detail-video-shell');
+  if(!shell||shell.dataset.submissionId!==submissionId||!sourceUrl)return;
+  const video=shell.querySelector('video');
+  const decoding=shell.querySelector('.sb-detail-decoding');
+  if(!video||!decoding)return;
+  if(!submissionRequiresDecode(row)){decoding.hidden=true;return}
+  if(row.decoded_oss_key){
+    const decodedUrl=row.decoded_video_url||await getSubmissionFileUrl(row.decoded_oss_key,0,submissionId);
+    if(decodedUrl&&shell.isConnected&&shell.dataset.submissionId===submissionId){
+      loadDecodedSubmissionVideo(video,decoding,decodedUrl);
+    }
+    return;
+  }
+  if(row.recycle_bin){
+    setSubmissionDecodingState(decoding,'该视频需要兼容解码，请先恢复素材',{error:true});
+    return;
+  }
+  setSubmissionDecodingState(decoding,'准备解码…',{progress:0});
+  await runSubmissionDecode(row,shell,video,decoding);
+}
 async function downloadSubmissionPreviewFile(){
   if(!PREVIEW_KEY) return;
-  const url=await getSubmissionFileUrl(PREVIEW_KEY,1,PREVIEW_SUBMISSION_ID);
-  if(url) window.open(url,'_blank');
+  await downloadMaterialSubmissionFile(PREVIEW_KEY,PREVIEW_SUBMISSION_ID);
 }
 async function previewSubmissionFile(key,submissionId=''){
   if(!key){return}
@@ -1868,11 +2048,13 @@ async function previewSubmissionFile(key,submissionId=''){
     $('#pv-foot').innerHTML=`<button class="btn key" onclick="downloadSubmissionPreviewFile()">下载</button>`;
     openSubmissionPreviewModal();
   }else if(submissionFileIsVideo(ext)){
-    const url=await getSubmissionFileUrl(key,0,PREVIEW_SUBMISSION_ID);
-    if(!url) return;
+    const sourceUrl=await getSubmissionFileUrl(key,0,PREVIEW_SUBMISSION_ID);
+    if(!sourceUrl) return;
+    const row=MATERIAL_SUBMISSION_ROWS[PREVIEW_SUBMISSION_ID]||{oss_key:key};
+    const playback=key===row.oss_key?await resolveSubmissionPlayback(row,sourceUrl):{url:sourceUrl,key,usingDecoded:false};
     PREVIEW_KEY=key;
     $('#pv-title').textContent=submissionUploadedFileName(key);
-    $('#pv-body').innerHTML=`<div class="preview" style="margin:0;border-radius:0;border:none"><video src="${esc(url)}" controls preload="metadata"></video></div>`;
+    $('#pv-body').innerHTML=`<div class="preview" style="margin:0;border-radius:0;border:none"><video src="${esc(playback.url)}" controls preload="metadata"></video></div>`;
     $('#pv-foot').innerHTML=`<button class="btn key" onclick="downloadSubmissionPreviewFile()">下载</button>`;
     openSubmissionPreviewModal();
   }else{
@@ -1892,16 +2074,18 @@ async function lazyLoadSubmissionPreviews(){
     const key=el.dataset.key, kind=el.dataset.kind, submissionId=el.dataset.detailId||'',directUrl=el.dataset.url||'';
     if(!key) continue;
     el.classList.add('loaded');
-    const url=directUrl||await getSubmissionFileUrl(key,0,submissionId);
-    if(!url) continue;
+    const sourceUrl=directUrl||await getSubmissionFileUrl(key,0,submissionId);
+    if(!sourceUrl) continue;
     if(kind==='video'){
-      el.innerHTML=`<video src="${esc(url)}" muted preload="metadata"></video>`;
-      el.addEventListener('click',(e)=>{e.stopPropagation();el.dataset.detailId?openMaterialSubmissionDetail(el.dataset.detailId):previewSubmissionFile(key,submissionId);});
+      const row=MATERIAL_SUBMISSION_ROWS[submissionId]||{oss_key:key};
+      const playback=await resolveSubmissionPlayback(row,sourceUrl);
+      el.innerHTML=`<video src="${esc(playback.url)}" muted preload="metadata"></video>`;
+      el.addEventListener('click',(e)=>{e.stopPropagation();el.dataset.detailId?openMaterialSubmissionDetail(el.dataset.detailId,false,el.dataset.recycleBin==='1'):previewSubmissionFile(key,submissionId);});
       el.addEventListener('mouseenter',()=>{const v=el.querySelector('video');if(v)v.play();});
       el.addEventListener('mouseleave',()=>{const v=el.querySelector('video');if(v){v.pause();v.currentTime=0;}});
     }else{
-      el.innerHTML=`<img src="${esc(url)}" loading="lazy" onerror="this.parentElement.remove()">`;
-      el.addEventListener('click',(e)=>{e.stopPropagation();el.dataset.detailId?openMaterialSubmissionDetail(el.dataset.detailId):previewSubmissionFile(key,submissionId);});
+      el.innerHTML=`<img src="${esc(sourceUrl)}" loading="lazy" onerror="this.parentElement.remove()">`;
+      el.addEventListener('click',(e)=>{e.stopPropagation();el.dataset.detailId?openMaterialSubmissionDetail(el.dataset.detailId,false,el.dataset.recycleBin==='1'):previewSubmissionFile(key,submissionId);});
     }
   }
 }function renderSubmissionFieldGrid(s,scope='all'){
@@ -1931,41 +2115,51 @@ async function lazyLoadSubmissionPreviews(){
   return fields.map(([k,v])=>`<div class="sb-field"><div class="kk">${k}</div><div class="vv">${v}</div></div>`).join('');
 }
 function renderSubmissionSuggestInput(id,value='',placeholder=''){
-  return `<div class="suggest-wrap"><input id="${id}" value="${esc(value||'')}" placeholder="${esc(placeholder||'')}" autocomplete="off" onfocus="openSubmissionSuggest('${id}')" oninput="onSubmissionSuggestInput('${id}')" onblur="scheduleSubmissionSuggestClose('${id}')"><div id="${id}-suggest" class="suggest-dropdown" hidden></div></div>`;
+  return `<div class="suggest-wrap"><input id="${id}" value="${esc(value||'')}" placeholder="${esc(placeholder||'')}" autocomplete="off" onfocus="openSubmissionSuggest('${id}')" oninput="onSubmissionSuggestInput('${id}')" onblur="scheduleSubmissionSuggestClose('${id}')"><div id="${id}-suggest" class="suggest-dropdown" style="max-height:min(260px,36vh);overflow-x:hidden;overflow-y:auto;align-content:start" hidden></div></div>`;
 }
 function renderSubmissionRejectAttachmentItems(keys){
   const rows=(keys||[]).map((k,i)=>`<div class="qrow" style="padding:8px 12px"><div class="meta"><div style="font-size:12.5px;word-break:break-all">${esc(submissionUploadedFileName(k))}</div></div><button class="btn sm block" type="button" onclick="removeSubmissionRejectAttachment(${i})">删除</button></div>`).join('');
   return rows||'<div class="empty" style="padding:12px 0"><b class="disp">还没有附件</b>上传后会自动出现在这里。</div>'
 }
-async function refreshSubmissionAccountNameOptions(keyword=''){
+async function refreshSubmissionAccountNameOptions(keyword='',recycleBin=false){
   const qs=new URLSearchParams({limit:'200'});
   if(keyword) qs.set('keyword', keyword);
+  if(recycleBin) qs.set('recycle_bin','true');
   const r=await api('GET','/admin/material-submissions/upload-account-names?'+qs.toString());
   if(!r.ok) return [];
   SUBMISSION_ACCOUNT_NAME_OPTIONS=r.data.items||[];
   return SUBMISSION_ACCOUNT_NAME_OPTIONS;
 }
-async function refreshSubmissionDramaNameOptions(keyword=''){
+async function refreshSubmissionDramaNameOptions(keyword='',recycleBin=false){
   const qs=new URLSearchParams({limit:'200'});
   if(keyword) qs.set('keyword', keyword);
+  if(recycleBin) qs.set('recycle_bin','true');
   const r=await api('GET','/admin/material-submissions/drama-names?'+qs.toString());
   if(!r.ok) return [];
   SUBMISSION_DRAMA_NAME_OPTIONS=r.data.items||[];
   return SUBMISSION_DRAMA_NAME_OPTIONS;
 }
-async function refreshSubmissionDesignatedAccountNameOptions(keyword=''){
+async function refreshSubmissionTeamNameOptions(keyword='',recycleBin=false){
   const qs=new URLSearchParams({limit:'200'});
   if(keyword) qs.set('keyword', keyword);
+  if(recycleBin) qs.set('recycle_bin','true');
+  const r=await api('GET','/admin/material-submissions/team-names?'+qs.toString());
+  if(!r.ok) return [];
+  SUBMISSION_TEAM_NAME_OPTIONS=r.data.items||[];
+  return SUBMISSION_TEAM_NAME_OPTIONS;
+}
+async function refreshSubmissionDesignatedAccountNameOptions(keyword='',recycleBin=false){
+  const qs=new URLSearchParams({limit:'200'});
+  if(keyword) qs.set('keyword', keyword);
+  if(recycleBin) qs.set('recycle_bin','true');
   const r=await api('GET','/admin/material-submissions/designated-upload-account-names?'+qs.toString());
   if(!r.ok) return [];
   SUBMISSION_DESIGNATED_ACCOUNT_NAME_OPTIONS=r.data.items||[];
   return SUBMISSION_DESIGNATED_ACCOUNT_NAME_OPTIONS;
 }
-async function refreshSubmissionCreatorOptions(){
-  const r=await api('GET','/admin/material-submissions/creator-accounts');
-  if(!r.ok)return [];
-  SUBMISSION_CREATOR_OPTIONS=r.data.items||[];
-  ['sb-ft-created-by','bp-created-by'].forEach(id=>{
+function renderSubmissionCreatorOptions(items,recycleBin=false){
+  SUBMISSION_CREATOR_OPTIONS=items||[];
+  (recycleBin?['tb-ft-created-by']:['sb-ft-created-by','bp-created-by']).forEach(id=>{
     const select=$(`#${id}`);if(!select)return;
     const current=select.value;
     select.innerHTML='<option value="">全部</option>'+SUBMISSION_CREATOR_OPTIONS.map(x=>`<option value="${esc(x.id)}">${esc(x.name)}</option>`).join('');
@@ -1973,17 +2167,34 @@ async function refreshSubmissionCreatorOptions(){
   });
   return SUBMISSION_CREATOR_OPTIONS;
 }
+function invalidateSubmissionCreatorOptions(){
+  SUBMISSION_CREATOR_CACHE.active=null;SUBMISSION_CREATOR_CACHE.trash=null;
+}
+async function refreshSubmissionCreatorOptions(recycleBin=false,{force=false}={}){
+  const cacheKey=recycleBin?'trash':'active';
+  if(force)SUBMISSION_CREATOR_CACHE[cacheKey]=null;
+  if(SUBMISSION_CREATOR_CACHE[cacheKey])return renderSubmissionCreatorOptions(SUBMISSION_CREATOR_CACHE[cacheKey],recycleBin);
+  if(!SUBMISSION_CREATOR_PROMISE[cacheKey]){
+    SUBMISSION_CREATOR_PROMISE[cacheKey]=api('GET','/admin/material-submissions/creator-accounts'+(recycleBin?'?recycle_bin=true':''))
+      .then(r=>{if(r.ok)SUBMISSION_CREATOR_CACHE[cacheKey]=r.data.items||[];return SUBMISSION_CREATOR_CACHE[cacheKey]||[]})
+      .finally(()=>{SUBMISSION_CREATOR_PROMISE[cacheKey]=null});
+  }
+  return renderSubmissionCreatorOptions(await SUBMISSION_CREATOR_PROMISE[cacheKey],recycleBin);
+}
 function submissionSuggestKind(id){
   if(id.includes('designated-account')) return 'designated-account';
-  return id.includes('account')?'account':'drama';
+  if(id.includes('account')) return 'account';
+  return id.includes('team')?'team':'drama';
 }
 async function loadSubmissionSuggest(id,keyword=''){
   const box=$(`#${id}-suggest`);
   if(!box) return;
   const kind=submissionSuggestKind(id);
+  const recycleBin=id.startsWith('tb-');
   const items=kind==='designated-account'
-    ? await refreshSubmissionDesignatedAccountNameOptions(keyword)
-    : (kind==='account' ? await refreshSubmissionAccountNameOptions(keyword) : await refreshSubmissionDramaNameOptions(keyword));
+    ? await refreshSubmissionDesignatedAccountNameOptions(keyword,recycleBin)
+    : (kind==='account' ? await refreshSubmissionAccountNameOptions(keyword,recycleBin)
+      : (kind==='team' ? await refreshSubmissionTeamNameOptions(keyword,recycleBin) : await refreshSubmissionDramaNameOptions(keyword,recycleBin)));
   if(!items.length){
     box.innerHTML='<div class="suggest-empty">没有匹配项</div>';
     box.hidden=false;
@@ -2026,19 +2237,19 @@ function submissionStatusChip(kind,v){
   const txt=map[v]||'—';
   return txt==='—'?`<span class="k">—</span>`:`<span class="stamp ${v===2?'block':'review'}">${txt}</span>`;
 }
-function renderSubmissionTableCell(kind,s){
+function renderSubmissionTableCell(kind,s,recycleBin=false){
   if(kind==='title_name'){
     const title=String(s.title_name||'').trim();
     if(!title) return '<span class="k">—</span>';
-    return `<button class="sb-title-link sb-copy-anchor" type="button" data-copy-text="${esc(title)}" onmouseenter="showSubmissionCopyPopover(this)" onmouseleave="scheduleSubmissionCopyPopoverHide()" onclick="openMaterialSubmissionDetail('${s.id}')">${esc(title)}</button>`;
+    return `<button class="sb-title-link sb-copy-anchor" type="button" data-copy-text="${esc(title)}" onmouseenter="showSubmissionCopyPopover(this)" onmouseleave="scheduleSubmissionCopyPopoverHide()" onclick="openMaterialSubmissionDetail('${s.id}',false,${recycleBin?'true':'false'})">${esc(title)}</button>`;
   }
   if(kind==='video_oss'){
     const oss=s.oss_key||'';
     if(!oss) return '<span class="k">—</span>';
     const ext=submissionFileExtension(oss);
     const canPreview=submissionFileIsImage(ext)||submissionFileIsVideo(ext);
-    if(!canPreview) return `<button class="sb-title-link" type="button" onclick="openMaterialSubmissionDetail('${s.id}')">${esc(submissionUploadedFileName(oss))}</button>`;
-    return `<div class="sb-thumb" data-key="${esc(oss)}" data-url="${esc(s.video_url||'')}" data-kind="${submissionFileIsVideo(ext)?'video':'image'}" data-detail-id="${s.id}" title="查看提报详情" style="width:110px;max-width:100%;height:62px;box-sizing:border-box;border-radius:7px;overflow:hidden;background:var(--raise);border:1px solid var(--line);display:flex;align-items:center;justify-content:center;color:var(--dim);font-size:12px;cursor:pointer">▶</div>`;
+    if(!canPreview) return `<button class="sb-title-link" type="button" onclick="openMaterialSubmissionDetail('${s.id}',false,${recycleBin?'true':'false'})">${esc(submissionUploadedFileName(oss))}</button>`;
+    return `<div class="sb-thumb" data-key="${esc(oss)}" data-url="${esc(s.video_url||'')}" data-kind="${submissionFileIsVideo(ext)?'video':'image'}" data-detail-id="${s.id}" data-recycle-bin="${recycleBin?'1':'0'}" title="查看提报详情" style="width:110px;max-width:100%;height:62px;box-sizing:border-box;border-radius:7px;overflow:hidden;background:var(--raise);border:1px solid var(--line);display:flex;align-items:center;justify-content:center;color:var(--dim);font-size:12px;cursor:pointer">▶</div>`;
   }
   if(kind==='video_file_name') return submissionValueHtml(s.video_file_name);
   if(kind==='status_upload') return submissionStatusChip('upload',s.can_upload_status);
@@ -2062,9 +2273,10 @@ function renderMaterialSubmissionEditForm(s,isNew){
   const canUp=Number(x.can_upload_status), pub=Number(x.publish_status);
   const baseFields=`<input type="hidden" id="sb-d-id" value="${esc(x.id||'')}">
     <input type="hidden" id="sb-d-oss-key" value="${esc(x.oss_key||'')}">
+    <input type="hidden" id="sb-d-decoded-oss-key" value="${esc(x.decoded_oss_key||'')}">
     <div class="sb-section"><h4>基本信息</h4>
     <div class="row" style="align-items:flex-end;flex-wrap:wrap;gap:12px">
-      <div class="field f-grow" style="margin:0"><label>团队名称</label><input id="sb-d-team" value="${esc(x.team_name||'')}"></div>
+      <div class="field f-grow" style="margin:0"><label>团队名称</label>${renderSubmissionSuggestInput('sb-d-team',x.team_name||'','')}</div>
       <div class="field f-grow" style="margin:0"><label>视频交付时间</label><input id="sb-d-delivery" value="${esc(x.delivery_time||'')}"></div>
       <div class="field f-grow" style="margin:0"><label>剧名</label>${renderSubmissionSuggestInput('sb-d-drama',x.drama_name||'','')}</div>
     </div>
@@ -2110,26 +2322,33 @@ async function openMaterialSubmissionEdit(id){
   if(!r.ok){toast(r.data.detail||'加载提报失败',true);return}
   openAdminDrawer('编辑素材提报',renderMaterialSubmissionEditForm(r.data||{},false));
 }
-async function openMaterialSubmissionDetail(id,returnToBatch=false){
+async function openMaterialSubmissionDetail(id,returnToBatch=false,recycleBin=false){
   openAdminDrawer('详情','<div class="empty">加载中…</div>');
-  const r=await api('GET','/admin/material-submissions/'+id);
+  suspendSubmissionListVideoPreloads();
+  const detailBase=recycleBin?'/admin/material-submissions/recycle-bin/':'/admin/material-submissions/';
+  const r=await api('GET',detailBase+id);
   if(!r.ok){$('#d-body').innerHTML='<div class="empty"><b class="disp">加载失败</b>请稍后重试。</div>';toast(r.data.detail||'加载提报失败',true);return}
   const x=r.data||{};
-  const [mediaUrl,operationResult]=await Promise.all([
-    x.oss_key?Promise.resolve(x.video_url||getSubmissionFileUrl(x.oss_key,0,x.id||id)):Promise.resolve(''),
-    api('GET',`/admin/material-submissions/${x.id||id}/operations`)
-  ]);
-  const operations=operationResult.ok?(operationResult.data.operations||[]):[];
+  x.recycle_bin=recycleBin;
+  MATERIAL_SUBMISSION_ROWS[x.id||id]=x;
+  const needsDecode=submissionRequiresDecode(x);
+  const useDecoded=needsDecode&&Boolean(x.decoded_oss_key);
+  const preferredMediaKey=(useDecoded?x.decoded_oss_key:x.oss_key)||'';
+  const preferredMediaUrl=useDecoded?x.decoded_video_url:x.video_url;
+  const operationPromise=api('GET',`${detailBase}${x.id||id}/operations`);
+  const mediaUrl=preferredMediaKey?(preferredMediaUrl||await getSubmissionFileUrl(preferredMediaKey,0,x.id||id)):'';
   const ext=submissionFileExtension(x.oss_key||'');
+  const playerUrl=needsDecode&&!x.decoded_oss_key?'':mediaUrl;
   const media=mediaUrl&&submissionFileIsVideo(ext)
-    ? `<video src="${esc(mediaUrl)}" controls preload="metadata"></video>`
+    ? `<div class="sb-detail-video-shell" id="sb-detail-video-shell" data-submission-id="${esc(x.id||id)}"><video src="${esc(playerUrl)}" controls preload="auto" playsinline></video><div class="sb-detail-decoding" hidden><b>准备解码…</b><div class="sb-detail-decode-progress"><i></i></div><span class="sb-detail-decode-percent">0%</span><span class="sb-detail-decode-reason">原视频编码暂不支持网页播放</span></div></div>`
     : (mediaUrl&&submissionFileIsImage(ext)
       ? `<img src="${esc(mediaUrl)}" alt="${esc(x.title_name||x.video_file_name||'素材预览')}">`
       : `<div class="sb-detail-media-empty"><span style="font-size:34px">▶</span><b>${x.oss_key?'该文件暂不支持在线预览':'暂无视频文件'}</b></div>`);
   const basicFields=[
     ['团队名称',submissionValueHtml(x.team_name)],['视频交付时间',submissionValueHtml(x.delivery_time)],
     ['剧名',submissionValueHtml(x.drama_name)],['视频文件名',submissionValueHtml(x.video_file_name)],
-    ['标题名',submissionValueHtml(x.title_name)],['集数区间',submissionValueHtml(x.episode_range)]
+    ['标题名',submissionValueHtml(x.title_name)],['集数区间',submissionValueHtml(x.episode_range)],
+    ['兼容解码',needsDecode?'需要':'不需要']
   ];
   const processFields=[
     ['可上传状态',submissionStatusChip('upload',x.can_upload_status)],
@@ -2147,10 +2366,12 @@ async function openMaterialSubmissionDetail(id,returnToBatch=false){
   const fieldGrid=fields=>`<div class="sb-field-grid">${fields.map(([k,v])=>`<div class="sb-field"><div class="kk">${k}</div><div class="vv">${v}</div></div>`).join('')}</div>`;
   const mediaActions=`<div class="sb-detail-media-actions"><span class="sb-detail-media-name" title="${esc(submissionUploadedFileName(x.oss_key||''))}">${esc(submissionUploadedFileName(x.oss_key||'')||'暂无视频文件')}</span><button class="btn sm key" data-key="${encodeURIComponent(x.oss_key||'')}" onclick="downloadMaterialSubmissionFile(decodeURIComponent(this.dataset.key),'${esc(x.id||id)}')">下载</button></div>`;
   const actions=`<div class="sb-action-bar" style="padding-top:14px;border-top:1px solid var(--line)">
+    ${recycleBin?(x.can_edit?`<button class="btn key" onclick="restoreMaterialSubmission('${esc(x.id||id)}',true)">恢复</button>`:''):''}
+    ${recycleBin?'':`
     ${returnToBatch?'<button class="btn" onclick="closeDrawer()">返回权限分配</button>':''}
     ${x.can_edit?`<button class="btn key" onclick="openMaterialSubmissionEdit('${esc(x.id||id)}')">编辑</button>`:''}
     ${ME.role==='admin'?`<button class="btn key" onclick="openMaterialSubmissionPermissions('${esc(x.id||id)}')">分配</button>`:''}
-    ${x.can_edit?`<button class="btn block" onclick="deleteMaterialSubmissionFromDrawer('${esc(x.id||id)}')">删除</button>`:''}
+    ${x.can_edit?`<button class="btn block" onclick="deleteMaterialSubmissionFromDrawer('${esc(x.id||id)}')">删除</button>`:''}`}
   </div>`;
   $('#d-body').innerHTML=`<div class="sb-detail-head"><div><h3>${esc(x.title_name||'未命名素材')}</h3><p>${esc(x.drama_name||'未填写剧名')} · ${esc(x.episode_range||'未填写集数区间')}</p></div>${submissionStatusChip('publish',x.publish_status)}</div>
     <div class="sb-detail-media-block"><div class="sb-detail-media">${media}</div>${mediaActions}</div>
@@ -2158,7 +2379,16 @@ async function openMaterialSubmissionDetail(id,returnToBatch=false){
     <div class="sb-detail-card"><h4>上传与发布</h4>${fieldGrid(processFields)}</div>
     <div class="sb-detail-card"><h4>审核反馈</h4>${fieldGrid(rejectFields)}</div>
     <div class="sb-detail-card"><h4>记录信息</h4>${fieldGrid(auditFields)}</div>
-    <div class="sb-detail-card"><h4>操作记录</h4>${renderSubmissionOperations(operations,x.id||id)}</div>${actions}`;
+    <div class="sb-detail-card"><h4>操作记录</h4><div id="sb-detail-operations" data-submission-id="${esc(x.id||id)}"><div class="k">加载中…</div></div></div>${actions}`;
+  if(mediaUrl&&submissionFileIsVideo(ext)&&needsDecode&&!x.decoded_oss_key){
+    activateSubmissionDetailPlayback(x,mediaUrl);
+  }
+  operationPromise.then(operationResult=>{
+    const target=$('#sb-detail-operations');
+    if(!target||target.dataset.submissionId!==String(x.id||id))return;
+    const operations=operationResult.ok?(operationResult.data.operations||[]):[];
+    target.innerHTML=renderSubmissionOperations(operations,x.id||id);
+  });
   lazyLoadSubmissionPreviews();
 }
 async function openMaterialSubmissionPermissions(id){
@@ -2182,7 +2412,10 @@ async function saveMaterialSubmissionPermissions(id){
 
 async function downloadMaterialSubmissionFile(key,submissionId=''){
   if(!key){toast('该提报暂无可下载的视频文件',true);return}
-  const url=await getSubmissionFileUrl(key,1,submissionId);
+  const row=MATERIAL_SUBMISSION_ROWS[submissionId]||null;
+  const isSubmissionVideo=row&&(key===row.oss_key||key===row.decoded_oss_key);
+  const downloadKey=isSubmissionVideo?row.oss_key:key;
+  const url=await getSubmissionFileUrl(downloadKey,1,submissionId);
   if(url) window.open(url,'_blank');
 }
 function syncMaterialSubmissionSelectedFile(){
@@ -2201,22 +2434,30 @@ function formatUploadBytes(value){
 }
 function uploadFormWithProgress(path,formData,onProgress,onTransferred){
   return new Promise(resolve=>{
-    const xhr=new XMLHttpRequest();
-    xhr.open('POST',path,true);
-    Object.entries(H()).forEach(([key,value])=>xhr.setRequestHeader(key,value));
-    xhr.upload.onprogress=event=>{
-      if(onProgress)onProgress(event.loaded,event.total,event.lengthComputable);
+    const send=retried=>{
+      const requestToken=ME?.token;
+      const xhr=new XMLHttpRequest();
+      xhr.open('POST',path,true);
+      Object.entries(H()).forEach(([key,value])=>xhr.setRequestHeader(key,value));
+      xhr.upload.onprogress=event=>{
+        if(onProgress)onProgress(event.loaded,event.total,event.lengthComputable);
+      };
+      xhr.upload.onload=()=>{if(onTransferred)onTransferred()};
+      xhr.onerror=()=>resolve({ok:false,status:0,data:{detail:'网络连接失败'}});
+      xhr.onabort=()=>resolve({ok:false,status:0,data:{detail:'上传已取消'}});
+      xhr.onload=async()=>{
+        let data={};
+        try{data=JSON.parse(xhr.responseText||'{}')}catch(e){}
+        if(xhr.status===401&&ME){
+          if(!retried&&requestToken&&ME.token!==requestToken){send(true);return}
+          if(!retried&&await refreshSession()){send(true);return}
+          sessionExpired();
+        }
+        resolve({ok:xhr.status>=200&&xhr.status<300,status:xhr.status,data});
+      };
+      xhr.send(formData);
     };
-    xhr.upload.onload=()=>{if(onTransferred)onTransferred()};
-    xhr.onerror=()=>resolve({ok:false,status:0,data:{detail:'网络连接失败'}});
-    xhr.onabort=()=>resolve({ok:false,status:0,data:{detail:'上传已取消'}});
-    xhr.onload=()=>{
-      let data={};
-      try{data=JSON.parse(xhr.responseText||'{}')}catch(e){}
-      if(xhr.status===401&&ME)sessionExpired();
-      resolve({ok:xhr.status>=200&&xhr.status<300,status:xhr.status,data});
-    };
-    xhr.send(formData);
+    send(false);
   });
 }
 async function handleSubmissionFilePicked(){
@@ -2230,17 +2471,26 @@ function setSubmissionBaseFileState(cls,text){
 function setSubmissionBaseFileProgress(loaded,total){
   const el=$('#sb-d-file-state');if(!el)return;
   const phasePercent=total>0?Math.min(100,loaded/total*100):0;
-  const percent=Math.round(phasePercent*.5);
+  const percent=Math.round(phasePercent*.4);
   el.hidden=false;el.className='sb-upload-state loading with-progress';
-  el.innerHTML=`<div class="sb-upload-progress-head"><span>正在上传到服务器</span><b>${percent}%</b></div><div class="sb-upload-progress-track"><i class="sb-upload-progress-bar" style="width:${percent}%"></i></div><div class="sb-upload-progress-meta">阶段 1/2 · ${formatUploadBytes(loaded)} / ${formatUploadBytes(total)}</div>`;
+  el.innerHTML=`<div class="sb-upload-progress-head"><span>正在上传到服务器</span><b>${percent}%</b></div><div class="sb-upload-progress-track"><i class="sb-upload-progress-bar" style="width:${percent}%"></i></div><div class="sb-upload-progress-meta">阶段 1/3 · ${formatUploadBytes(loaded)} / ${formatUploadBytes(total)}</div>`;
 }
-function setSubmissionBaseFileProcessing(percent=0,loaded=0,total=0){
+function setSubmissionBaseFileProcessing(data={}){
   const el=$('#sb-d-file-state');if(!el)return;
-  const phasePercent=Math.max(0,Math.min(100,Number(percent)||0));
-  const value=50+phasePercent*.5;
-  const meta=total>0?`${formatUploadBytes(loaded)} / ${formatUploadBytes(total)}`:'正在等待服务器返回存储进度';
+  const stage=data.stage||'storage',loaded=Number(data.loaded)||0,total=Number(data.total)||0;
+  const phasePercent=Math.max(0,Math.min(100,total>0?loaded/total*100:Number(data.progress)||0));
+  let value=40,label='服务器正在写入源文件',meta=`阶段 2/3 · ${total>0?`${formatUploadBytes(loaded)} / ${formatUploadBytes(total)}`:'正在等待服务器进度'}`;
+  if(stage==='storage')value=40+phasePercent*.3;
+  if(stage==='inspecting'){
+    value=70;label='正在检测视频编码';meta='阶段 3/3 · 正在判断是否需要生成兼容视频';
+  }else if(stage==='transcoding'){
+    const transcodePercent=Math.max(0,Math.min(100,Number(data.progress)||phasePercent));
+    value=70+transcodePercent*.25;label='检测到 HEVC，正在生成兼容视频';meta=`阶段 3/3 · 转码 ${Math.round(transcodePercent)}% · 请保持页面开启`;
+  }else if(stage==='decoded_storage'){
+    value=95+phasePercent*.05;label='正在保存兼容视频';meta=`阶段 3/3 · ${total>0?`${formatUploadBytes(loaded)} / ${formatUploadBytes(total)}`:'即将完成'}`;
+  }
   el.hidden=false;el.className='sb-upload-state loading with-progress';
-  el.innerHTML=`<div class="sb-upload-progress-head"><span>服务器正在写入存储</span><b>${Math.round(value)}%</b></div><div class="sb-upload-progress-track"><i class="sb-upload-progress-bar" style="width:${value}%"></i></div><div class="sb-upload-progress-meta">阶段 2/2 · ${meta} · 请保持页面开启</div>`;
+  el.innerHTML=`<div class="sb-upload-progress-head"><span>${label}</span><b>${Math.round(value)}%</b></div><div class="sb-upload-progress-track"><i class="sb-upload-progress-bar" style="width:${value}%"></i></div><div class="sb-upload-progress-meta">${meta}</div>`;
 }
 function newSubmissionUploadId(){
   if(globalThis.crypto?.randomUUID)return crypto.randomUUID().replace(/-/g,'');
@@ -2251,9 +2501,8 @@ async function pollSubmissionServerProgress(uploadId,token){
     const r=await api('GET',`/admin/uploads/progress/${encodeURIComponent(uploadId)}`);
     if(token!==SUBMISSION_SERVER_PROGRESS_TOKEN)return;
     if(r.ok){
-      const data=r.data||{},loaded=Number(data.loaded)||0,total=Number(data.total)||0;
-      const percent=total>0?Math.min(100,loaded/total*100):(data.status==='done'?100:0);
-      setSubmissionBaseFileProcessing(percent,loaded,total);
+      const data=r.data||{};
+      setSubmissionBaseFileProcessing(data);
       if(data.status==='done'||data.status==='error')return;
     }
     await new Promise(resolve=>setTimeout(resolve,400));
@@ -2271,19 +2520,22 @@ async function uploadMaterialSubmissionBaseFile(){
   SUBMISSION_BASE_UPLOAD_IN_PROGRESS=true;
   const progressToken=++SUBMISSION_SERVER_PROGRESS_TOKEN;
   const fileInput=$('#sb-d-file'),saveButton=$('#sb-save-submit');
-  if(fileInput)fileInput.disabled=true;if(saveButton)saveButton.disabled=true;
+  if(fileInput)fileInput.disabled=true;
+  if(saveButton){saveButton.dataset.idleText=saveButton.textContent||'保存';saveButton.textContent='视频处理中…';saveButton.setAttribute('aria-disabled','true')}
   setSubmissionBaseFileProgress(0,f.size||0);
   const r=await uploadFormWithProgress(
     '/admin/uploads/file',fd,
     (loaded,total,computable)=>computable&&setSubmissionBaseFileProgress(loaded,total),
-    ()=>{setSubmissionBaseFileProcessing();pollSubmissionServerProgress(uploadId,progressToken)},
+    ()=>{setSubmissionBaseFileProcessing({stage:'storage'});pollSubmissionServerProgress(uploadId,progressToken)},
   );
   SUBMISSION_BASE_UPLOAD_IN_PROGRESS=false;
   SUBMISSION_SERVER_PROGRESS_TOKEN++;
-  if(fileInput)fileInput.disabled=false;if(saveButton)saveButton.disabled=false;
+  if(fileInput)fileInput.disabled=false;
+  if(saveButton){saveButton.textContent=saveButton.dataset.idleText||'保存';delete saveButton.dataset.idleText;saveButton.removeAttribute('aria-disabled')}
   if(!r.ok){setSubmissionBaseFileState('error','上传失败');toast(r.data.detail||'上传失败',true);return}
   const key=r.data.oss_key||'';
   if($('#sb-d-oss-key')) $('#sb-d-oss-key').value=key;
+  if($('#sb-d-decoded-oss-key')) $('#sb-d-decoded-oss-key').value=r.data.decoded_oss_key||'';
   if(!($('#sb-d-video-file')?.value||'').trim()) $('#sb-d-video-file').value=r.data.file_name||f.name||'';
   const note=$('#sb-d-file-note');if(note)note.textContent='当前视频文件：'+(r.data.file_name||f.name||'已上传文件');
   setSubmissionBaseFileState('done','已上传');
@@ -2333,6 +2585,7 @@ function materialSubmissionFullBody(){return {
   delivery_time:($('#sb-d-delivery')?.value||'').trim(),
   drama_name:($('#sb-d-drama')?.value||'').trim(),
   oss_key:($('#sb-d-oss-key')?.value||'').trim(),
+  decoded_oss_key:($('#sb-d-decoded-oss-key')?.value||'').trim(),
   video_file_name:($('#sb-d-video-file')?.value||'').trim(),
   title_name:($('#sb-d-title')?.value||'').trim(),
   episode_range:($('#sb-d-episode')?.value||'').trim(),
@@ -2347,6 +2600,7 @@ function materialSubmissionFullBody(){return {
 }}
 
 function submissionQuery(v){const qs=new URLSearchParams({page:v.page,size:v.size});
+  if(v.team_name)qs.set('team_name',v.team_name);
   if(v.drama_name)qs.set('drama_name',v.drama_name);
   if(v.title_name)qs.set('title_name',v.title_name);
   if(v.can_upload_status!=='')qs.set('can_upload_status',v.can_upload_status);
@@ -2356,22 +2610,27 @@ function submissionQuery(v){const qs=new URLSearchParams({page:v.page,size:v.siz
   if(v.publish_status!=='')qs.set('publish_status',v.publish_status);
   if(v.sort_by){qs.set('sort_by',v.sort_by);qs.set('sort_order',v.sort_order)}
   return qs.toString()}
-function submissionSortHead(key,label){
-  const v=V.submissions,active=v.sort_by===key,order=active?v.sort_order:'';
+function submissionSortHead(key,label,vkey='submissions'){
+  const v=V[vkey],active=v.sort_by===key,order=active?v.sort_order:'';
   const hint=order==='asc'?'升序，点击切换为降序':order==='desc'?'降序，点击取消排序':`按${label}排序`;
-  return `<span class="sb-sort-head"><span>${label}</span><button type="button" class="sb-sort-btn ${order}" title="${hint}" aria-label="${hint}" aria-pressed="${active?'true':'false'}" onclick="toggleSubmissionSort('${key}')"><span class="sb-sort-arrow up"></span><span class="sb-sort-arrow down"></span></button></span>`;
+  return `<span class="sb-sort-head"><span>${label}</span><button type="button" class="sb-sort-btn ${order}" title="${hint}" aria-label="${hint}" aria-pressed="${active?'true':'false'}" onclick="toggleSubmissionSort('${key}','${vkey}')"><span class="sb-sort-arrow up"></span><span class="sb-sort-arrow down"></span></button></span>`;
 }
-function toggleSubmissionSort(key){
-  const v=V.submissions;
+function toggleSubmissionSort(key,vkey='submissions'){
+  const v=V[vkey];
   if(v.sort_by!==key){v.sort_by=key;v.sort_order='asc'}
   else if(v.sort_order==='asc')v.sort_order='desc';
   else{v.sort_by='';v.sort_order=''}
-  v.page=1;loadMaterialSubmissions();
+  v.page=1;LOADER[vkey]();
 }
 async function loadMaterialSubmissions(){
   const v=V.submissions;showSkeleton('#sb-list',v.size);
-  refreshSubmissionCreatorOptions();
-  const r=await api('GET','/admin/material-submissions?'+submissionQuery(v));
+  const state=SUBMISSION_LIST_REQUEST.active;
+  if(state.controller)state.controller.abort();
+  const controller=new AbortController(),sequence=++state.sequence;state.controller=controller;
+  const button=$('#sb-query-btn');if(button)button.disabled=true;
+  const r=await api('GET','/admin/material-submissions?'+submissionQuery(v),null,false,{signal:controller.signal});
+  if(sequence!==state.sequence||r.aborted)return;
+  state.controller=null;if(button)button.disabled=false;
   if(!r.ok){$('#sb-list').innerHTML='<div class="empty"><b class="disp">加载失败</b>请稍后重试。</div>';return}
   v.total=r.data.total??0;setCnt('submissions',v.total);
   const rows=r.data.submissions||[];
@@ -2381,6 +2640,7 @@ async function loadMaterialSubmissions(){
     ['title_name','标题名','cell-title head-content'],
     ['drama_name','剧名','cell-drama head-content'],
     ['episode_range','集数区间','cell-balanced head-content'],
+    ['team_name','团队名称','cell-balanced head-content'],
     ['status_upload','可上传状态','cell-balanced head-workflow'],
     ['designated_upload_account_name','指定上传账号','cell-account-wide head-workflow'],
     ['upload_account_name','上传账号','cell-account-wide head-workflow'],
@@ -2390,12 +2650,13 @@ async function loadMaterialSubmissions(){
     ['created_by_name','创建账号','cell-balanced head-audit'],
     ['created_time','创建时间','cell-balanced head-audit'],
   ];
-  $('#sb-list').innerHTML=rows.length?`<div class="sb-table-wrap sb-submission-table-wrap"><table class="sb-table sb-submission-table"><thead><tr>${cols.map(([key,label,cls])=>`<th class="${cls}">${key==='upload_date'||key==='created_time'?submissionSortHead(key,label):label}</th>`).join('')}<th class="cell-actions">操作</th></tr></thead><tbody>${rows.map(s=>`<tr>${cols.map(([key,,cls])=>`<td class="${cls}">${renderSubmissionTableCell(key,s)}</td>`).join('')}<td class="cell-actions"><div class="sb-row-actions"><button class="btn key sb-icon-btn" title="详情" aria-label="详情" onclick="openMaterialSubmissionDetail('${s.id}')">ⓘ</button><button class="btn key sb-icon-btn" title="下载" aria-label="下载" data-key="${encodeURIComponent(s.oss_key||'')}" onclick="downloadMaterialSubmissionFile(decodeURIComponent(this.dataset.key),'${s.id}')">↓</button>${s.can_edit?`<button class="btn key sb-icon-btn" title="编辑" aria-label="编辑" onclick="openMaterialSubmissionEdit('${s.id}')">✎</button><button class="btn block sb-icon-btn" title="删除" aria-label="删除" onclick="deleteMaterialSubmissions(['${s.id}'])">×</button>`:''}</div></td></tr>`).join('')}</tbody></table></div>`:'<div class="empty"><b class="disp">还没有素材提报</b>点右上角“新建”创建一条提报记录。</div>';
+  $('#sb-list').innerHTML=rows.length?`<div class="sb-table-wrap sb-submission-table-wrap"><table class="sb-table sb-submission-table"><thead><tr>${cols.map(([key,label,cls])=>`<th class="${cls}">${key==='team_name'||key==='upload_date'||key==='created_time'?submissionSortHead(key,label):label}</th>`).join('')}<th class="cell-actions">操作</th></tr></thead><tbody>${rows.map(s=>`<tr>${cols.map(([key,,cls])=>`<td class="${cls}">${renderSubmissionTableCell(key,s)}</td>`).join('')}<td class="cell-actions"><div class="sb-row-actions"><button class="btn key sb-icon-btn" title="详情" aria-label="详情" onclick="openMaterialSubmissionDetail('${s.id}')">ⓘ</button><button class="btn key sb-icon-btn" title="下载" aria-label="下载" data-key="${encodeURIComponent(s.oss_key||'')}" onclick="downloadMaterialSubmissionFile(decodeURIComponent(this.dataset.key),'${s.id}')">↓</button>${s.can_edit?`<button class="btn key sb-icon-btn" title="编辑" aria-label="编辑" onclick="openMaterialSubmissionEdit('${s.id}')">✎</button><button class="btn block sb-icon-btn" title="删除" aria-label="删除" onclick="deleteMaterialSubmissions(['${s.id}'])">×</button>`:''}</div></td></tr>`).join('')}</tbody></table></div>`:'<div class="empty"><b class="disp">还没有素材提报</b>点右上角“新建”创建一条提报记录。</div>';
   renderPager('#sb-pager','submissions');
   lazyLoadSubmissionPreviews();
 }
 function applySubmissionFilters(){
   const v=V.submissions;
+  v.team_name=($('#sb-ft-team').value||'').trim();
   v.drama_name=($('#sb-ft-drama').value||'').trim();
   v.title_name=($('#sb-ft-title').value||'').trim();
   v.can_upload_status=$('#sb-ft-can-upload').value||'';
@@ -2405,14 +2666,61 @@ function applySubmissionFilters(){
   v.publish_status=$('#sb-ft-publish').value||'';
   v.page=1;loadMaterialSubmissions()}
 function resetSubmissionFilters(){
-  const v=V.submissions;Object.assign(v,{page:1,drama_name:'',title_name:'',can_upload_status:'',designated_upload_account_name:'',upload_account_name:'',created_by:'',publish_status:''});
-  ['#sb-ft-drama','#sb-ft-title'].forEach(s=>{$(s).value=''});
+  const v=V.submissions;Object.assign(v,{page:1,team_name:'',drama_name:'',title_name:'',can_upload_status:'',designated_upload_account_name:'',upload_account_name:'',created_by:'',publish_status:''});
+  ['#sb-ft-drama','#sb-ft-title','#sb-ft-team'].forEach(s=>{$(s).value=''});
   $('#sb-ft-can-upload').value='';$('#sb-ft-designated-account-name').value='';$('#sb-ft-account-name').value='';$('#sb-ft-created-by').value='';$('#sb-ft-publish').value='';loadMaterialSubmissions()}
+
+async function loadSubmissionTrash(){
+  const v=V.trash;showSkeleton('#tb-list',v.size);
+  const state=SUBMISSION_LIST_REQUEST.trash;
+  if(state.controller)state.controller.abort();
+  const controller=new AbortController(),sequence=++state.sequence;state.controller=controller;
+  const button=$('#tb-query-btn');if(button)button.disabled=true;
+  const r=await api('GET','/admin/material-submissions/recycle-bin?'+submissionQuery(v),null,false,{signal:controller.signal});
+  if(sequence!==state.sequence||r.aborted)return;
+  state.controller=null;if(button)button.disabled=false;
+  if(!r.ok){$('#tb-list').innerHTML='<div class="empty"><b class="disp">加载失败</b>请稍后重试。</div>';return}
+  v.total=r.data.total??0;setCnt('submission-trash',v.total);
+  const rows=r.data.submissions||[];
+  rows.forEach(s=>{s.recycle_bin=true});
+  MATERIAL_SUBMISSION_ROWS={...MATERIAL_SUBMISSION_ROWS,...Object.fromEntries(rows.map(s=>[s.id,s]))};
+  const cols=[
+    ['video_oss','视频文件','cell-file head-content'],['title_name','标题名','cell-title head-content'],
+    ['drama_name','剧名','cell-drama head-content'],['episode_range','集数区间','cell-balanced head-content'],['team_name','团队名称','cell-balanced head-content'],
+    ['status_upload','可上传状态','cell-balanced head-workflow'],['designated_upload_account_name','指定上传账号','cell-account-wide head-workflow'],
+    ['upload_account_name','上传账号','cell-account-wide head-workflow'],['upload_date','上传日期','cell-balanced head-workflow'],
+    ['status_publish','发布状态','cell-balanced head-workflow'],['revision_comment','修改意见','cell-revision head-workflow'],
+    ['created_by_name','创建账号','cell-balanced head-audit'],['created_time','创建时间','cell-balanced head-audit'],
+  ];
+  $('#tb-list').innerHTML=rows.length?`<div class="sb-table-wrap sb-submission-table-wrap"><table class="sb-table sb-submission-table"><thead><tr>${cols.map(([key,label,cls])=>`<th class="${cls}">${key==='team_name'||key==='upload_date'||key==='created_time'?submissionSortHead(key,label,'trash'):label}</th>`).join('')}<th class="cell-actions">操作</th></tr></thead><tbody>${rows.map(s=>`<tr>${cols.map(([key,,cls])=>`<td class="${cls}">${renderSubmissionTableCell(key,s,true)}</td>`).join('')}<td class="cell-actions"><div class="sb-row-actions"><button class="btn key sb-icon-btn" title="详情" aria-label="详情" onclick="openMaterialSubmissionDetail('${s.id}',false,true)">ⓘ</button><button class="btn key sm" ${s.can_edit?'':`disabled title="无编辑权限"`} onclick="restoreMaterialSubmission('${s.id}')">恢复</button></div></td></tr>`).join('')}</tbody></table></div>`:'<div class="empty"><b class="disp">回收站为空</b>最近 7 天没有可恢复的素材提报。</div>';
+  renderPager('#tb-pager','trash');
+  lazyLoadSubmissionPreviews();
+}
+function applySubmissionTrashFilters(){
+  const v=V.trash;
+  v.team_name=($('#tb-ft-team').value||'').trim();
+  v.drama_name=($('#tb-ft-drama').value||'').trim();v.title_name=($('#tb-ft-title').value||'').trim();
+  v.can_upload_status=$('#tb-ft-can-upload').value||'';v.designated_upload_account_name=($('#tb-ft-designated-account-name').value||'').trim();
+  v.upload_account_name=($('#tb-ft-account-name').value||'').trim();v.created_by=$('#tb-ft-created-by').value||'';
+  v.publish_status=$('#tb-ft-publish').value||'';v.page=1;loadSubmissionTrash();
+}
+function resetSubmissionTrashFilters(){
+  Object.assign(V.trash,{page:1,team_name:'',drama_name:'',title_name:'',can_upload_status:'',designated_upload_account_name:'',upload_account_name:'',created_by:'',publish_status:''});
+  ['#tb-ft-drama','#tb-ft-title','#tb-ft-team','#tb-ft-designated-account-name','#tb-ft-account-name'].forEach(s=>{$(s).value=''});
+  $('#tb-ft-can-upload').value='';$('#tb-ft-created-by').value='';$('#tb-ft-publish').value='';loadSubmissionTrash();
+}
+async function restoreMaterialSubmission(id,fromDrawer=false){
+  if(!await appConfirm('恢复后，该素材提报会重新出现在“素材提报”列表中。',{title:'恢复素材提报？',confirmText:'恢复',danger:false}))return;
+  const r=await api('POST',`/admin/material-submissions/${id}/restore`);
+  if(r.ok){toast('素材提报已恢复');invalidateSubmissionCreatorOptions();if(fromDrawer)closeDrawer();loadSubmissionTrash()}
+  else toast(r.data.detail||'恢复失败',true);
+}
 function materialSubmissionBaseBody(){return {
   team_name:($('#sb-d-team')?.value||'').trim(),
   delivery_time:($('#sb-d-delivery')?.value||'').trim(),
   drama_name:($('#sb-d-drama')?.value||'').trim(),
   oss_key:($('#sb-d-oss-key')?.value||'').trim(),
+  decoded_oss_key:($('#sb-d-decoded-oss-key')?.value||'').trim(),
   video_file_name:($('#sb-d-video-file')?.value||'').trim(),
   title_name:($('#sb-d-title')?.value||'').trim(),
   episode_range:($('#sb-d-episode')?.value||'').trim()
@@ -2432,7 +2740,7 @@ async function saveMaterialSubmissionEdit(id){
   const isNew=!id;
   if(isNew){
     const r=await api('POST','/admin/material-submissions',materialSubmissionBaseBody());
-    if(r.ok){toast('素材提报已创建');closeDrawer();loadMaterialSubmissions()}
+    if(r.ok){toast('素材提报已创建');invalidateSubmissionCreatorOptions();closeDrawer();loadMaterialSubmissions()}
     else toast(r.data.detail||'创建失败',true);
   }else{
     const body=Object.assign({},materialSubmissionBaseBody(),materialSubmissionProcessBody());
@@ -2443,15 +2751,15 @@ async function saveMaterialSubmissionEdit(id){
 async function deleteMaterialSubmissions(ids){
   const picked=Array.isArray(ids)?ids.filter(Boolean):[];
   if(!picked.length){toast('缺少要删除的素材提报',true);return}
-  const message=picked.length===1?'该素材提报删除后将无法恢复。':`选中的 ${picked.length} 条素材提报删除后将无法恢复。`;
+  const message=picked.length===1?'该素材提报将移入回收站，并保留 7 天。':`选中的 ${picked.length} 条素材提报将移入回收站，并保留 7 天。`;
   if(!await appConfirm(message,{title:picked.length===1?'删除素材提报？':`删除 ${picked.length} 条素材提报？`,confirmText:'确认删除'}))return;
   const r=await api('POST','/admin/material-submissions/batch/delete',{ids:picked});
-  if(r.ok){toast(`已删除 ${picked.length} 条素材提报`);loadMaterialSubmissions()}
+  if(r.ok){toast(`已删除 ${picked.length} 条素材提报`);invalidateSubmissionCreatorOptions();loadMaterialSubmissions()}
   else toast(r.data.detail||'删除失败',true)}
 async function deleteMaterialSubmissionFromDrawer(id){
-  if(!await appConfirm('该素材提报删除后将无法恢复。',{title:'删除素材提报？',confirmText:'确认删除'}))return;
+  if(!await appConfirm('该素材提报将移入回收站，并保留 7 天。',{title:'删除素材提报？',confirmText:'确认删除'}))return;
   const r=await api('POST','/admin/material-submissions/batch/delete',{ids:[id]});
-  if(r.ok){toast('已删除素材提报');closeDrawer();loadMaterialSubmissions()}
+  if(r.ok){toast('已删除素材提报');invalidateSubmissionCreatorOptions();closeDrawer();loadMaterialSubmissions()}
   else toast(r.data.detail||'删除失败',true)}
 
 /* ── 素材提报：批量权限分配弹窗(admin) ── */
@@ -2471,8 +2779,8 @@ async function openBatchPermissionModal(){
   closeDrawer();closeCreateModal();
   SB_BATCH_USER_ID='';SB_BATCH_GRANTS.clear();SB_BATCH_LOCKED.clear();SB_BATCH_ITEMS.clear();SB_BATCH_FILTERED_ROWS=[];SB_BATCH_UNSELECTED_TOTAL=0;
   SB_BATCH_SELECTED_PAGE=1;SB_BATCH_UNSELECTED_PAGE=1;SB_BATCH_LOAD_TOKEN++;
-  Object.assign(V.submissionAccess,{page:1,size:batchPermissionPageSize(),drama_name:'',title_name:'',can_upload_status:'',designated_upload_account_name:'',upload_account_name:'',created_by:'',publish_status:''});
-  ['#bp-drama','#bp-title','#bp-designated-account-name','#bp-account-name'].forEach(sel=>{if($(sel))$(sel).value=''});
+  Object.assign(V.submissionAccess,{page:1,size:batchPermissionPageSize(),team_name:'',drama_name:'',title_name:'',can_upload_status:'',designated_upload_account_name:'',upload_account_name:'',created_by:'',publish_status:'',sort_by:'created_time',sort_order:'desc'});
+  ['#bp-drama','#bp-title','#bp-team','#bp-designated-account-name','#bp-account-name'].forEach(sel=>{if($(sel))$(sel).value=''});
   $('#bp-can-upload').value='';$('#bp-created-by').value='';$('#bp-publish').value='';
   $('#bp-user').innerHTML='<option value="">用户加载中…</option>';
   $('#bp-default-permission').value='read';
@@ -2518,13 +2826,14 @@ async function selectBatchPermissionUser(userId){
 function batchPermissionUnselectedQuery(){
   const v=V.submissionAccess;
   return {selected_submission_ids:[...SB_BATCH_GRANTS.keys()],page:SB_BATCH_UNSELECTED_PAGE,size:v.size,
-    drama_name:v.drama_name,title_name:v.title_name,can_upload_status:v.can_upload_status,
+    team_name:v.team_name,drama_name:v.drama_name,title_name:v.title_name,can_upload_status:v.can_upload_status,
     designated_upload_account_name:v.designated_upload_account_name,
-    upload_account_name:v.upload_account_name,created_by:v.created_by,publish_status:v.publish_status};
+    upload_account_name:v.upload_account_name,created_by:v.created_by,publish_status:v.publish_status,
+    sort_by:v.sort_by,sort_order:v.sort_order};
 }
 function batchPermissionTableHead(unselected=false){
   const selector=unselected?'<label class="bp-select-all" title="全选当前页"><input id="bp-unselected-all" type="checkbox" aria-label="全选当前页未选视频" onchange="toggleBatchPermissionPage(\'unselected\',this.checked)"></label>':'<span></span>';
-  return `<div class="bp-table-head">${selector}<span>视频文件</span><span>标题名</span><span>剧名</span><span>集数区间</span><span>可上传状态</span><span>指定上传账号</span><span>上传账号</span><span>上传日期</span><span>发布状态</span><span>创建账号</span><span>权限</span></div>`;
+  return `<div class="bp-table-head">${selector}<span>视频文件</span><span>标题名</span><span>剧名</span><span>集数区间</span><span>${submissionSortHead('team_name','团队名称','submissionAccess')}</span><span>可上传状态</span><span>指定上传账号</span><span>上传账号</span><span>上传日期</span><span>发布状态</span><span>创建账号</span><span>权限</span></div>`;
 }
 function openBatchPermissionDetail(submissionId){
   $('#scrim').classList.add('batch-detail');$('#drawer').classList.add('batch-detail');
@@ -2532,7 +2841,7 @@ function openBatchPermissionDetail(submissionId){
 }
 function batchPermissionVideoRow(item,isSelected){
   const id=String(item.id),locked=SB_BATCH_LOCKED.has(id);
-  const title=item.title_name||'—',drama=item.drama_name||'—',episode=item.episode_range||'—';
+  const title=item.title_name||'—',drama=item.drama_name||'—',episode=item.episode_range||'—',team=item.team_name||'—';
   const designatedAccount=item.designated_upload_account_name||'—',account=item.upload_account_name||'—',uploadDate=item.upload_date||'—';
   const createdBy=item.created_by_name||item.created_by||'—';
   const permission=SB_BATCH_GRANTS.get(id)||'read';
@@ -2540,14 +2849,18 @@ function batchPermissionVideoRow(item,isSelected){
     ?'<span class="bp-lock" title="上传者默认拥有阅读并编辑权限">上传者</span>'
     :`<select class="bp-perm" aria-label="调整权限" onclick="event.stopPropagation()" onchange="setBatchPermissionType('${esc(id)}',this.value)"><option value="read" ${permission==='read'?'selected':''}>阅读</option><option value="read_edit" ${permission==='read_edit'?'selected':''}>阅读并编辑</option></select>`)
     :'<span class="k">未选</span>';
-  return `<div class="bp-video-row" onclick="toggleBatchPermissionVideo('${esc(id)}',${isSelected?'false':'true'})"><input type="checkbox" ${isSelected?'checked':''} ${locked?'disabled':''} aria-label="${isSelected?'取消选择':'选择'} ${esc(title)}" onclick="event.stopPropagation()" onchange="toggleBatchPermissionVideo('${esc(id)}',this.checked)"><div class="bp-file"><button class="bp-file-link" type="button" title="查看素材详情" aria-label="查看视频详情" onclick="event.stopPropagation();openBatchPermissionDetail('${esc(id)}')"><span class="bp-file-icon">▶</span></button></div><div><button class="bp-title-link" type="button" title="${esc(title)}" onclick="event.stopPropagation();openBatchPermissionDetail('${esc(id)}')">${esc(title)}</button></div><div class="bp-cell" title="${esc(drama)}">${esc(drama)}</div><div class="bp-cell" title="${esc(episode)}">${esc(episode)}</div><div>${submissionStatusChip('upload',item.can_upload_status)}</div><div class="bp-cell" title="${esc(designatedAccount)}">${esc(designatedAccount)}</div><div class="bp-cell" title="${esc(account)}">${esc(account)}</div><div class="bp-date-cell">${esc(uploadDate)}</div><div>${submissionStatusChip('publish',item.publish_status)}</div><div class="bp-cell" title="${esc(createdBy)}">${esc(createdBy)}</div><div onclick="event.stopPropagation()">${permissionCell}</div></div>`;
+  return `<div class="bp-video-row" onclick="toggleBatchPermissionVideo('${esc(id)}',${isSelected?'false':'true'})"><input type="checkbox" ${isSelected?'checked':''} ${locked?'disabled':''} aria-label="${isSelected?'取消选择':'选择'} ${esc(title)}" onclick="event.stopPropagation()" onchange="toggleBatchPermissionVideo('${esc(id)}',this.checked)"><div class="bp-file"><button class="bp-file-link" type="button" title="查看素材详情" aria-label="查看视频详情" onclick="event.stopPropagation();openBatchPermissionDetail('${esc(id)}')"><span class="bp-file-icon">▶</span></button></div><div><button class="bp-title-link" type="button" title="${esc(title)}" onclick="event.stopPropagation();openBatchPermissionDetail('${esc(id)}')">${esc(title)}</button></div><div class="bp-cell" title="${esc(drama)}">${esc(drama)}</div><div class="bp-cell" title="${esc(episode)}">${esc(episode)}</div><div class="bp-cell" title="${esc(team)}">${esc(team)}</div><div>${submissionStatusChip('upload',item.can_upload_status)}</div><div class="bp-cell" title="${esc(designatedAccount)}">${esc(designatedAccount)}</div><div class="bp-cell" title="${esc(account)}">${esc(account)}</div><div class="bp-date-cell">${esc(uploadDate)}</div><div>${submissionStatusChip('publish',item.publish_status)}</div><div class="bp-cell" title="${esc(createdBy)}">${esc(createdBy)}</div><div onclick="event.stopPropagation()">${permissionCell}</div></div>`;
 }
 function batchPermissionPager(kind,page,total,size){
   if(!total)return '';
   const pages=Math.max(1,Math.ceil(total/size)),prev=Math.max(1,page-1),next=Math.min(pages,page+1);
   return `<div class="pager"><button class="pgbtn" ${page<=1?'disabled':''} onclick="setBatchPermissionPage('${kind}',1)" aria-label="第一页">«</button><button class="pgbtn" ${page<=1?'disabled':''} onclick="setBatchPermissionPage('${kind}',${prev})">上一页</button><span class="pgnow">第 <b>${page}</b> 页 · 共 ${pages} 页 <span class="pgtot">· ${total} 条</span></span><button class="pgbtn" ${page>=pages?'disabled':''} onclick="setBatchPermissionPage('${kind}',${next})">下一页</button><button class="pgbtn" ${page>=pages?'disabled':''} onclick="setBatchPermissionPage('${kind}',${pages})" aria-label="最后一页">»</button></div>`;
 }
-function batchPermissionSelectedRows(){return [...SB_BATCH_GRANTS.keys()].map(id=>SB_BATCH_ITEMS.get(id)).filter(Boolean)}
+function batchPermissionSelectedRows(){
+  const rows=[...SB_BATCH_GRANTS.keys()].map(id=>SB_BATCH_ITEMS.get(id)).filter(Boolean),v=V.submissionAccess;
+  if(v.sort_by==='team_name')rows.sort((a,b)=>String(a.team_name||'').localeCompare(String(b.team_name||''),'zh-CN')*(v.sort_order==='desc'?-1:1));
+  return rows;
+}
 function batchPermissionUnselectedRows(){return SB_BATCH_FILTERED_ROWS.filter(item=>!SB_BATCH_GRANTS.has(String(item.id)))}
 function refreshBatchSelectedPane(){
   const all=batchPermissionSelectedRows(),size=V.submissionAccess.size,pages=Math.max(1,Math.ceil(all.length/size));
@@ -2625,6 +2938,7 @@ function setBatchPermissionType(submissionId,permissionType){
 }
 function applyBatchPermissionFilters(){
   const v=V.submissionAccess;
+  v.team_name=($('#bp-team').value||'').trim();
   v.drama_name=($('#bp-drama').value||'').trim();v.title_name=($('#bp-title').value||'').trim();
   v.can_upload_status=$('#bp-can-upload').value||'';
   v.designated_upload_account_name=($('#bp-designated-account-name').value||'').trim();
@@ -2634,8 +2948,8 @@ function applyBatchPermissionFilters(){
   if(SB_BATCH_USER_ID)loadBatchPermissionVideos();
 }
 function resetBatchPermissionFilters(){
-  const v=V.submissionAccess;Object.assign(v,{drama_name:'',title_name:'',can_upload_status:'',designated_upload_account_name:'',upload_account_name:'',created_by:'',publish_status:''});
-  ['#bp-drama','#bp-title','#bp-designated-account-name','#bp-account-name'].forEach(sel=>{$(sel).value=''});
+  const v=V.submissionAccess;Object.assign(v,{team_name:'',drama_name:'',title_name:'',can_upload_status:'',designated_upload_account_name:'',upload_account_name:'',created_by:'',publish_status:''});
+  ['#bp-drama','#bp-title','#bp-team','#bp-designated-account-name','#bp-account-name'].forEach(sel=>{$(sel).value=''});
   $('#bp-can-upload').value='';$('#bp-created-by').value='';$('#bp-publish').value='';SB_BATCH_UNSELECTED_PAGE=1;
   if(SB_BATCH_USER_ID)loadBatchPermissionVideos();
 }function updateBatchPermissionSummary(){
@@ -2841,7 +3155,7 @@ function boot(){$('#gate').style.display='none';$('#app').style.display='grid';
   const start=(location.hash||'').slice(1);const valid=(ME.role==='admin'?NAV_ADMIN:NAV_USER).some(x=>x[1]===start);
   go(valid?start:(ME.role==='admin'?'all':'submissions'))}
 
-window.addEventListener('hashchange',()=>{if(ME){const s=location.hash.slice(1);if(s)go(s)}});
+window.addEventListener('hashchange',()=>{if(NAV_HASH_WRITE===location.hash){NAV_HASH_WRITE='';return}if(ME){const s=location.hash.slice(1);if(s)go(s)}});
 if(ME)boot();
 </script>
 </body>

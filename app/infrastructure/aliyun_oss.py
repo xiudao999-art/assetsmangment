@@ -33,6 +33,10 @@ class OssStorage:
         else:
             self._bucket.put_object(oss_key, fileobj, progress_callback=progress_callback)
 
+    def download_to_file(self, oss_key: str, path: str) -> None:
+        """流式下载 OSS 对象到本地文件，供后台转码使用。"""
+        self._bucket.get_object_to_file(oss_key, path)
+
     def _multipart_upload(self, oss_key: str, fileobj, total_size: int, progress_callback=None) -> None:
         """固定大小逐片上传；任何时刻只保留一个分片，避免大视频整体进入内存。"""
         import oss2 as _oss2

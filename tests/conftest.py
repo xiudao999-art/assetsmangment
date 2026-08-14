@@ -24,9 +24,14 @@ def _hermetic_storage(monkeypatch):
         InMemoryTrainingSetRepo, InMemoryTrainingExampleRepo,
         InMemoryMaterialSubmissionRepo,
         InMemoryUserRepo, InMemoryFavoriteRepo, InMemoryRbac, ListAuditLog,
+        InMemoryJobCoordinator,
     )
     from app.infrastructure.requirement_repo import InMemoryRequirementRepo
     from app.infrastructure.video_editing_template_repo import InMemoryVideoEditingTemplateRepo
+    monkeypatch.setattr(
+        "app.api.router.transcode_hevc_to_h264",
+        lambda fileobj, progress_callback=None: None,
+    )
     _drain_audit_threads()   # 起点:上一个测试的后台线程先跑完,别沾本测试的 deps
     monkeypatch.setattr(deps, "storage", FakeStorage())
     monkeypatch.setattr(deps, "material_repo", InMemoryMaterialRepo())
@@ -47,6 +52,7 @@ def _hermetic_storage(monkeypatch):
     monkeypatch.setattr(deps, "training_set_repo", InMemoryTrainingSetRepo())
     monkeypatch.setattr(deps, "training_example_repo", InMemoryTrainingExampleRepo())
     monkeypatch.setattr(deps, "material_submission_repo", InMemoryMaterialSubmissionRepo())
+    monkeypatch.setattr(deps, "submission_decode_coordinator", InMemoryJobCoordinator())
     monkeypatch.setattr(deps, "video_editing_template_repo", InMemoryVideoEditingTemplateRepo())
     monkeypatch.setattr(deps, "requirement_repo", InMemoryRequirementRepo())
     monkeypatch.setattr(deps, "blockword_repo", InMemoryBlockwordRepo())

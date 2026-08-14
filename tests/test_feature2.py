@@ -1,11 +1,13 @@
 """F4 索引 / F7 用户 / F8 权限 单测(闭环③)。"""
 import pytest
+import time
 from app.domain.models import Material, MaterialType, AuditStatus, User
 from app.service.indexing import IndexService
 from app.service.user import UserService, InvalidCredentials
 from app.service.authorization import AuthorizationService, PermissionDenied
 from app.infrastructure.fakes import (
     InMemoryVectorIndex, InMemoryUserRepo, FakeHasher, FakeTokenIssuer,
+    RotatingRefreshTokenIssuer,
     InMemoryRbac, ListAuditLog,
 )
 
@@ -33,6 +35,18 @@ def test_login_issues_signed_verifiable_token():  # REQ-601
     token = svc.login("alice", "pw123456")
     assert issuer.verify(token) == u.id            # 签名可验证 → 拿回正确 uid
     assert issuer.verify(token + "tamper") is None  # 篡改签名 → 拒绝(不可伪造)
+
+
+def test_refresh_token_has_seven_day_ttl_and_expires():
+    issuer = RotatingRefreshTokenIssuer(secret="test-refresh-secret")
+    token = issuer.issue("user-1")
+    _, expires_at, _, _ = token.rsplit(".", 3)
+    remaining = int(expires_at) - int(time.time())
+    assert 604799 <= remaining <= 604800
+    assert issuer.verify(token) == "user-1"
+    assert RotatingRefreshTokenIssuer(secret="test-refresh-secret", ttl=-1).verify(
+        RotatingRefreshTokenIssuer(secret="test-refresh-secret", ttl=-1).issue("user-1")
+    ) is None
 
 
 def test_register_rejects_duplicate_name():

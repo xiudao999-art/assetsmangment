@@ -56,10 +56,21 @@ from app.api.router import router
 async def lifespan(app: FastAPI):
     """Startup: recover stuck tasks + begin periodic scanning.
     Shutdown: signal the background thread to exit."""
-    from app.api.deps import task_janitor   # lazy import — deps 模块初始化较重
+    from app.api.deps import task_janitor, submission_trash_janitor  # lazy import — deps 模块初始化较重
+    from app.config import settings
     task_janitor.start()
-    yield
-    task_janitor.stop()
+    if settings.submission_trash_cleanup_enabled:
+        submission_trash_janitor.start()
+    try:
+        yield
+    finally:
+        if settings.submission_trash_cleanup_enabled:
+            submission_trash_janitor.stop()
+        task_janitor.stop()
+        from app.infrastructure.redis_job_coordinator import close_all_redis_pools
+        from app.infrastructure.pg_pool import close_all_pools
+        close_all_redis_pools()
+        close_all_pools()
 
 
 app = FastAPI(title="物料管理系统", version="0.1.0", lifespan=lifespan)

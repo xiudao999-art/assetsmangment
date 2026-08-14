@@ -15,6 +15,8 @@ class Settings(BaseSettings):
     # 会话 token 签名密钥(HMAC)。生产必须用 AM_TOKEN_SECRET 覆盖为强随机值。
     token_secret: str = "dev-insecure-token-secret-change-me"
     token_ttl_seconds: int = 86400  # token 有效期(默认 1 天)
+    refresh_token_secret: str = ""  # 留空时从 token_secret 派生独立签名密钥
+    refresh_token_ttl_seconds: int = 604800  # refresh token 有效期(7 天)
 
     # 阿里云 OSS
     oss_endpoint: str = ""
@@ -48,6 +50,10 @@ class Settings(BaseSettings):
     # Task janitor (定时补偿:重启恢复 + 运行时扫描卡住的任务)
     janitor_scan_interval_s: int = 300       # 扫描间隔(秒),默认 5 分钟
     janitor_stuck_timeout_s: int = 1800      # PENDING/RUNNING 超过此时长 → FAILED,默认 30 分钟
+    submission_trash_retention_days: int = 7  # 素材提报逻辑删除后可恢复天数
+    submission_trash_run_hour: int = 1        # 每日清理小时（Asia/Shanghai）
+    submission_trash_cleanup_enabled: bool = False  # 高风险 OSS 删除任务，必须显式开启
+    submission_trash_lock_ttl_seconds: int = 82800  # 分布式锁 23 小时，异常退出后自动释放
     # 搜索:向量近邻的相关度阈值(余弦距离,越小越像)。超过此距离的语义近邻视为无关、不返回,
     # 避免"搜一个词却搜出不相关物料"。关键词命中始终优先返回。
     search_max_distance: float = 0.35   # multimodal-embedding-v1:相关≈0.25-0.31、无关≈0.39+,0.35 干净分开
@@ -65,6 +71,16 @@ class Settings(BaseSettings):
 
     # 数据库(RDS PostgreSQL + pgvector)
     database_url: str = "postgresql://user:pass@localhost:5432/assets"
+    database_pool_min_size: int = 1
+    database_pool_max_size: int = 20
+    database_pool_timeout_seconds: float = 10.0
+    database_pool_max_lifetime_seconds: float = 1800.0
+
+    # Redis:素材兼容版后台转码的分布式锁与跨实例状态。
+    redis_url: str = ""
+    redis_max_connections: int = 20
+    submission_decode_lock_ttl_seconds: int = 10800  # 3 小时，覆盖最长转码与上传
+    submission_decode_status_ttl_seconds: int = 86400  # 完成/失败状态保留 1 天
 
 
 settings = Settings()

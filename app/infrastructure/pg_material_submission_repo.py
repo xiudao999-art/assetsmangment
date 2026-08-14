@@ -7,14 +7,15 @@ from typing import Optional
 from psycopg.types.json import Jsonb
 
 from app.domain.models import MaterialSubmission
-from app.infrastructure.snowflake import next_id
+from app.infrastructure.snowflake import minimum_id_for_timestamp, next_id
 
 _TABLE_RE = re.compile(r"^[a-z_][a-z0-9_]*$")
 _SELECT_COLS = (
-    "id, team_name, delivery_time, drama_name, oss_key, video_file_name, "
+    "id, team_name, delivery_time, drama_name, oss_key, decoded_oss_key, requires_decode, video_file_name, "
     "title_name, episode_range, revision_comment, can_upload_status, "
     "designated_upload_account_name, upload_account_name, upload_date, publish_status, platform_reject_reason, "
-    "platform_reject_attachments, create_by, create_time, update_by, update_time"
+    "platform_reject_attachments, create_by, create_time, update_by, update_time, "
+    "del_flag, oss_del_flag"
 )
 
 
@@ -30,9 +31,8 @@ class PgMaterialSubmissionRepo:
         self._init_schema()
 
     def _conn(self):
-        import psycopg
-        return psycopg.connect(self._dsn, autocommit=True, connect_timeout=10,
-                               options="-c timezone=Asia/Shanghai")
+        from app.infrastructure.pg_pool import connection
+        return connection(self._dsn)
 
     def _init_schema(self) -> None:
         t = self._table
@@ -44,6 +44,9 @@ class PgMaterialSubmissionRepo:
                     delivery_time               TEXT NOT NULL DEFAULT '',
                     drama_name                  TEXT NOT NULL DEFAULT '',
                     oss_key                     TEXT NOT NULL DEFAULT '',
+                    decoded_oss_key             TEXT NOT NULL DEFAULT '',
+                    requires_decode             SMALLINT NOT NULL DEFAULT 0
+                                                CONSTRAINT ck_{t}_requires_decode CHECK (requires_decode IN (0, 1)),
                     video_file_name             TEXT NOT NULL DEFAULT '',
                     title_name                  TEXT NOT NULL DEFAULT '',
                     episode_range               TEXT NOT NULL DEFAULT '',
@@ -56,6 +59,7 @@ class PgMaterialSubmissionRepo:
                     platform_reject_reason      TEXT NOT NULL DEFAULT '',
                     platform_reject_attachments JSONB NOT NULL DEFAULT '[]'::jsonb,
                     del_flag                    BIGINT NOT NULL DEFAULT 0,
+                    oss_del_flag                BIGINT NOT NULL DEFAULT 0,
                     create_by                   TEXT NOT NULL DEFAULT '',
                     create_time                 TIMESTAMPTZ NOT NULL DEFAULT now(),
                     update_by                   TEXT NOT NULL DEFAULT '',
@@ -96,6 +100,37 @@ class PgMaterialSubmissionRepo:
                 END $$;
             """)
             c.execute(f"ALTER TABLE {t} ADD COLUMN IF NOT EXISTS upload_date TEXT NOT NULL DEFAULT ''")
+            c.execute(f"ALTER TABLE {t} ADD COLUMN IF NOT EXISTS decoded_oss_key TEXT NOT NULL DEFAULT ''")
+            c.execute(f"""
+                DO $$
+                BEGIN
+                    IF NOT EXISTS (
+                        SELECT 1 FROM information_schema.columns
+                        WHERE table_schema = 'public' AND table_name = '{t}'
+                          AND column_name = 'requires_decode'
+                    ) THEN
+                        ALTER TABLE {t} ADD COLUMN requires_decode SMALLINT;
+                        UPDATE {t}
+                           SET requires_decode = CASE
+                               WHEN drama_name = '冰柜里的呼声-混剪' THEN 1 ELSE 0 END;
+                    END IF;
+                END $$;
+            """)
+            c.execute(f"ALTER TABLE {t} ALTER COLUMN requires_decode SET DEFAULT 0")
+            c.execute(f"ALTER TABLE {t} ALTER COLUMN requires_decode SET NOT NULL")
+            c.execute(f"""
+                DO $$
+                BEGIN
+                    IF NOT EXISTS (
+                        SELECT 1 FROM pg_constraint
+                        WHERE conname = 'ck_{t}_requires_decode'
+                    ) THEN
+                        ALTER TABLE {t} ADD CONSTRAINT ck_{t}_requires_decode
+                            CHECK (requires_decode IN (0, 1));
+                    END IF;
+                END $$;
+            """)
+            c.execute(f"ALTER TABLE {t} ADD COLUMN IF NOT EXISTS oss_del_flag BIGINT NOT NULL DEFAULT 0")
             c.execute(f"""
                 DO $$
                 BEGIN
@@ -137,6 +172,10 @@ class PgMaterialSubmissionRepo:
                 f"CREATE INDEX IF NOT EXISTS idx_{t}_designated_account_name ON {t} (designated_upload_account_name, del_flag)"
             )
             c.execute(f"CREATE INDEX IF NOT EXISTS idx_{t}_live ON {t} (del_flag) WHERE del_flag = 0")
+            c.execute(
+                f"CREATE INDEX IF NOT EXISTS idx_{t}_trash ON {t} (del_flag) "
+                "WHERE del_flag <> 0 AND oss_del_flag = 0"
+            )
             p = self._permission_table
             c.execute(f"""
                 CREATE TABLE IF NOT EXISTS {p} (
@@ -183,17 +222,19 @@ class PgMaterialSubmissionRepo:
         with self._conn() as c:
             c.execute(
                 f"""INSERT INTO {self._table}
-                        (id, team_name, delivery_time, drama_name, oss_key, video_file_name,
+                        (id, team_name, delivery_time, drama_name, oss_key, decoded_oss_key, requires_decode, video_file_name,
                          title_name, episode_range, revision_comment, can_upload_status,
                          designated_upload_account_name, upload_account_name, upload_date,
                          publish_status, platform_reject_reason,
                          platform_reject_attachments, create_by, update_by)
-                    VALUES (%s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s)
+                    VALUES (%s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s)
                     ON CONFLICT (id) DO UPDATE SET
                         team_name = EXCLUDED.team_name,
                         delivery_time = EXCLUDED.delivery_time,
                         drama_name = EXCLUDED.drama_name,
                         oss_key = EXCLUDED.oss_key,
+                        decoded_oss_key = EXCLUDED.decoded_oss_key,
+                        requires_decode = EXCLUDED.requires_decode,
                         video_file_name = EXCLUDED.video_file_name,
                         title_name = EXCLUDED.title_name,
                         episode_range = EXCLUDED.episode_range,
@@ -209,7 +250,8 @@ class PgMaterialSubmissionRepo:
                         update_time = now()""",
                 (
                     sid, submission.team_name, submission.delivery_time, submission.drama_name,
-                    submission.oss_key, submission.video_file_name, submission.title_name,
+                    submission.oss_key, submission.decoded_oss_key, submission.requires_decode,
+                    submission.video_file_name, submission.title_name,
                     submission.episode_range, submission.revision_comment,
                     submission.can_upload_status, submission.designated_upload_account_name,
                     submission.upload_account_name,
@@ -231,18 +273,82 @@ class PgMaterialSubmissionRepo:
             ).fetchone()
         return self._to_submission(row) if row else None
 
-    def delete(self, submission_id: str, by: str = "") -> None:
+    def set_decoded_oss_key_if_current(self, submission_id: str, source_oss_key: str,
+                                       decoded_oss_key: str, by: str = "") -> bool:
         try:
             sid = int(submission_id)
         except (TypeError, ValueError):
-            return
+            return False
         with self._conn() as c:
-            c.execute(
+            result = c.execute(
+                f"UPDATE {self._table} SET decoded_oss_key = %s, requires_decode = 1, update_by = %s, update_time = now() "
+                "WHERE id = %s AND oss_key = %s AND decoded_oss_key = '' "
+                "AND del_flag = 0 AND oss_del_flag = 0",
+                (decoded_oss_key, by, sid, source_oss_key),
+            )
+        return result.rowcount == 1
+
+    def get_deleted(self, submission_id: str) -> Optional[MaterialSubmission]:
+        try:
+            sid = int(submission_id)
+        except (TypeError, ValueError):
+            return None
+        with self._conn() as c:
+            row = c.execute(
+                f"SELECT {_SELECT_COLS} FROM {self._table} "
+                "WHERE id = %s AND del_flag <> 0 AND oss_del_flag = 0",
+                (sid,),
+            ).fetchone()
+        return self._to_submission(row) if row else None
+
+    def delete(self, submission_id: str, by: str = "") -> bool:
+        try:
+            sid = int(submission_id)
+        except (TypeError, ValueError):
+            return False
+        with self._conn() as c:
+            result = c.execute(
                 f"UPDATE {self._table} SET del_flag = %s, update_by = %s, update_time = now() "
-                f"WHERE id = %s AND del_flag = 0",
+                f"WHERE id = %s AND del_flag = 0 AND oss_del_flag = 0",
                 (self._idgen(), by, sid),
             )
-            c.execute(f"DELETE FROM {self._permission_table} WHERE submission_id = %s", (sid,))
+        return result.rowcount == 1
+
+    def restore(self, submission_id: str, by: str = "") -> bool:
+        try:
+            sid = int(submission_id)
+        except (TypeError, ValueError):
+            return False
+        with self._conn() as c:
+            result = c.execute(
+                f"UPDATE {self._table} SET del_flag = 0, update_by = %s, update_time = now() "
+                "WHERE id = %s AND del_flag <> 0 AND oss_del_flag = 0",
+                (by, sid),
+            )
+        return result.rowcount == 1
+
+    def list_expired_deleted(self, cutoff_ms: int) -> list[MaterialSubmission]:
+        cutoff_id = minimum_id_for_timestamp(cutoff_ms)
+        with self._conn() as c:
+            rows = c.execute(
+                f"SELECT {_SELECT_COLS} FROM {self._table} "
+                "WHERE del_flag <> 0 AND del_flag < %s AND oss_del_flag = 0 ORDER BY del_flag ASC",
+                (cutoff_id,),
+            ).fetchall()
+        return [self._to_submission(row) for row in rows]
+
+    def mark_oss_deleted(self, submission_id: str, by: str = "") -> bool:
+        try:
+            sid = int(submission_id)
+        except (TypeError, ValueError):
+            return False
+        with self._conn() as c:
+            result = c.execute(
+                f"UPDATE {self._table} SET oss_del_flag = %s, update_by = %s, update_time = now() "
+                "WHERE id = %s AND del_flag <> 0 AND oss_del_flag = 0",
+                (self._idgen(), by, sid),
+            )
+        return result.rowcount == 1
 
     def record_operation(self, submission_id: str, action: str, by: str,
                          changes: list[dict]) -> None:
@@ -426,54 +532,132 @@ class PgMaterialSubmissionRepo:
              designated_upload_account_name: str = "", upload_account_name: str = "",
              created_by: str = "", publish_status: int | None = None,
              publish_status_empty: bool = False,
-             offset: int = 0, limit: int | None = None) -> list[MaterialSubmission]:
-        where = "del_flag = 0"
+             offset: int = 0, limit: int | None = None,
+             recycle_bin: bool = False, visible_to_user_id: str = "",
+             exclude_ids: set[str] | None = None,
+             sort_by: str = "", sort_order: str = "") -> list[MaterialSubmission]:
+        alias = "submission"
+        where = (f"{alias}.del_flag <> 0 AND {alias}.oss_del_flag = 0"
+                 if recycle_bin else f"{alias}.del_flag = 0")
         params: list = []
         if team_name:
-            where += " AND team_name ILIKE %s"
+            where += f" AND {alias}.team_name ILIKE %s"
             params.append(f"%{team_name}%")
         if drama_name:
-            where += " AND drama_name ILIKE %s"
+            where += f" AND {alias}.drama_name ILIKE %s"
             params.append(f"%{drama_name}%")
         if video_file_name:
-            where += " AND video_file_name ILIKE %s"
+            where += f" AND {alias}.video_file_name ILIKE %s"
             params.append(f"%{video_file_name}%")
         if title_name:
-            where += " AND title_name ILIKE %s"
+            where += f" AND {alias}.title_name ILIKE %s"
             params.append(f"%{title_name}%")
         if can_upload_status is not None:
-            where += " AND can_upload_status = %s"
+            where += f" AND {alias}.can_upload_status = %s"
             params.append(can_upload_status)
         elif can_upload_status_empty:
-            where += " AND can_upload_status IS NULL"
+            where += f" AND {alias}.can_upload_status IS NULL"
         if designated_upload_account_name:
-            where += " AND designated_upload_account_name = %s"
+            where += f" AND {alias}.designated_upload_account_name = %s"
             params.append(designated_upload_account_name)
         if upload_account_name:
-            where += " AND upload_account_name = %s"
+            where += f" AND {alias}.upload_account_name = %s"
             params.append(upload_account_name)
         if created_by:
-            where += " AND create_by = %s"
+            where += f" AND {alias}.create_by = %s"
             params.append(created_by)
         if publish_status is not None:
-            where += " AND publish_status = %s"
+            where += f" AND {alias}.publish_status = %s"
             params.append(publish_status)
         elif publish_status_empty:
-            where += " AND publish_status IS NULL"
-        sql = f"SELECT {_SELECT_COLS} FROM {self._table} WHERE {where} ORDER BY id ASC"
+            where += f" AND {alias}.publish_status IS NULL"
+        joins = (
+            f" LEFT JOIN app_user created_user ON created_user.domain_id = {alias}.create_by "
+            "AND created_user.del_flag = 0"
+            f" LEFT JOIN app_user updated_user ON updated_user.domain_id = {alias}.update_by "
+            "AND updated_user.del_flag = 0"
+        )
+        join_params: list = []
+        permission_select = "NULL::text"
+        if visible_to_user_id:
+            joins += (
+                f" LEFT JOIN {self._permission_table} visible_permission "
+                f"ON visible_permission.submission_id = {alias}.id "
+                "AND visible_permission.user_id = %s"
+            )
+            join_params.append(visible_to_user_id)
+            where += " AND visible_permission.submission_id IS NOT NULL"
+            permission_select = "visible_permission.permission_type"
+        numeric_exclude_ids = [int(item) for item in (exclude_ids or set()) if str(item).isdigit()]
+        if numeric_exclude_ids:
+            where += f" AND NOT ({alias}.id = ANY(%s::bigint[]))"
+            params.append(numeric_exclude_ids)
+        sort_columns = {
+            "team_name": "team_name",
+            "upload_date": "upload_date",
+            "created_time": "create_time",
+        }
+        if sort_by:
+            if sort_by not in sort_columns:
+                raise ValueError("非法素材提报排序字段")
+            if sort_order not in {"asc", "desc"}:
+                raise ValueError("非法素材提报排序方向")
+            column = sort_columns[sort_by]
+            direction = sort_order.upper()
+            if sort_by == "created_time":
+                order_by = f"{alias}.{column} {direction}, {alias}.id ASC"
+            else:
+                order_by = (f"NULLIF(BTRIM({alias}.{column}), '') {direction} NULLS LAST, "
+                            f"{alias}.id ASC")
+        else:
+            order_by = f"{alias}.id ASC"
+        selected = ", ".join(f"{alias}.{name.strip()}" for name in _SELECT_COLS.split(","))
+        sql = (
+            f"SELECT {selected}, created_user.name, updated_user.name, {permission_select} "
+            f"FROM {self._table} {alias}{joins} WHERE {where} ORDER BY {order_by}"
+        )
         if limit is not None:
             sql += f" LIMIT {int(limit)} OFFSET {int(offset)}"
         with self._conn() as c:
-            rows = c.execute(sql, params).fetchall()
+            rows = c.execute(sql, join_params + params).fetchall()
         return [self._to_submission(r) for r in rows]
+
+    def list_creator_accounts(self, recycle_bin: bool = False,
+                              visible_to_user_id: str = "") -> list[dict[str, str]]:
+        alias = "submission"
+        where = (f"{alias}.del_flag <> 0 AND {alias}.oss_del_flag = 0"
+                 if recycle_bin else f"{alias}.del_flag = 0")
+        joins = (
+            f" LEFT JOIN app_user creator ON creator.domain_id = {alias}.create_by "
+            "AND creator.del_flag = 0"
+        )
+        params: list = []
+        if visible_to_user_id:
+            joins += (
+                f" LEFT JOIN {self._permission_table} visible_permission "
+                f"ON visible_permission.submission_id = {alias}.id "
+                "AND visible_permission.user_id = %s"
+            )
+            params.append(visible_to_user_id)
+            where += " AND visible_permission.submission_id IS NOT NULL"
+        where += f" AND {alias}.create_by <> ''"
+        sql = (
+            f"SELECT {alias}.create_by, COALESCE(MAX(creator.name), {alias}.create_by), "
+            f"MAX({alias}.id) AS latest_id FROM {self._table} {alias}{joins} "
+            f"WHERE {where} GROUP BY {alias}.create_by ORDER BY latest_id DESC"
+        )
+        with self._conn() as c:
+            rows = c.execute(sql, params).fetchall()
+        return [{"id": str(row[0]), "name": str(row[1])} for row in rows]
 
     def count(self, team_name: str = "", drama_name: str = "", video_file_name: str = "",
               title_name: str = "", can_upload_status: int | None = None,
               can_upload_status_empty: bool = False,
               designated_upload_account_name: str = "", upload_account_name: str = "",
               created_by: str = "", publish_status: int | None = None,
-              publish_status_empty: bool = False) -> int:
-        where = "del_flag = 0"
+              publish_status_empty: bool = False, recycle_bin: bool = False,
+              visible_to_user_id: str = "", exclude_ids: set[str] | None = None) -> int:
+        where = "del_flag <> 0 AND oss_del_flag = 0" if recycle_bin else "del_flag = 0"
         params: list = []
         if team_name:
             where += " AND team_name ILIKE %s"
@@ -506,31 +690,51 @@ class PgMaterialSubmissionRepo:
             params.append(publish_status)
         elif publish_status_empty:
             where += " AND publish_status IS NULL"
+        if visible_to_user_id:
+            where += (
+                f" AND EXISTS (SELECT 1 FROM {self._permission_table} visible_permission "
+                f"WHERE visible_permission.submission_id = {self._table}.id "
+                "AND visible_permission.user_id = %s)"
+            )
+            params.append(visible_to_user_id)
+        numeric_exclude_ids = [int(item) for item in (exclude_ids or set()) if str(item).isdigit()]
+        if numeric_exclude_ids:
+            where += " AND NOT (id = ANY(%s::bigint[]))"
+            params.append(numeric_exclude_ids)
         with self._conn() as c:
             row = c.execute(f"SELECT COUNT(*) FROM {self._table} WHERE {where}", params).fetchone()
         return row[0] if row else 0
 
     @staticmethod
     def _to_submission(row) -> MaterialSubmission:
-        return MaterialSubmission(
+        submission = MaterialSubmission(
             id=str(row[0]),
             team_name=row[1] or "",
             delivery_time=row[2] or "",
             drama_name=row[3] or "",
             oss_key=row[4] or "",
-            video_file_name=row[5] or "",
-            title_name=row[6] or "",
-            episode_range=row[7] or "",
-            revision_comment=row[8] or "",
-            can_upload_status=int(row[9]) if row[9] is not None else None,
-            designated_upload_account_name=row[10] or "",
-            upload_account_name=row[11] or "",
-            upload_date=row[12] or "",
-            publish_status=int(row[13]) if row[13] is not None else None,
-            platform_reject_reason=row[14] or "",
-            platform_reject_attachments=row[15] or [],
-            created_by=row[16] or "",
-            created_time=row[17].isoformat() if row[17] else "",
-            updated_by=row[18] or "",
-            updated_time=row[19].isoformat() if row[19] else "",
+            decoded_oss_key=row[5] or "",
+            requires_decode=int(row[6]),
+            video_file_name=row[7] or "",
+            title_name=row[8] or "",
+            episode_range=row[9] or "",
+            revision_comment=row[10] or "",
+            can_upload_status=int(row[11]) if row[11] is not None else None,
+            designated_upload_account_name=row[12] or "",
+            upload_account_name=row[13] or "",
+            upload_date=row[14] or "",
+            publish_status=int(row[15]) if row[15] is not None else None,
+            platform_reject_reason=row[16] or "",
+            platform_reject_attachments=row[17] or [],
+            created_by=row[18] or "",
+            created_time=row[19].isoformat() if row[19] else "",
+            updated_by=row[20] or "",
+            updated_time=row[21].isoformat() if row[21] else "",
+            del_flag=int(row[22] or 0),
+            oss_del_flag=int(row[23] or 0),
         )
+        if len(row) >= 27:
+            submission._created_by_name_hint = row[24] or ""
+            submission._updated_by_name_hint = row[25] or ""
+            submission._permission_type_hint = row[26] or ""
+        return submission

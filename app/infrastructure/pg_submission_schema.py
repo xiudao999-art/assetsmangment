@@ -13,14 +13,9 @@ def ensure_submission_tables(
 ) -> None:
     if not _TABLE_RE.match(submission_table):
         raise ValueError(f"非法表名: {submission_table!r}")
-    import psycopg
+    from app.infrastructure.pg_pool import connection
 
-    with psycopg.connect(
-        dsn,
-        autocommit=True,
-        connect_timeout=10,
-        options="-c timezone=Asia/Shanghai",
-    ) as c:
+    with connection(dsn) as c:
         c.execute(
             f"""
             CREATE TABLE IF NOT EXISTS {submission_table} (
@@ -29,6 +24,9 @@ def ensure_submission_tables(
                 delivery_time               TEXT NOT NULL DEFAULT '',
                 drama_name                  TEXT NOT NULL DEFAULT '',
                 oss_key                     TEXT NOT NULL DEFAULT '',
+                decoded_oss_key             TEXT NOT NULL DEFAULT '',
+                requires_decode             SMALLINT NOT NULL DEFAULT 0
+                                            CONSTRAINT ck_{submission_table}_requires_decode CHECK (requires_decode IN (0, 1)),
                 video_file_name             TEXT NOT NULL DEFAULT '',
                 title_name                  TEXT NOT NULL DEFAULT '',
                 episode_range               TEXT NOT NULL DEFAULT '',
@@ -41,6 +39,7 @@ def ensure_submission_tables(
                 platform_reject_reason      TEXT NOT NULL DEFAULT '',
                 platform_reject_attachments JSONB NOT NULL DEFAULT '[]'::jsonb,
                 del_flag                    BIGINT NOT NULL DEFAULT 0,
+                oss_del_flag                BIGINT NOT NULL DEFAULT 0,
                 create_by                   TEXT NOT NULL DEFAULT '',
                 create_time                 TIMESTAMPTZ NOT NULL DEFAULT now(),
                 update_by                   TEXT NOT NULL DEFAULT '',
@@ -86,6 +85,42 @@ def ensure_submission_tables(
             """
         )
         c.execute(f"ALTER TABLE {submission_table} ADD COLUMN IF NOT EXISTS upload_date TEXT NOT NULL DEFAULT ''")
+        c.execute(f"ALTER TABLE {submission_table} ADD COLUMN IF NOT EXISTS decoded_oss_key TEXT NOT NULL DEFAULT ''")
+        c.execute(
+            f"""
+            DO $$
+            BEGIN
+                IF NOT EXISTS (
+                    SELECT 1 FROM information_schema.columns
+                    WHERE table_schema = 'public' AND table_name = '{submission_table}'
+                      AND column_name = 'requires_decode'
+                ) THEN
+                    ALTER TABLE {submission_table} ADD COLUMN requires_decode SMALLINT;
+                    UPDATE {submission_table}
+                       SET requires_decode = CASE
+                           WHEN drama_name = '冰柜里的呼声-混剪' THEN 1 ELSE 0 END;
+                END IF;
+            END $$;
+            """
+        )
+        c.execute(f"ALTER TABLE {submission_table} ALTER COLUMN requires_decode SET DEFAULT 0")
+        c.execute(f"ALTER TABLE {submission_table} ALTER COLUMN requires_decode SET NOT NULL")
+        c.execute(
+            f"""
+            DO $$
+            BEGIN
+                IF NOT EXISTS (
+                    SELECT 1 FROM pg_constraint
+                    WHERE conname = 'ck_{submission_table}_requires_decode'
+                ) THEN
+                    ALTER TABLE {submission_table}
+                        ADD CONSTRAINT ck_{submission_table}_requires_decode
+                        CHECK (requires_decode IN (0, 1));
+                END IF;
+            END $$;
+            """
+        )
+        c.execute(f"ALTER TABLE {submission_table} ADD COLUMN IF NOT EXISTS oss_del_flag BIGINT NOT NULL DEFAULT 0")
         c.execute(f"ALTER TABLE {submission_table} ALTER COLUMN can_upload_status DROP NOT NULL")
         c.execute(f"ALTER TABLE {submission_table} ALTER COLUMN can_upload_status DROP DEFAULT")
         c.execute(f"ALTER TABLE {submission_table} ALTER COLUMN publish_status DROP NOT NULL")
@@ -129,6 +164,8 @@ def ensure_submission_tables(
         c.execute(f"COMMENT ON COLUMN {submission_table}.delivery_time IS '视频交付时间，按文本存储'")
         c.execute(f"COMMENT ON COLUMN {submission_table}.drama_name IS '剧名'")
         c.execute(f"COMMENT ON COLUMN {submission_table}.oss_key IS '素材 OSS 对象键'")
+        c.execute(f"COMMENT ON COLUMN {submission_table}.decoded_oss_key IS '浏览器兼容的 H.264 视频 OSS 对象键；源文件非 HEVC 时为空'")
+        c.execute(f"COMMENT ON COLUMN {submission_table}.requires_decode IS '是否需要生成兼容版:0=不需要,1=需要'")
         c.execute(f"COMMENT ON COLUMN {submission_table}.video_file_name IS '视频文件名'")
         c.execute(f"COMMENT ON COLUMN {submission_table}.title_name IS '标题名'")
         c.execute(f"COMMENT ON COLUMN {submission_table}.episode_range IS '集数区间，按文本存储'")
@@ -143,11 +180,16 @@ def ensure_submission_tables(
             f"COMMENT ON COLUMN {submission_table}.platform_reject_attachments IS '平台拒审理由附件，JSONB 数组；元素仅保留 oss_key 等附件信息，不含文件名字段'"
         )
         c.execute(f"COMMENT ON COLUMN {submission_table}.del_flag IS '软删标记:0=在用，删除时置为新雪花 ID'")
+        c.execute(f"COMMENT ON COLUMN {submission_table}.oss_del_flag IS 'OSS 删除标记:0=未删除，删除后置为新雪花 ID'")
         c.execute(f"COMMENT ON COLUMN {submission_table}.create_by IS '创建人'")
         c.execute(f"COMMENT ON COLUMN {submission_table}.create_time IS '创建时间'")
         c.execute(f"COMMENT ON COLUMN {submission_table}.update_by IS '最后操作人'")
         c.execute(f"COMMENT ON COLUMN {submission_table}.update_time IS '最后操作时间'")
         c.execute(f"CREATE INDEX IF NOT EXISTS idx_{submission_table}_live ON {submission_table} (del_flag) WHERE del_flag = 0")
+        c.execute(
+            f"CREATE INDEX IF NOT EXISTS idx_{submission_table}_trash ON {submission_table} (del_flag) "
+            "WHERE del_flag <> 0 AND oss_del_flag = 0"
+        )
         permission_table = f"{submission_table}_permission"
         c.execute(
             f"""

@@ -14,10 +14,8 @@ class PgVectorIndex:
         self._init_schema()
 
     def _conn(self):
-        import psycopg
-        conn = psycopg.connect(self._dsn, autocommit=True, connect_timeout=10)
-        conn.execute("CREATE EXTENSION IF NOT EXISTS vector")
-        return conn
+        from app.infrastructure.pg_pool import connection
+        return connection(self._dsn)
 
     @staticmethod
     def _vec(vector: list[float]) -> str:
@@ -25,6 +23,7 @@ class PgVectorIndex:
 
     def _init_schema(self) -> None:
         with self._conn() as c:
+            c.execute("CREATE EXTENSION IF NOT EXISTS vector")
             c.execute(f"""
                 CREATE TABLE IF NOT EXISTS material_vectors (
                     material_id TEXT PRIMARY KEY,

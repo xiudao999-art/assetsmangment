@@ -3,6 +3,8 @@
 from __future__ import annotations
 import hashlib
 import hmac
+import secrets
+import threading
 import time
 from typing import Optional
 from app.config import settings
@@ -12,6 +14,7 @@ from app.domain.models import (
     MaterialSubmission,
 )
 from app.domain.query import MaterialQuery, paginate
+from app.infrastructure.snowflake import next_id, timestamp_ms
 
 
 # ── 反解 / embedding ──
@@ -116,6 +119,10 @@ class FakeStorage:
                 total = 0
             progress_callback(total, total)
 
+    def download_to_file(self, oss_key: str, path: str) -> None:
+        with open(path, "wb") as target:
+            target.write(b"")
+
     def signed_url(self, oss_key: str) -> str:
         return f"https://oss.fake/{oss_key}?Expires=3600&Signature=xyz"
 
@@ -137,6 +144,43 @@ class FakeStorage:
 
     def snapshot_url(self, oss_key: str, ms: int = 1000) -> str:
         return f"https://oss.fake/{oss_key}?x-oss-process=video/snapshot,t_{ms}"
+
+
+class _InMemoryJobLock:
+    def __init__(self, coordinator, job_id: str) -> None:
+        self._coordinator = coordinator
+        self._job_id = job_id
+
+    def release(self) -> None:
+        with self._coordinator._lock:
+            self._coordinator._held.discard(self._job_id)
+
+
+class InMemoryJobCoordinator:
+    """测试用的 Redis 协调器替身。"""
+
+    def __init__(self) -> None:
+        self._lock = threading.Lock()
+        self._held: set[str] = set()
+        self._statuses: dict[str, dict] = {}
+
+    def acquire(self, job_id: str, *, timeout_seconds: int):
+        del timeout_seconds
+        with self._lock:
+            if job_id in self._held:
+                return None
+            self._held.add(job_id)
+            return _InMemoryJobLock(self, job_id)
+
+    def set_status(self, job_id: str, status: dict, *, ttl_seconds: int) -> None:
+        del ttl_seconds
+        with self._lock:
+            self._statuses[job_id] = dict(status)
+
+    def get_status(self, job_id: str) -> dict | None:
+        with self._lock:
+            value = self._statuses.get(job_id)
+            return dict(value) if value else None
 
 
 # ── 向量索引(F4)──
@@ -220,7 +264,9 @@ class FakeHasher:
 
 
 class FakeTokenIssuer:
-    """HMAC 签名 token:`<uid>.<exp>.<sig>`。无密钥无法伪造(修复"任意伪造 admin")。
+    """HMAC 签名 token:`<uid>.<exp>.<nonce>.<sig>`。无密钥无法伪造。
+
+    校验仍兼容历史的 ``<uid>.<exp>.<sig>`` token，保证平滑升级。
     真实现可换成 JWT(python-jose);接口不变。"""
 
     def __init__(self, secret: Optional[str] = None, ttl: Optional[int] = None) -> None:
@@ -232,21 +278,85 @@ class FakeTokenIssuer:
 
     def issue(self, user_id: str) -> str:
         exp = int(time.time()) + self._ttl
-        msg = f"{user_id}.{exp}"
+        msg = f"{user_id}.{exp}.{secrets.token_urlsafe(16)}"
         return f"{msg}.{self._sign(msg)}"
 
     def verify(self, token: str) -> Optional[str]:
         try:
-            uid, exp, sig = token.rsplit(".", 2)
+            parts = token.rsplit(".", 3)
+            if len(parts) == 4:
+                uid, exp, nonce, sig = parts
+                msg = f"{uid}.{exp}.{nonce}"
+            elif len(parts) == 3:
+                uid, exp, sig = parts
+                msg = f"{uid}.{exp}"
+            else:
+                return None
         except ValueError:
             return None
-        if not hmac.compare_digest(sig, self._sign(f"{uid}.{exp}")):
+        if not hmac.compare_digest(sig, self._sign(msg)):
             return None  # 签名不符 → 伪造
         try:
             if int(exp) < int(time.time()):
                 return None  # 已过期
         except ValueError:
             return None
+        return uid
+
+
+class RotatingRefreshTokenIssuer:
+    """签发并轮换 refresh token。
+
+    refresh token 使用独立密钥和带随机数的格式，不能冒充 access token；
+    已消费 token 在有效期内会被拒绝，未消费 token 在服务重启后仍可正常刷新。
+    """
+
+    def __init__(self, secret: Optional[str] = None, ttl: Optional[int] = None) -> None:
+        configured_secret = settings.refresh_token_secret or f"{settings.token_secret}:refresh"
+        self._secret = (secret or configured_secret).encode()
+        self._ttl = ttl if ttl is not None else settings.refresh_token_ttl_seconds
+        self._consumed: dict[str, int] = {}
+        self._lock = threading.Lock()
+
+    def _sign(self, msg: str) -> str:
+        return hmac.new(self._secret, msg.encode(), hashlib.sha256).hexdigest()
+
+    def _parse(self, token: str) -> tuple[str, int] | None:
+        try:
+            uid, exp_raw, nonce, signature = token.rsplit(".", 3)
+            exp = int(exp_raw)
+        except (TypeError, ValueError):
+            return None
+        msg = f"{uid}.{exp_raw}.{nonce}"
+        if not hmac.compare_digest(signature, self._sign(msg)):
+            return None
+        if exp < int(time.time()):
+            return None
+        return uid, exp
+
+    def issue(self, user_id: str) -> str:
+        exp = int(time.time()) + self._ttl
+        nonce = secrets.token_urlsafe(24)
+        msg = f"{user_id}.{exp}.{nonce}"
+        return f"{msg}.{self._sign(msg)}"
+
+    def verify(self, token: str) -> Optional[str]:
+        parsed = self._parse(token)
+        return parsed[0] if parsed is not None else None
+
+    def consume(self, token: str) -> Optional[str]:
+        parsed = self._parse(token)
+        if parsed is None:
+            return None
+        uid, exp = parsed
+        now = int(time.time())
+        with self._lock:
+            for consumed_token, consumed_exp in list(self._consumed.items()):
+                if consumed_exp < now:
+                    self._consumed.pop(consumed_token, None)
+            if token in self._consumed:
+                return None
+            self._consumed[token] = exp
         return uid
 
 
@@ -445,11 +555,59 @@ class InMemoryMaterialSubmissionRepo:
         self._items[submission.id] = submission
 
     def get(self, submission_id: str):
-        return self._items.get(submission_id)
+        item = self._items.get(submission_id)
+        return item if item and item.del_flag == 0 else None
 
-    def delete(self, submission_id: str, by: str = "") -> None:
-        self._items.pop(submission_id, None)
-        self._permissions = {k: v for k, v in self._permissions.items() if k[0] != submission_id}
+    def set_decoded_oss_key_if_current(self, submission_id: str, source_oss_key: str,
+                                       decoded_oss_key: str, by: str = "") -> bool:
+        item = self._items.get(submission_id)
+        if (item is None or item.del_flag != 0 or item.oss_del_flag != 0
+                or item.oss_key != source_oss_key or item.decoded_oss_key):
+            return False
+        item.decoded_oss_key = decoded_oss_key
+        item.requires_decode = 1
+        item.updated_by = by
+        item.updated_time = str(int(time.time() * 1000))
+        return True
+
+    def get_deleted(self, submission_id: str):
+        item = self._items.get(submission_id)
+        return item if item and item.del_flag != 0 and item.oss_del_flag == 0 else None
+
+    def delete(self, submission_id: str, by: str = "") -> bool:
+        item = self._items.get(submission_id)
+        if item is None or item.del_flag != 0 or item.oss_del_flag != 0:
+            return False
+        item.del_flag = next_id()
+        item.updated_by = by
+        item.updated_time = str(int(time.time() * 1000))
+        return True
+
+    def restore(self, submission_id: str, by: str = "") -> bool:
+        item = self.get_deleted(submission_id)
+        if item is None:
+            return False
+        item.del_flag = 0
+        item.updated_by = by
+        item.updated_time = str(int(time.time() * 1000))
+        return True
+
+    def list_expired_deleted(self, cutoff_ms: int) -> list[MaterialSubmission]:
+        return sorted(
+            (item for item in self._items.values()
+             if item.del_flag != 0 and item.oss_del_flag == 0
+             and timestamp_ms(item.del_flag) < cutoff_ms),
+            key=lambda item: item.del_flag,
+        )
+
+    def mark_oss_deleted(self, submission_id: str, by: str = "") -> bool:
+        item = self.get_deleted(submission_id)
+        if item is None:
+            return False
+        item.oss_del_flag = next_id()
+        item.updated_by = by
+        item.updated_time = str(int(time.time() * 1000))
+        return True
 
     def record_operation(self, submission_id: str, action: str, by: str,
                          changes: list[dict]) -> None:
@@ -536,8 +694,13 @@ class InMemoryMaterialSubmissionRepo:
              designated_upload_account_name: str = "", upload_account_name: str = "",
              created_by: str = "", publish_status: int | None = None,
              publish_status_empty: bool = False,
-             offset: int = 0, limit: int | None = None) -> list[MaterialSubmission]:
-        items = sorted(self._items.values(), key=lambda s: int(s.id))
+             offset: int = 0, limit: int | None = None,
+             recycle_bin: bool = False, visible_to_user_id: str = "",
+             exclude_ids: set[str] | None = None,
+             sort_by: str = "", sort_order: str = "") -> list[MaterialSubmission]:
+        items = sorted((s for s in self._items.values()
+                        if (s.del_flag != 0 and s.oss_del_flag == 0) == recycle_bin
+                        and (recycle_bin or s.del_flag == 0)), key=lambda s: int(s.id))
         if team_name:
             items = [s for s in items if team_name.lower() in s.team_name.lower()]
         if drama_name:
@@ -560,6 +723,23 @@ class InMemoryMaterialSubmissionRepo:
             items = [s for s in items if s.publish_status == publish_status]
         elif publish_status_empty:
             items = [s for s in items if s.publish_status is None]
+        if visible_to_user_id:
+            visible_ids = self.submission_ids_for_user(visible_to_user_id)
+            items = [s for s in items if s.id in visible_ids]
+        if exclude_ids:
+            items = [s for s in items if s.id not in exclude_ids]
+        if sort_by:
+            if sort_by not in {"team_name", "upload_date", "created_time"}:
+                raise ValueError("非法素材提报排序字段")
+            if sort_order not in {"asc", "desc"}:
+                raise ValueError("非法素材提报排序方向")
+            populated = [s for s in items if str(getattr(s, sort_by, "") or "").strip()]
+            empty = [s for s in items if not str(getattr(s, sort_by, "") or "").strip()]
+            populated.sort(
+                key=lambda s: str(getattr(s, sort_by, "") or "").strip(),
+                reverse=sort_order == "desc",
+            )
+            items = populated + empty
         return items if limit is None else items[offset:offset + limit]
 
     def count(self, team_name: str = "", drama_name: str = "", video_file_name: str = "",
@@ -567,7 +747,8 @@ class InMemoryMaterialSubmissionRepo:
               can_upload_status_empty: bool = False,
               designated_upload_account_name: str = "", upload_account_name: str = "",
               created_by: str = "", publish_status: int | None = None,
-              publish_status_empty: bool = False) -> int:
+              publish_status_empty: bool = False, recycle_bin: bool = False,
+              visible_to_user_id: str = "", exclude_ids: set[str] | None = None) -> int:
         return len(self.list(team_name=team_name, drama_name=drama_name,
                              video_file_name=video_file_name, title_name=title_name,
                              can_upload_status=can_upload_status,
@@ -576,7 +757,10 @@ class InMemoryMaterialSubmissionRepo:
                              upload_account_name=upload_account_name,
                              created_by=created_by,
                              publish_status=publish_status,
-                             publish_status_empty=publish_status_empty))
+                             publish_status_empty=publish_status_empty,
+                             recycle_bin=recycle_bin,
+                             visible_to_user_id=visible_to_user_id,
+                             exclude_ids=exclude_ids))
 
 
 class InMemoryAuditReportRepo:

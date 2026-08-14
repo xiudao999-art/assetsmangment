@@ -7,7 +7,7 @@ import time
 
 
 class TokenVerifier:
-    """Validate the existing ``<uid>.<exp>.<signature>`` token format."""
+    """Validate current nonce tokens and legacy three-part access tokens."""
 
     def __init__(self, secret: str) -> None:
         self._secret = secret.encode()
@@ -17,11 +17,19 @@ class TokenVerifier:
 
     def verify(self, token: str) -> str | None:
         try:
-            user_id, expires_at, signature = token.rsplit(".", 2)
+            parts = token.rsplit(".", 3)
+            if len(parts) == 4:
+                user_id, expires_at, nonce, signature = parts
+                message = f"{user_id}.{expires_at}.{nonce}"
+            elif len(parts) == 3:
+                user_id, expires_at, signature = parts
+                message = f"{user_id}.{expires_at}"
+            else:
+                return None
         except ValueError:
             return None
         if not hmac.compare_digest(
-            signature, self._sign(f"{user_id}.{expires_at}")
+            signature, self._sign(message)
         ):
             return None
         try:

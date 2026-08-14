@@ -23,9 +23,8 @@ class PgRbacRepo:
         self._init_schema()
 
     def _conn(self):
-        import psycopg
-        return psycopg.connect(self._dsn, autocommit=True, connect_timeout=10,
-                               options="-c timezone=Asia/Shanghai")
+        from app.infrastructure.pg_pool import connection
+        return connection(self._dsn)
 
     def _init_schema(self) -> None:
         with self._conn() as c:

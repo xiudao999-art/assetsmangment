@@ -8,9 +8,11 @@ import zipfile
 import datetime
 import os
 import re
+import tempfile
 from fastapi import APIRouter, HTTPException, UploadFile, File, Form, Header, Depends, Query
 from fastapi.concurrency import run_in_threadpool
 from app.api import deps, schemas
+from app.config import settings
 from app.infrastructure.snowflake import next_id_str   # 规则主键:雪花 BIGINT 的字符串形态(PG 规范)
 from app.domain.models import (MaterialType, AuditStatus, Material, AuditRule, User,
                                AuditTask, JobStatus, Project, TextSourceType,
@@ -19,6 +21,7 @@ from app.domain.mp4 import parse_mp4_duration_ms
 from app.service.material import MaterialNotFound
 from app.service.user import InvalidCredentials, DuplicateName
 from app.service.authorization import PermissionDenied
+from app.service.video_compat import transcode_hevc_to_h264
 
 router = APIRouter()
 _UPLOAD_SCOPE_RE = re.compile(r"[^a-z0-9/_-]+")
@@ -191,6 +194,9 @@ def _submission_permission(user: dict | None, submission: MaterialSubmission) ->
         return ""
     if user.get("role") == "admin":
         return "read_edit"
+    joined_permission = getattr(submission, "_permission_type_hint", None)
+    if joined_permission is not None:
+        return joined_permission
     return deps.material_submission_repo.permission_of(submission.id, user.get("id", ""))
 
 
@@ -208,12 +214,39 @@ def _require_submission_access(user: dict, submission_id: str, *, edit: bool = F
     return submission
 
 
+def _require_deleted_submission_access(user: dict, submission_id: str,
+                                       *, edit: bool = False) -> MaterialSubmission:
+    _require_auth(user)
+    submission = deps.material_submission_repo.get_deleted(submission_id)
+    if submission is None:
+        raise HTTPException(404, "回收站中的素材提报不存在或已完成 OSS 清理")
+    if user.get("role") == "admin":
+        return submission
+    permission_type = deps.material_submission_repo.permission_of(submission_id, user.get("id", ""))
+    allowed = permission_type == "read_edit" if edit else permission_type in ("read", "read_edit")
+    if not allowed:
+        raise HTTPException(403, "无权访问该素材提报")
+    return submission
+
+
 def _submission_out(s: MaterialSubmission, user: dict | None = None) -> dict:
     permission_type = _submission_permission(user, s)
+    created_by_name = getattr(s, "_created_by_name_hint", None)
+    if created_by_name is None:
+        created_by_name = _owner_name(s.created_by)
+    updated_by_name = getattr(s, "_updated_by_name_hint", None)
+    if updated_by_name is None:
+        updated_by_name = _owner_name(s.updated_by)
     video_url = ""
+    decoded_video_url = ""
     if s.oss_key:
         try:
             video_url = deps.storage.signed_url(s.oss_key)
+        except Exception:
+            pass
+    if s.decoded_oss_key:
+        try:
+            decoded_video_url = deps.storage.signed_url(s.decoded_oss_key)
         except Exception:
             pass
     return {
@@ -223,6 +256,9 @@ def _submission_out(s: MaterialSubmission, user: dict | None = None) -> dict:
         "drama_name": s.drama_name,
         "oss_key": s.oss_key,
         "video_url": video_url,
+        "decoded_oss_key": s.decoded_oss_key,
+        "decoded_video_url": decoded_video_url,
+        "requires_decode": int(s.requires_decode),
         "video_file_name": s.video_file_name,
         "title_name": s.title_name,
         "episode_range": s.episode_range,
@@ -235,12 +271,12 @@ def _submission_out(s: MaterialSubmission, user: dict | None = None) -> dict:
         "platform_reject_reason": s.platform_reject_reason,
         "platform_reject_attachments": list(s.platform_reject_attachments or []),
         "created_by": s.created_by,
-        "created_by_name": _owner_name(s.created_by),
+        "created_by_name": created_by_name,
         "created_time": s.created_time,
         "updated_by": s.updated_by,
-        "updated_by_name": _owner_name(s.updated_by),
+        "updated_by_name": updated_by_name,
         "updated_time": s.updated_time,
-        "owner_name": _owner_name(s.created_by),
+        "owner_name": created_by_name,
         "is_owner": bool(user and s.created_by == user.get("id")),
         "permission_type": permission_type,
         "can_read": permission_type in ("read", "read_edit"),
@@ -248,8 +284,149 @@ def _submission_out(s: MaterialSubmission, user: dict | None = None) -> dict:
     }
 
 
+def _submission_decode_coordinator():
+    coordinator = deps.submission_decode_coordinator
+    if coordinator is None:
+        raise HTTPException(503, "解码服务未配置 Redis")
+    return coordinator
+
+
+def _set_submission_decode_status(submission_id: str, status: str, stage: str, **values) -> None:
+    coordinator = deps.submission_decode_coordinator
+    if coordinator is None:
+        return
+    coordinator.set_status(
+        submission_id,
+        {
+            "submission_id": submission_id,
+            "status": status,
+            "stage": stage,
+            "updated_at": time.time(),
+            **values,
+        },
+        ttl_seconds=settings.submission_decode_status_ttl_seconds,
+    )
+
+
+def _run_submission_decode_job(submission_id: str, source_key: str, file_name: str,
+                               user_id: str, distributed_lock) -> None:
+    import logging
+
+    source_path = ""
+    decoded_file = None
+    decoded_key = ""
+    committed = False
+    try:
+        _set_submission_decode_status(submission_id, "processing", "downloading", progress=3)
+        source_fd, source_path = tempfile.mkstemp(suffix=os.path.splitext(file_name)[1] or ".mp4")
+        os.close(source_fd)
+        deps.storage.download_to_file(source_key, source_path)
+
+        _set_submission_decode_status(submission_id, "processing", "transcoding", progress=10)
+        def report_transcode_progress(percent: int) -> None:
+            overall = min(90, 10 + round(max(0, min(100, percent)) * 0.8))
+            _set_submission_decode_status(
+                submission_id, "processing", "transcoding", progress=overall,
+            )
+        with open(source_path, "rb") as source:
+            decoded_file = transcode_hevc_to_h264(
+                source, progress_callback=report_transcode_progress,
+            )
+        if decoded_file is None:
+            _set_submission_decode_status(
+                submission_id, "not_required", "done", progress=100,
+                source_key=source_key, decoded_oss_key="", error="",
+            )
+            return
+
+        safe_name = _safe_upload_file_name(file_name or os.path.basename(source_key))
+        stem = os.path.splitext(safe_name)[0] or "video"
+        decoded_key = f"submissions/decoded/{uuid.uuid4().hex}-{stem}-h264.mp4"
+        _set_submission_decode_status(submission_id, "processing", "uploading", progress=94)
+        deps.storage.put_fileobj(decoded_key, decoded_file)
+
+        if not deps.material_submission_repo.set_decoded_oss_key_if_current(
+            submission_id, source_key, decoded_key, by=user_id,
+        ):
+            current = deps.material_submission_repo.get(submission_id)
+            if current is not None and current.decoded_oss_key:
+                deps.storage.delete(decoded_key)
+                decoded_key = current.decoded_oss_key
+                committed = True
+            else:
+                raise RuntimeError("源文件已被替换或提报已删除，兼容版未写入")
+        else:
+            committed = True
+            try:
+                deps.material_submission_repo.record_operation(
+                    submission_id,
+                    "update",
+                    user_id,
+                    [{"field": "decoded_oss_key", "before": "", "after": decoded_key}],
+                )
+            except Exception:
+                logging.getLogger(__name__).exception("记录素材解码操作失败: submission_id=%s", submission_id)
+
+        _set_submission_decode_status(
+            submission_id, "done", "done", decoded_oss_key=decoded_key, error="", progress=100,
+        )
+    except Exception as exc:
+        if decoded_key and not committed:
+            try:
+                deps.storage.delete(decoded_key)
+            except Exception:
+                pass
+        logging.getLogger(__name__).exception("素材兼容版后台生成失败: submission_id=%s", submission_id)
+        try:
+            _set_submission_decode_status(
+                submission_id, "error", "error", error=str(exc) or "兼容版生成失败", progress=0,
+            )
+        except Exception:
+            logging.getLogger(__name__).exception("写入素材解码失败状态失败: submission_id=%s", submission_id)
+    finally:
+        if decoded_file is not None:
+            decoded_file.close()
+        if source_path:
+            try:
+                os.unlink(source_path)
+            except FileNotFoundError:
+                pass
+        try:
+            distributed_lock.release()
+        except Exception:
+            logging.getLogger(__name__).exception("释放素材解码 Redis 锁失败: submission_id=%s", submission_id)
+
+
+def _submission_decode_status_out(submission: MaterialSubmission, user: dict) -> dict:
+    if submission.decoded_oss_key:
+        output = _submission_out(submission, user)
+        return {
+            "submission_id": submission.id,
+            "status": "done",
+            "stage": "done",
+            "decoded_oss_key": submission.decoded_oss_key,
+            "decoded_video_url": output.get("decoded_video_url", ""),
+            "error": "",
+            "progress": 100,
+        }
+    coordinator = _submission_decode_coordinator()
+    try:
+        status = coordinator.get_status(submission.id)
+    except Exception as exc:
+        raise HTTPException(503, "Redis 解码状态服务不可用") from exc
+    return status or {
+        "submission_id": submission.id,
+        "status": "idle",
+        "stage": "idle",
+        "decoded_oss_key": "",
+        "decoded_video_url": "",
+        "error": "",
+        "progress": 0,
+    }
+
+
 _SUBMISSION_OPERATION_FIELDS = (
-    "team_name", "delivery_time", "drama_name", "oss_key", "video_file_name",
+    "team_name", "delivery_time", "drama_name", "oss_key", "decoded_oss_key", "requires_decode", "video_file_name",
     "title_name", "episode_range", "revision_comment", "can_upload_status",
     "designated_upload_account_name", "upload_account_name", "upload_date",
     "publish_status", "platform_reject_reason", "platform_reject_attachments",
@@ -293,7 +470,7 @@ def _submission_operation_asset_keys(submission_id: str) -> set[str]:
     for operation in deps.material_submission_repo.list_operations(submission_id):
         for change in operation.get("changes") or []:
             field = change.get("field")
-            if field == "oss_key":
+            if field in ("oss_key", "decoded_oss_key"):
                 values = (change.get("before"), change.get("after"))
             elif field == "platform_reject_attachments":
                 values = [
@@ -1513,7 +1690,24 @@ def login(body: schemas.LoginIn):
     except InvalidCredentials:
         raise HTTPException(401, "invalid credentials")
     u = deps.user_repo.get_by_name(body.name)
-    return {"token": token, "user": {"id": u.id, "name": u.name, "role": u.role}}
+    refresh_token = deps.refresh_token_issuer.issue(u.id)
+    return {"token": token, "refreshToken": refresh_token,
+            "user": {"id": u.id, "name": u.name, "role": u.role}}
+
+
+@router.post("/users/refresh")
+def refresh_login(body: schemas.RefreshTokenIn):
+    uid = deps.refresh_token_issuer.consume(body.refreshToken)
+    if uid is None:
+        raise HTTPException(401, "refresh token invalid or expired")
+    u = deps.user_repo.get(uid)
+    if u is None:
+        raise HTTPException(401, "refresh token invalid or expired")
+    return {
+        "token": deps.token_issuer.issue(uid),
+        "refreshToken": deps.refresh_token_issuer.issue(uid),
+        "user": {"id": u.id, "name": u.name, "role": u.role},
+    }
 
 
 # ── 功能权限后台(F8)──
@@ -1755,11 +1949,71 @@ async def upload_admin_file(file: UploadFile = File(...), scope: str = Form("upl
         import logging
         logging.getLogger(__name__).exception("附件上传到 OSS 失败: key=%s", key)
         raise HTTPException(502, "附件上传失败，请检查 OSS 网络连接或配置") from exc
+    decoded_oss_key = ""
+    requires_decode = 0
+    if safe_scope == "submissions" and os.path.splitext(safe_name)[1].lower() in (".mp4", ".mov", ".m4v"):
+        decoded_file = None
+        try:
+            _set_upload_progress(
+                safe_upload_id, user["id"], status="processing", stage="inspecting",
+                loaded=0, total=100, progress=0, file_name=safe_name,
+            )
+
+            def report_transcode_progress(percent: int) -> None:
+                normalized = max(0, min(100, int(percent or 0)))
+                _set_upload_progress(
+                    safe_upload_id, user["id"], status="processing", stage="transcoding",
+                    loaded=normalized, total=100, progress=normalized, file_name=safe_name,
+                )
+
+            decoded_file = await run_in_threadpool(
+                transcode_hevc_to_h264, file.file, report_transcode_progress,
+            )
+            if decoded_file is not None:
+                requires_decode = 1
+                stem = os.path.splitext(safe_name)[0] or "video"
+                decoded_oss_key = f"{safe_scope}/decoded/{uuid.uuid4().hex}-{stem}-h264.mp4"
+                decoded_size = _upload_file_size(decoded_file)
+
+                def report_decoded_upload(consumed: int, total: int) -> None:
+                    measured_total = int(total or decoded_size or 0)
+                    _set_upload_progress(
+                        safe_upload_id, user["id"], status="processing", stage="decoded_storage",
+                        loaded=max(0, int(consumed or 0)), total=max(0, measured_total),
+                        progress=100, file_name=safe_name,
+                    )
+
+                if safe_upload_id:
+                    await run_in_threadpool(
+                        deps.storage.put_fileobj, decoded_oss_key, decoded_file, report_decoded_upload,
+                    )
+                else:
+                    await run_in_threadpool(deps.storage.put_fileobj, decoded_oss_key, decoded_file)
+        except Exception:
+            import logging
+            logging.getLogger(__name__).exception(
+                "HEVC 兼容版生成失败，保留源文件: key=%s", key,
+            )
+            if decoded_oss_key:
+                try:
+                    await run_in_threadpool(deps.storage.delete, decoded_oss_key)
+                except Exception:
+                    pass
+            decoded_oss_key = ""
+        finally:
+            if decoded_file is not None:
+                decoded_file.close()
+
     _set_upload_progress(
         safe_upload_id, user["id"], status="done", stage="storage",
         loaded=total_size, total=total_size, file_name=safe_name,
     )
-    return {"oss_key": key, "file_name": safe_name}
+    return {
+        "oss_key": key,
+        "decoded_oss_key": decoded_oss_key,
+        "requires_decode": requires_decode,
+        "file_name": safe_name,
+    }
 
 
 @router.get("/admin/uploads/progress/{upload_id}")
@@ -1780,7 +2034,7 @@ def admin_upload_progress(upload_id: str, user: dict = Depends(_user)):
 @router.get("/admin/uploads/url")
 def admin_upload_signed_url(key: str = Query(...), dl: int = Query(0),
                             submission_id: str = Query(""), requirement_id: str = Query(""),
-                            template_id: str = Query(""),
+                            template_id: str = Query(""), recycle_bin: bool = Query(False),
                             user: dict = Depends(_user)):
     _require_auth(user)
     if not key or not key.strip():
@@ -1798,8 +2052,12 @@ def admin_upload_signed_url(key: str = Query(...), dl: int = Query(0),
         elif not submission_id:
             raise HTTPException(403, "缺少素材提报权限上下文")
         else:
-            submission = _require_submission_access(user, submission_id)
-            allowed_keys = {submission.oss_key, *(submission.platform_reject_attachments or [])}
+            submission = (_require_deleted_submission_access(user, submission_id)
+                          if recycle_bin else _require_submission_access(user, submission_id))
+            allowed_keys = {
+                submission.oss_key, submission.decoded_oss_key,
+                *(submission.platform_reject_attachments or []),
+            }
             allowed_keys.update(_submission_operation_asset_keys(submission_id))
             if k not in allowed_keys:
                 raise HTTPException(403, "无权访问该文件")
@@ -1905,19 +2163,18 @@ def update_video_editing_template(template_id: str, body: schemas.VideoEditingTe
 
 def _visible_material_submissions(user: dict, **filters) -> list[MaterialSubmission]:
     _require_auth(user)
-    items = deps.material_submission_repo.list(offset=0, limit=None, **filters)
-    if user.get("role") == "admin":
-        return items
-    allowed_ids = deps.material_submission_repo.submission_ids_for_user(user.get("id", ""))
-    return [item for item in items if item.id in allowed_ids]
+    visible_to_user_id = "" if user.get("role") == "admin" else user.get("id", "")
+    return deps.material_submission_repo.list(
+        offset=0, limit=None, visible_to_user_id=visible_to_user_id, **filters,
+    )
 
 
-_MATERIAL_SUBMISSION_SORT_FIELDS = {"upload_date", "created_time"}
+_MATERIAL_SUBMISSION_SORT_FIELDS = {"team_name", "upload_date", "created_time"}
 _MATERIAL_SUBMISSION_SORT_ORDERS = {"asc", "desc"}
 
 
-def _sort_material_submissions(items: list[MaterialSubmission], sort_by: str = "created_time",
-                               sort_order: str = "desc") -> list[MaterialSubmission]:
+def _validate_material_submission_sort(sort_by: str = "created_time",
+                                       sort_order: str = "desc") -> tuple[str, str]:
     sort_by = (sort_by or "").strip()
     sort_order = (sort_order or "").strip()
     if sort_by and sort_by not in _MATERIAL_SUBMISSION_SORT_FIELDS:
@@ -1927,29 +2184,15 @@ def _sort_material_submissions(items: list[MaterialSubmission], sort_by: str = "
     if not sort_by and sort_order:
         raise HTTPException(400, "排序方向必须与排序字段同时设置")
 
-    def id_key(item: MaterialSubmission):
-        try:
-            return 0, int(item.id)
-        except (TypeError, ValueError):
-            return 1, str(item.id or "")
-
-    result = sorted(items, key=id_key)
-    if not sort_by:
-        return result
-    populated = [item for item in result if str(getattr(item, sort_by, "") or "").strip()]
-    empty = [item for item in result if not str(getattr(item, sort_by, "") or "").strip()]
-    populated.sort(
-        key=lambda item: str(getattr(item, sort_by, "") or "").strip(),
-        reverse=sort_order == "desc",
-    )
-    return populated + empty
+    return sort_by, sort_order
 
 
-def _visible_submission_names(user: dict, field: str, keyword: str, limit: int) -> list[str]:
+def _visible_submission_names(user: dict, field: str, keyword: str, limit: int,
+                              recycle_bin: bool = False) -> list[str]:
     key = (keyword or "").lower()
     seen: set[str] = set()
     result: list[str] = []
-    for submission in reversed(_visible_material_submissions(user)):
+    for submission in reversed(_visible_material_submissions(user, recycle_bin=recycle_bin)):
         value = str(getattr(submission, field, "") or "").strip()
         if not value or (key and key not in value.lower()) or value in seen:
             continue
@@ -1963,34 +2206,61 @@ def _visible_submission_names(user: dict, field: str, keyword: str, limit: int) 
 @router.get("/admin/material-submissions/upload-account-names")
 def list_material_submission_upload_account_names(
     keyword: str = Query(""), q: str = Query(""), limit: int = Query(200, ge=1, le=1000),
+    recycle_bin: bool = Query(False),
     user: dict = Depends(_user),
 ):
-    return {"items": _visible_submission_names(user, "upload_account_name", (keyword or q).strip(), limit)}
+    return {"items": _visible_submission_names(
+        user, "upload_account_name", (keyword or q).strip(), limit, recycle_bin,
+    )}
 
 
 @router.get("/admin/material-submissions/designated-upload-account-names")
 def list_material_submission_designated_upload_account_names(
     keyword: str = Query(""), q: str = Query(""), limit: int = Query(200, ge=1, le=1000),
+    recycle_bin: bool = Query(False),
     user: dict = Depends(_user),
 ):
     return {"items": _visible_submission_names(
-        user, "designated_upload_account_name", (keyword or q).strip(), limit,
+        user, "designated_upload_account_name", (keyword or q).strip(), limit, recycle_bin,
     )}
 
 
 @router.get("/admin/material-submissions/drama-names")
 def list_material_submission_drama_names(
     keyword: str = Query(""), q: str = Query(""), limit: int = Query(200, ge=1, le=1000),
+    recycle_bin: bool = Query(False),
     user: dict = Depends(_user),
 ):
-    return {"items": _visible_submission_names(user, "drama_name", (keyword or q).strip(), limit)}
+    return {"items": _visible_submission_names(
+        user, "drama_name", (keyword or q).strip(), limit, recycle_bin,
+    )}
+
+
+@router.get("/admin/material-submissions/team-names")
+def list_material_submission_team_names(
+    keyword: str = Query(""), q: str = Query(""), limit: int = Query(200, ge=1, le=1000),
+    recycle_bin: bool = Query(False),
+    user: dict = Depends(_user),
+):
+    return {"items": _visible_submission_names(
+        user, "team_name", (keyword or q).strip(), limit, recycle_bin,
+    )}
 
 
 @router.get("/admin/material-submissions/creator-accounts")
-def list_material_submission_creator_accounts(user: dict = Depends(_user)):
+def list_material_submission_creator_accounts(recycle_bin: bool = Query(False),
+                                               user: dict = Depends(_user)):
+    _require_auth(user)
+    optimized_list = getattr(deps.material_submission_repo, "list_creator_accounts", None)
+    if callable(optimized_list):
+        visible_to_user_id = "" if user.get("role") == "admin" else user.get("id", "")
+        return {"items": optimized_list(
+            recycle_bin=recycle_bin,
+            visible_to_user_id=visible_to_user_id,
+        )}
     seen: set[str] = set()
     items = []
-    for submission in reversed(_visible_material_submissions(user)):
+    for submission in reversed(_visible_material_submissions(user, recycle_bin=recycle_bin)):
         creator_id = (submission.created_by or "").strip()
         if not creator_id or creator_id in seen:
             continue
@@ -2009,23 +2279,75 @@ def list_material_submissions(page: int = Query(1, ge=1), size: int = Query(10, 
                               created_by: str = Query(""), publish_status: str = Query(""),
                               sort_by: str = Query("created_time"), sort_order: str = Query("desc"),
                               user: dict = Depends(_user)):
+    _require_auth(user)
+    sort_by, sort_order = _validate_material_submission_sort(sort_by, sort_order)
     can_upload_value, can_upload_empty = _status_filter_arg(can_upload_status, kind="可上传状态")
     publish_value, publish_empty = _status_filter_arg(publish_status, kind="发布状态")
-    items = _visible_material_submissions(
-        user, team_name=team_name, drama_name=drama_name, video_file_name=video_file_name,
+    visible_to_user_id = "" if user.get("role") == "admin" else user.get("id", "")
+    filters = dict(
+        team_name=team_name, drama_name=drama_name, video_file_name=video_file_name,
         title_name=title_name, can_upload_status=can_upload_value,
         can_upload_status_empty=can_upload_empty,
         designated_upload_account_name=designated_upload_account_name,
         upload_account_name=upload_account_name,
         created_by=created_by,
         publish_status=publish_value, publish_status_empty=publish_empty,
+        visible_to_user_id=visible_to_user_id,
     )
-    items = _sort_material_submissions(items, sort_by=sort_by, sort_order=sort_order)
-
-    total = len(items)
     off, lim = _page_args(page, size)
-    page_items = items[off:off + lim]
+    total = deps.material_submission_repo.count(**filters)
+    page_items = deps.material_submission_repo.list(
+        offset=off, limit=lim, sort_by=sort_by, sort_order=sort_order, **filters,
+    )
     return _page_out([_submission_out(item, user) for item in page_items], total, page, size, key="submissions")
+
+
+@router.get("/admin/material-submissions/recycle-bin")
+def list_deleted_material_submissions(
+    page: int = Query(1, ge=1), size: int = Query(10, ge=1, le=100),
+    team_name: str = Query(""), drama_name: str = Query(""),
+    video_file_name: str = Query(""), title_name: str = Query(""),
+    can_upload_status: str = Query(""), designated_upload_account_name: str = Query(""),
+    upload_account_name: str = Query(""), created_by: str = Query(""),
+    publish_status: str = Query(""), sort_by: str = Query("created_time"),
+    sort_order: str = Query("desc"), user: dict = Depends(_user),
+):
+    """列出仍在 7 天保留期内、且尚未完成 OSS 清理的逻辑删除提报。"""
+    _require_auth(user)
+    sort_by, sort_order = _validate_material_submission_sort(sort_by, sort_order)
+    can_upload_value, can_upload_empty = _status_filter_arg(can_upload_status, kind="可上传状态")
+    publish_value, publish_empty = _status_filter_arg(publish_status, kind="发布状态")
+    visible_to_user_id = "" if user.get("role") == "admin" else user.get("id", "")
+    filters = dict(
+        team_name=team_name, drama_name=drama_name, video_file_name=video_file_name,
+        title_name=title_name, can_upload_status=can_upload_value,
+        can_upload_status_empty=can_upload_empty,
+        designated_upload_account_name=designated_upload_account_name,
+        upload_account_name=upload_account_name, created_by=created_by,
+        publish_status=publish_value, publish_status_empty=publish_empty, recycle_bin=True,
+        visible_to_user_id=visible_to_user_id,
+    )
+    off, lim = _page_args(page, size)
+    total = deps.material_submission_repo.count(**filters)
+    page_items = deps.material_submission_repo.list(
+        offset=off, limit=lim, sort_by=sort_by, sort_order=sort_order, **filters,
+    )
+    return _page_out(
+        [_submission_out(item, user) for item in page_items],
+        total, page, size, key="submissions",
+    )
+
+
+@router.get("/admin/material-submissions/recycle-bin/{submission_id}")
+def get_deleted_material_submission_detail(submission_id: str, user: dict = Depends(_user)):
+    """读取尚未进入 OSS 清理流程的回收站提报。"""
+    return _submission_out(_require_deleted_submission_access(user, submission_id), user)
+
+
+@router.get("/admin/material-submissions/recycle-bin/{submission_id}/operations")
+def get_deleted_material_submission_operations(submission_id: str, user: dict = Depends(_user)):
+    submission = _require_deleted_submission_access(user, submission_id)
+    return _material_submission_operations_out(submission)
 
 
 @router.put("/admin/material-submissions/permissions/batch")
@@ -2094,9 +2416,8 @@ def get_material_submission_user_permissions(target_user_id: str, user: dict = D
     account = _material_submission_permission_target(target_user_id)
     grants = []
     permission_by_submission = deps.material_submission_repo.permissions_for_user(account.id)
-    submissions = _sort_material_submissions(
-        deps.material_submission_repo.list(offset=0, limit=None),
-        sort_by="created_time", sort_order="desc",
+    submissions = deps.material_submission_repo.list(
+        offset=0, limit=None, sort_by="created_time", sort_order="desc",
     )
     for submission in submissions:
         is_owner = submission.created_by == account.id
@@ -2226,21 +2547,22 @@ def list_unselected_material_submission_permissions(
         body.can_upload_status, kind="可上传状态"
     )
     publish_value, publish_empty = _status_filter_arg(body.publish_status, kind="发布状态")
-    items = deps.material_submission_repo.list(
-        offset=0, limit=None, drama_name=body.drama_name, title_name=body.title_name,
+    sort_by, sort_order = _validate_material_submission_sort(body.sort_by, body.sort_order)
+    filters = dict(
+        team_name=body.team_name, drama_name=body.drama_name,
+        title_name=body.title_name,
         can_upload_status=can_upload_value, can_upload_status_empty=can_upload_empty,
         designated_upload_account_name=body.designated_upload_account_name,
         upload_account_name=body.upload_account_name, created_by=body.created_by,
         publish_status=publish_value,
         publish_status_empty=publish_empty,
+        exclude_ids=selected_ids,
     )
-    items = _sort_material_submissions(
-        items, sort_by="created_time", sort_order="desc",
-    )
-    unselected = [item for item in items if item.id not in selected_ids]
-    total = len(unselected)
+    total = deps.material_submission_repo.count(**filters)
     off, lim = _page_args(body.page, body.size)
-    page_items = unselected[off:off + lim]
+    page_items = deps.material_submission_repo.list(
+        offset=off, limit=lim, sort_by=sort_by, sort_order=sort_order, **filters,
+    )
     return _page_out(
         [_submission_out(item, user) for item in page_items],
         total, body.page, body.size, key="submissions",
@@ -2313,10 +2635,77 @@ def get_material_submission_detail(submission_id: str, user: dict = Depends(_use
     return _submission_out(_require_submission_access(user, submission_id), user)
 
 
-@router.get("/admin/material-submissions/{submission_id}/operations")
-def get_material_submission_operations(submission_id: str, user: dict = Depends(_user)):
+@router.post("/admin/material-submissions/{submission_id}/decode", status_code=202)
+def start_material_submission_decode(submission_id: str, user: dict = Depends(_user)):
     submission = _require_submission_access(user, submission_id)
-    operations = deps.material_submission_repo.list_operations(submission_id)
+    if not submission.oss_key:
+        raise HTTPException(400, "该提报没有源视频")
+    if submission.decoded_oss_key:
+        return _submission_decode_status_out(submission, user)
+    if submission.requires_decode != 1:
+        return {
+            "submission_id": submission.id,
+            "status": "not_required",
+            "stage": "done",
+            "source_key": submission.oss_key,
+            "decoded_oss_key": "",
+            "decoded_video_url": "",
+            "error": "",
+            "progress": 100,
+        }
+
+    coordinator = _submission_decode_coordinator()
+    try:
+        existing_status = coordinator.get_status(submission.id)
+    except Exception as exc:
+        raise HTTPException(503, "Redis 解码状态服务不可用") from exc
+    if (
+        existing_status
+        and existing_status.get("status") == "not_required"
+        and existing_status.get("source_key") == submission.oss_key
+    ):
+        return existing_status
+    try:
+        distributed_lock = coordinator.acquire(
+            submission.id,
+            timeout_seconds=settings.submission_decode_lock_ttl_seconds,
+        )
+    except Exception as exc:
+        raise HTTPException(503, "Redis 解码锁服务不可用") from exc
+
+    if distributed_lock is None:
+        status = _submission_decode_status_out(submission, user)
+        if status.get("status") == "idle":
+            status.update(status="processing", stage="queued")
+        return status
+
+    try:
+        _set_submission_decode_status(submission.id, "queued", "queued", error="", progress=1)
+        deps.submission_transcode_pool.submit(
+            _run_submission_decode_job,
+            submission.id,
+            submission.oss_key,
+            submission.video_file_name,
+            user.get("id", ""),
+            distributed_lock,
+        )
+    except Exception as exc:
+        try:
+            distributed_lock.release()
+        except Exception:
+            pass
+        raise HTTPException(503, "解码任务提交失败") from exc
+    return _submission_decode_status_out(submission, user)
+
+
+@router.get("/admin/material-submissions/{submission_id}/decode")
+def get_material_submission_decode_status(submission_id: str, user: dict = Depends(_user)):
+    submission = _require_submission_access(user, submission_id)
+    return _submission_decode_status_out(submission, user)
+
+
+def _material_submission_operations_out(submission: MaterialSubmission) -> dict:
+    operations = deps.material_submission_repo.list_operations(submission.id)
     if not any(item.get("action") == "create" for item in operations):
         operations.append({
             "id": f"created-{submission.id}",
@@ -2328,7 +2717,13 @@ def get_material_submission_operations(submission_id: str, user: dict = Depends(
     for item in operations:
         item["operator_name"] = _owner_name(item.get("operator_id", ""))
     operations.sort(key=lambda item: str(item.get("operation_time", "")), reverse=True)
-    return {"submission_id": submission_id, "operations": operations}
+    return {"submission_id": submission.id, "operations": operations}
+
+
+@router.get("/admin/material-submissions/{submission_id}/operations")
+def get_material_submission_operations(submission_id: str, user: dict = Depends(_user)):
+    submission = _require_submission_access(user, submission_id)
+    return _material_submission_operations_out(submission)
 
 
 @router.get("/admin/material-submissions/{submission_id}/permissions")
@@ -2378,12 +2773,15 @@ def set_material_submission_permissions(submission_id: str, body: schemas.Materi
     return get_material_submission_permissions(submission_id, user)
 
 def _submission_in_to_model(body: schemas.MaterialSubmissionIn, *, sid: str, by: str) -> MaterialSubmission:
+    decoded_oss_key = (body.decoded_oss_key or "").strip()
     return MaterialSubmission(
         id=sid,
         team_name=(body.team_name or "").strip(),
         delivery_time=(body.delivery_time or "").strip(),
         drama_name=(body.drama_name or "").strip(),
         oss_key=(body.oss_key or "").strip(),
+        decoded_oss_key=decoded_oss_key,
+        requires_decode=1 if decoded_oss_key else 0,
         video_file_name=(body.video_file_name or "").strip(),
         title_name=(body.title_name or "").strip(),
         episode_range=(body.episode_range or "").strip(),
@@ -2400,12 +2798,15 @@ def _submission_update_to_model(body: schemas.MaterialSubmissionUpdateIn, *, sid
         v = (x or "").strip()
         if v:
             attachments.append(v)
+    decoded_oss_key = (body.decoded_oss_key or "").strip()
     return MaterialSubmission(
         id=sid,
         team_name=(body.team_name or "").strip(),
         delivery_time=(body.delivery_time or "").strip(),
         drama_name=(body.drama_name or "").strip(),
         oss_key=(body.oss_key or "").strip(),
+        decoded_oss_key=decoded_oss_key,
+        requires_decode=1 if decoded_oss_key else 0,
         video_file_name=(body.video_file_name or "").strip(),
         title_name=(body.title_name or "").strip(),
         episode_range=(body.episode_range or "").strip(),
@@ -2470,6 +2871,9 @@ def update_material_submission(submission_id: str, body: schemas.MaterialSubmiss
         "publish_status", "platform_reject_reason", "platform_reject_attachments",
     }
     process_fields_omitted = not (set(fields_set) & process_fields)
+    if "decoded_oss_key" not in fields_set:
+        s.decoded_oss_key = cur.decoded_oss_key
+        s.requires_decode = cur.requires_decode
     if process_fields_omitted:
         s.revision_comment = cur.revision_comment
         s.can_upload_status = cur.can_upload_status
@@ -2507,9 +2911,28 @@ def delete_material_submissions(body: schemas.IdsIn, user: dict = Depends(_user)
     deleted = []
     for rid in body.ids:
         _require_submission_access(user, rid, edit=True)
-        deps.material_submission_repo.delete(rid, by=user["id"])
-        deleted.append(rid)
+        if deps.material_submission_repo.delete(rid, by=user["id"]):
+            _record_submission_operation(
+                rid, "delete", user,
+                [{"field": "deleted", "before": False, "after": True}],
+            )
+            deleted.append(rid)
     return {"deleted": deleted}
+
+
+@router.post("/admin/material-submissions/{submission_id}/restore")
+def restore_material_submission(submission_id: str, user: dict = Depends(_user)):
+    _require_deleted_submission_access(user, submission_id, edit=True)
+    if not deps.material_submission_repo.restore(submission_id, by=user["id"]):
+        raise HTTPException(409, "该素材提报已恢复或已完成 OSS 清理")
+    _record_submission_operation(
+        submission_id, "restore", user,
+        [{"field": "deleted", "before": True, "after": False}],
+    )
+    restored = deps.material_submission_repo.get(submission_id)
+    if restored is None:
+        raise HTTPException(409, "素材提报恢复失败")
+    return _submission_out(restored, user)
 
 
 # ── 作品审核记录(管理员):只作品,按项目分组,按提交时间(AuditTask.created_ms)区间筛 ──

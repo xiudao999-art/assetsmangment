@@ -50,6 +50,20 @@ INDEX_DDLS = (
     "ON material_submission (designated_upload_account_name, id) WHERE del_flag = 0",
     "CREATE INDEX CONCURRENTLY IF NOT EXISTS idx_material_submission_live_account_id "
     "ON material_submission (upload_account_name, id) WHERE del_flag = 0",
+    "CREATE INDEX CONCURRENTLY IF NOT EXISTS idx_material_submission_live_created_id "
+    "ON material_submission (create_time DESC, id) WHERE del_flag = 0",
+    "CREATE INDEX CONCURRENTLY IF NOT EXISTS idx_material_submission_live_upload_date_id "
+    "ON material_submission ((NULLIF(BTRIM(upload_date), '')), id) WHERE del_flag = 0",
+    "CREATE INDEX CONCURRENTLY IF NOT EXISTS idx_material_submission_live_team_id "
+    "ON material_submission ((NULLIF(BTRIM(team_name), '')), id) WHERE del_flag = 0",
+    "CREATE INDEX CONCURRENTLY IF NOT EXISTS idx_material_submission_trash_created_id "
+    "ON material_submission (create_time DESC, id) WHERE del_flag <> 0 AND oss_del_flag = 0",
+    "CREATE INDEX CONCURRENTLY IF NOT EXISTS idx_material_submission_trash_upload_date_id "
+    "ON material_submission ((NULLIF(BTRIM(upload_date), '')), id) WHERE del_flag <> 0 AND oss_del_flag = 0",
+    "CREATE INDEX CONCURRENTLY IF NOT EXISTS idx_material_submission_trash_team_id "
+    "ON material_submission ((NULLIF(BTRIM(team_name), '')), id) WHERE del_flag <> 0 AND oss_del_flag = 0",
+    "CREATE INDEX CONCURRENTLY IF NOT EXISTS idx_material_submission_permission_user_submission "
+    "ON material_submission_permission (user_id, submission_id)",
     "CREATE INDEX CONCURRENTLY IF NOT EXISTS idx_material_submission_live_team_trgm "
     "ON material_submission USING gin (team_name gin_trgm_ops) WHERE del_flag = 0",
     "CREATE INDEX CONCURRENTLY IF NOT EXISTS idx_material_submission_live_drama_trgm "

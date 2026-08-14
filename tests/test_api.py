@@ -83,7 +83,28 @@ def test_requirement_crud_and_owner_permissions():
 def test_user_register_and_login():  # REQ-601
     client.post("/users/register", json={"name": "api_u", "password": "pw123456"})
     r = client.post("/users/login", json={"name": "api_u", "password": "pw123456"})
-    assert r.status_code == 200 and "token" in r.json() and r.json()["user"]["role"] == "user"
+    assert r.status_code == 200
+    assert "token" in r.json() and "refreshToken" in r.json()
+    assert r.json()["user"]["role"] == "user"
+
+
+def test_refresh_rotates_both_tokens():
+    login = client.post("/users/login", json={"name": "demo", "password": "pw123456"}).json()
+    refreshed = client.post("/users/refresh", json={"refreshToken": login["refreshToken"]})
+    assert refreshed.status_code == 200
+    body = refreshed.json()
+    assert body["token"] != login["token"]
+    assert body["refreshToken"] != login["refreshToken"]
+    assert client.get("/library/mine", headers=_hdr(body["token"])).status_code == 200
+    assert client.post("/users/refresh", json={"refreshToken": login["refreshToken"]}).status_code == 401
+
+
+def test_refresh_rejects_access_token_and_tampered_refresh_token():
+    login = client.post("/users/login", json={"name": "demo", "password": "pw123456"}).json()
+    assert client.post("/users/refresh", json={"refreshToken": login["token"]}).status_code == 401
+    assert client.post(
+        "/users/refresh", json={"refreshToken": login["refreshToken"] + "tampered"},
+    ).status_code == 401
 
 
 def test_login_wrong_password_401():
@@ -847,6 +868,211 @@ def test_material_submission_upload_exposes_optional_server_progress(monkeypatch
     assert client.get(f"/admin/uploads/progress/{upload_id}", headers=_admin_hdr()).status_code == 403
 
 
+def test_material_submission_upload_creates_browser_compatible_copy_for_hevc(monkeypatch):
+    from io import BytesIO
+    from app.api import deps, router as api_router
+
+    uploaded = {}
+    progress_updates = []
+    original_set_progress = api_router._set_upload_progress
+
+    def capture_status(upload_id, user_id, **values):
+        progress_updates.append(dict(values))
+        original_set_progress(upload_id, user_id, **values)
+
+    def fake_transcode(fileobj, progress_callback=None):
+        fileobj.seek(0)
+        assert fileobj.read() == b"hevc-source"
+        if progress_callback:
+            progress_callback(50)
+            progress_callback(100)
+        return BytesIO(b"h264-compatible")
+
+    def capture_upload(oss_key, fileobj, progress_callback=None):
+        fileobj.seek(0)
+        uploaded[oss_key] = fileobj.read()
+        if progress_callback:
+            progress_callback(len(uploaded[oss_key]), len(uploaded[oss_key]))
+
+    monkeypatch.setattr("app.api.router.transcode_hevc_to_h264", fake_transcode)
+    monkeypatch.setattr(deps.storage, "put_fileobj", capture_upload)
+    monkeypatch.setattr(api_router, "_set_upload_progress", capture_status)
+
+    response = client.post(
+        "/admin/uploads/file",
+        headers=_user_hdr(),
+        data={"scope": "submissions", "upload_id": "b" * 32},
+        files={"file": ("hevc-source.mp4", b"hevc-source", "video/mp4")},
+    )
+
+    assert response.status_code == 200
+    body = response.json()
+    assert body["oss_key"].startswith("submissions/")
+    assert body["decoded_oss_key"].startswith("submissions/decoded/")
+    assert body["requires_decode"] == 1
+    assert uploaded[body["oss_key"]] == b"hevc-source"
+    assert uploaded[body["decoded_oss_key"]] == b"h264-compatible"
+    assert any(x.get("stage") == "inspecting" for x in progress_updates)
+    assert any(x.get("stage") == "transcoding" and x.get("progress") == 50 for x in progress_updates)
+    assert any(x.get("stage") == "decoded_storage" for x in progress_updates)
+
+
+def test_material_submission_persists_and_authorizes_decoded_oss_key():
+    created = client.post("/admin/material-submissions", headers=_user_hdr(), json={
+        "oss_key": "submissions/source-hevc.mp4",
+        "decoded_oss_key": "submissions/decoded/source-h264.mp4",
+        "requires_decode": 1,
+        "video_file_name": "source-hevc.mp4",
+    })
+    assert created.status_code == 200
+    body = created.json()
+    assert body["decoded_oss_key"] == "submissions/decoded/source-h264.mp4"
+    assert body["requires_decode"] == 1
+    assert body["decoded_video_url"].startswith("https://oss.fake/")
+
+    updated = client.put(
+        f"/admin/material-submissions/{body['id']}", headers=_user_hdr(),
+        json={"oss_key": body["oss_key"], "video_file_name": "renamed.mp4"},
+    )
+    assert updated.status_code == 200
+    assert updated.json()["decoded_oss_key"] == body["decoded_oss_key"]
+
+    decoded_url = client.get(
+        "/admin/uploads/url",
+        headers=_user_hdr(),
+        params={
+            "key": body["decoded_oss_key"],
+            "submission_id": body["id"],
+            "dl": 1,
+        },
+    )
+    assert decoded_url.status_code == 200
+    assert "response-content-disposition=attachment" in decoded_url.json()["url"]
+
+    ignored = client.post("/admin/material-submissions", headers=_user_hdr(), json={
+        "requires_decode": 2,
+    })
+    assert ignored.status_code == 200
+    assert ignored.json()["requires_decode"] == 0
+
+
+def test_material_submission_detail_decode_is_locked_and_persists_compatible_copy(monkeypatch):
+    import threading
+    import time
+    from io import BytesIO
+
+    from app.api import deps
+
+    source_key = "submissions/detail-hevc.mp4"
+    deps.storage.put(source_key, b"hevc")
+    created = client.post("/admin/material-submissions", headers=_user_hdr(), json={
+        "oss_key": source_key,
+        "requires_decode": 1,
+        "video_file_name": "detail-hevc.mp4",
+        "title_name": "详情触发解码",
+    })
+    assert created.status_code == 200
+    submission_id = created.json()["id"]
+    submission = deps.material_submission_repo.get(submission_id)
+    submission.requires_decode = 1
+    deps.material_submission_repo.add(submission, by="test")
+
+    entered = threading.Event()
+    release = threading.Event()
+    calls = []
+
+    def fake_transcode(fileobj, progress_callback=None):
+        calls.append(fileobj.read())
+        if progress_callback:
+            progress_callback(50)
+        entered.set()
+        assert release.wait(3)
+        return BytesIO(b"h264-compatible")
+
+    monkeypatch.setattr("app.api.router.transcode_hevc_to_h264", fake_transcode)
+    first = client.post(f"/admin/material-submissions/{submission_id}/decode", headers=_user_hdr())
+    assert first.status_code == 202
+    assert entered.wait(2)
+
+    duplicate = client.post(f"/admin/material-submissions/{submission_id}/decode", headers=_user_hdr())
+    assert duplicate.status_code == 202
+    assert duplicate.json()["status"] in ("queued", "processing")
+    assert duplicate.json()["progress"] == 50
+    assert len(calls) == 1
+
+    release.set()
+    status = None
+    deadline = time.time() + 5
+    while time.time() < deadline:
+        status = client.get(
+            f"/admin/material-submissions/{submission_id}/decode", headers=_user_hdr(),
+        )
+        if status.json().get("status") == "done":
+            break
+        time.sleep(0.02)
+    assert status is not None and status.status_code == 200
+    assert status.json()["status"] == "done"
+    decoded_key = status.json()["decoded_oss_key"]
+    assert decoded_key.startswith("submissions/decoded/")
+    assert deps.storage.exists(decoded_key)
+
+    detail = client.get(f"/admin/material-submissions/{submission_id}", headers=_user_hdr()).json()
+    assert detail["decoded_oss_key"] == decoded_key
+    assert detail["decoded_video_url"].startswith("https://oss.fake/")
+    operations = client.get(
+        f"/admin/material-submissions/{submission_id}/operations", headers=_user_hdr(),
+    ).json()["operations"]
+    assert any(
+        change.get("field") == "decoded_oss_key"
+        for operation in operations for change in operation.get("changes", [])
+    )
+
+
+def test_material_submission_detail_decode_marks_non_hevc_as_not_required(monkeypatch):
+    import time
+
+    from app.api import deps
+
+    source_key = "submissions/detail-h264.mp4"
+    deps.storage.put(source_key, b"h264")
+    created = client.post("/admin/material-submissions", headers=_user_hdr(), json={
+        "oss_key": source_key,
+        "requires_decode": 1,
+        "video_file_name": "detail-h264.mp4",
+    })
+    submission_id = created.json()["id"]
+    submission = deps.material_submission_repo.get(submission_id)
+    submission.requires_decode = 1
+    deps.material_submission_repo.add(submission, by="test")
+    calls = []
+
+    def fake_transcode(fileobj, progress_callback=None):
+        calls.append(fileobj.read())
+        return None
+
+    monkeypatch.setattr("app.api.router.transcode_hevc_to_h264", fake_transcode)
+    started = client.post(f"/admin/material-submissions/{submission_id}/decode", headers=_user_hdr())
+    assert started.status_code == 202
+
+    deadline = time.time() + 3
+    status = None
+    while time.time() < deadline:
+        status = client.get(
+            f"/admin/material-submissions/{submission_id}/decode", headers=_user_hdr(),
+        )
+        if status.json().get("status") == "not_required":
+            break
+        time.sleep(0.02)
+    assert status is not None
+    assert status.json()["status"] == "not_required"
+    assert status.json()["source_key"] == source_key
+
+    repeated = client.post(f"/admin/material-submissions/{submission_id}/decode", headers=_user_hdr())
+    assert repeated.status_code == 202
+    assert repeated.json()["status"] == "not_required"
+    assert len(calls) == 1
+
+
 def test_video_editing_template_crud_and_oss_key_access():
     ah, uh = _admin_hdr(), _user_hdr()
     assert client.get("/admin/video-editing-templates").status_code == 401
@@ -941,6 +1167,7 @@ def test_material_submissions_crud_filter_and_batch_delete():
     assert client.get("/admin/material-submissions/upload-account-names", headers=uh).json()["items"] == []
     assert client.get("/admin/material-submissions/designated-upload-account-names", headers=uh).json()["items"] == []
     assert client.get("/admin/material-submissions/drama-names", headers=uh).json()["items"] == []
+    assert client.get("/admin/material-submissions/team-names", headers=uh).json()["items"] == []
     assert client.post("/admin/uploads/file", headers=uh,
                        data={"scope": "submissions"},
                        files={"file": ("sub.mp4", b"demo", "video/mp4")}).status_code == 200
@@ -1021,6 +1248,14 @@ def test_material_submissions_crud_filter_and_batch_delete():
         "/admin/material-submissions?sort_by=upload_date&sort_order=desc", headers=ah,
     ).json()["submissions"]
     assert [item["id"] for item in upload_desc] == [sid1, sid2]
+    team_asc = client.get(
+        "/admin/material-submissions?sort_by=team_name&sort_order=asc", headers=ah,
+    ).json()["submissions"]
+    assert [item["id"] for item in team_asc] == [sid1, sid2]
+    team_desc = client.get(
+        "/admin/material-submissions?sort_by=team_name&sort_order=desc", headers=ah,
+    ).json()["submissions"]
+    assert [item["id"] for item in team_desc] == [sid2, sid1]
     created_times = {item["id"]: item["created_time"] for item in default_order}
     expected_created_desc = sorted(
         [sid1, sid2], key=lambda sid: (created_times[sid], -int(sid)), reverse=True,
@@ -1058,6 +1293,8 @@ def test_material_submissions_crud_filter_and_batch_delete():
     assert filtered_designated_names["items"] == ["指定账号B-QC"]
     drama_names = client.get("/admin/material-submissions/drama-names?keyword=二号", headers=ah).json()
     assert drama_names["items"] == ["爆款短剧二号QC"]
+    team_names = client.get("/admin/material-submissions/team-names?keyword=团队", headers=ah).json()
+    assert team_names["items"] == ["二组团队QC", "一组团队QC"]
 
     detail = client.get(f"/admin/material-submissions/{sid2}", headers=ah)
     assert detail.status_code == 200 and detail.json()["platform_reject_attachments"] == ["oss://reject/b1.png", "oss://reject/b2.png"]
@@ -1227,6 +1464,78 @@ def test_material_submission_detail_exposes_operation_history():
     assert changes["platform_reject_reason"]["after"] == "封面不合规"
 
 
+def test_material_submission_recycle_bin_filters_restores_and_records_operations():
+    admin_headers, user_headers = _admin_hdr(), _user_hdr()
+    created = client.post("/admin/material-submissions", json={
+        "team_name": "回收站团队", "drama_name": "回收站短剧", "title_name": "待恢复标题",
+        "oss_key": "submissions/trash.mp4",
+        "decoded_oss_key": "submissions/decoded/trash-h264.mp4",
+    }, headers=user_headers)
+    submission_id = created.json()["id"]
+
+    deleted = client.post(
+        "/admin/material-submissions/batch/delete", json={"ids": [submission_id]},
+        headers=user_headers,
+    )
+    assert deleted.status_code == 200 and deleted.json()["deleted"] == [submission_id]
+    assert client.get(f"/admin/material-submissions/{submission_id}", headers=user_headers).status_code == 404
+
+    recycle = client.get(
+        "/admin/material-submissions/recycle-bin?team_name=回收站团队&drama_name=回收站&title_name=待恢复&sort_by=team_name&sort_order=asc",
+        headers=user_headers,
+    )
+    assert recycle.status_code == 200
+    assert recycle.json()["total"] == 1
+    assert recycle.json()["submissions"][0]["id"] == submission_id
+    assert recycle.json()["submissions"][0]["requires_decode"] == 1
+    assert recycle.json()["submissions"][0]["decoded_oss_key"] == "submissions/decoded/trash-h264.mp4"
+    recycle_team_names = client.get(
+        "/admin/material-submissions/team-names?keyword=回收站&recycle_bin=true",
+        headers=user_headers,
+    )
+    assert recycle_team_names.json()["items"] == ["回收站团队"]
+    recycle_detail = client.get(
+        f"/admin/material-submissions/recycle-bin/{submission_id}", headers=user_headers,
+    )
+    assert recycle_detail.status_code == 200
+    assert recycle_detail.json()["title_name"] == "待恢复标题"
+    assert recycle_detail.json()["requires_decode"] == 1
+    assert recycle_detail.json()["decoded_oss_key"] == "submissions/decoded/trash-h264.mp4"
+    recycle_operations = client.get(
+        f"/admin/material-submissions/recycle-bin/{submission_id}/operations",
+        headers=user_headers,
+    )
+    assert recycle_operations.status_code == 200
+    assert [item["action"] for item in recycle_operations.json()["operations"]][:2] == [
+        "delete", "create",
+    ]
+    recycle_file = client.get("/admin/uploads/url", params={
+        "key": "submissions/trash.mp4", "submission_id": submission_id,
+        "recycle_bin": "true",
+    }, headers=user_headers)
+    assert recycle_file.status_code == 200
+    assert client.get(
+        "/admin/material-submissions/recycle-bin?title_name=不匹配", headers=admin_headers,
+    ).json()["total"] == 0
+    assert client.get(
+        "/admin/material-submissions/creator-accounts?recycle_bin=true", headers=user_headers,
+    ).json()["items"] == [{"id": "user01", "name": "demo"}]
+
+    restored = client.post(
+        f"/admin/material-submissions/{submission_id}/restore", headers=user_headers,
+    )
+    assert restored.status_code == 200
+    assert restored.json()["id"] == submission_id
+    assert client.get("/admin/material-submissions/recycle-bin", headers=user_headers).json()["total"] == 0
+    actions = [item["action"] for item in client.get(
+        f"/admin/material-submissions/{submission_id}/operations", headers=user_headers,
+    ).json()["operations"]]
+    assert actions[:3] == ["restore", "delete", "create"]
+    assert client.post(
+        f"/admin/material-submissions/{submission_id}/restore", headers=user_headers,
+    ).status_code == 404
+
+
 def test_submission_reader_can_access_files_referenced_by_operation_history():
     admin_headers, user_headers = _admin_hdr(), _user_hdr()
     created = client.post("/admin/material-submissions", json={
@@ -1326,6 +1635,7 @@ def test_admin_can_replace_permissions_for_one_submission_user():
     managed_ids = []
     for index, episode_range in ((1, "3-4"), (2, "5-6")):
         response = client.post("/admin/material-submissions", json={
+            "team_name": f"权限团队{index}",
             "drama_name": "权限管理剧", "title_name": f"待管理视频{index}",
             "episode_range": episode_range,
             "oss_key": f"submissions/manage-{index}.mp4",
@@ -1360,6 +1670,14 @@ def test_admin_can_replace_permissions_for_one_submission_user():
     assert designated_page.status_code == 200
     assert designated_page.json()["total"] == 1
     assert designated_page.json()["submissions"][0]["id"] == managed_ids[1]
+    team_query = dict(
+        unselected_query, team_name="权限团队", sort_by="team_name", sort_order="desc", size=2,
+    )
+    team_page = client.post(unselected_endpoint, json=team_query, headers=ah)
+    assert team_page.status_code == 200
+    assert [item["team_name"] for item in team_page.json()["submissions"]] == [
+        "权限团队2", "权限团队1",
+    ]
 
     all_unselected = client.post(unselected_endpoint, json=unselected_query, headers=ah).json()
     unselected_created_times = [item["created_time"] for item in all_unselected["submissions"]]
