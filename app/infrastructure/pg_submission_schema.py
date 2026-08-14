@@ -13,14 +13,9 @@ def ensure_submission_tables(
 ) -> None:
     if not _TABLE_RE.match(submission_table):
         raise ValueError(f"非法表名: {submission_table!r}")
-    import psycopg
+    from app.infrastructure.pg_pool import connection
 
-    with psycopg.connect(
-        dsn,
-        autocommit=True,
-        connect_timeout=10,
-        options="-c timezone=Asia/Shanghai",
-    ) as c:
+    with connection(dsn) as c:
         c.execute(
             f"""
             CREATE TABLE IF NOT EXISTS {submission_table} (

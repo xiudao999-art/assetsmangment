@@ -61,10 +61,14 @@ async def lifespan(app: FastAPI):
     task_janitor.start()
     if settings.submission_trash_cleanup_enabled:
         submission_trash_janitor.start()
-    yield
-    if settings.submission_trash_cleanup_enabled:
-        submission_trash_janitor.stop()
-    task_janitor.stop()
+    try:
+        yield
+    finally:
+        if settings.submission_trash_cleanup_enabled:
+            submission_trash_janitor.stop()
+        task_janitor.stop()
+        from app.infrastructure.pg_pool import close_all_pools
+        close_all_pools()
 
 
 app = FastAPI(title="物料管理系统", version="0.1.0", lifespan=lifespan)

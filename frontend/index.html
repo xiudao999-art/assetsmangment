@@ -246,7 +246,8 @@
   .suggest-wrap{position:relative}
   .suggest-dropdown{position:absolute;top:calc(100% + 6px);left:0;right:0;z-index:45;border:1px solid var(--line-2);border-radius:11px;background:var(--panel);box-shadow:0 16px 34px rgba(45,20,15,.10);padding:6px;display:grid;gap:4px}
   .suggest-dropdown[hidden]{display:none}.bp-filter .suggest-dropdown{z-index:95;max-height:260px;overflow:auto;box-shadow:0 18px 42px rgba(45,20,15,.18)}
-  #sec-submissions .suggest-dropdown,#sec-submission-trash .suggest-dropdown{z-index:95;max-height:260px;overflow-x:hidden;overflow-y:auto;align-content:start;overscroll-behavior:contain;scrollbar-gutter:stable;box-shadow:0 18px 42px rgba(45,20,15,.18)}
+  #sec-submissions .suggest-dropdown,#sec-submission-trash .suggest-dropdown,.drawer .suggest-dropdown{z-index:95;max-height:260px;overflow-x:hidden;overflow-y:auto;align-content:start;overscroll-behavior:contain;scrollbar-gutter:stable;box-shadow:0 18px 42px rgba(45,20,15,.18)}
+  .drawer .suggest-dropdown{max-height:min(260px,36vh)}
   .suggest-item{display:flex;align-items:center;gap:10px;width:100%;padding:9px 11px;border:1px solid transparent;border-radius:8px;background:transparent;color:var(--ink);cursor:pointer;font:500 13px/1.45 Inter;text-align:left}
   .suggest-item:hover{background:var(--raise);border-color:var(--line)}
   .suggest-empty{padding:10px 11px;color:var(--faint);font-size:12px}
@@ -557,7 +558,7 @@
             </div>
             <div class="field f-fixed" style="margin:0"><label>发布状态</label><select id="sb-ft-publish"><option value="">全部</option><option value="__empty__">空</option><option value="1">成功</option><option value="2">失败</option></select></div>
             <div class="field" style="margin:0;flex:0 0 170px"><label>创建账号</label><select id="sb-ft-created-by"><option value="">全部</option></select></div>
-            <button class="btn key f-auto" onclick="applySubmissionFilters()">查询</button>
+            <button class="btn key f-auto" id="sb-query-btn" onclick="applySubmissionFilters()">查询</button>
             <button class="btn f-auto" onclick="resetSubmissionFilters()">重置</button>
           </div>
           <div id="sb-list"></div>
@@ -577,7 +578,7 @@
             <div class="field" style="margin:0;flex:0 0 210px"><label>上传账号</label><div class="suggest-wrap"><input id="tb-ft-account-name" placeholder="精准筛选上传账号名称" autocomplete="off" onfocus="openSubmissionSuggest('tb-ft-account-name')" oninput="onSubmissionSuggestInput('tb-ft-account-name')" onblur="scheduleSubmissionSuggestClose('tb-ft-account-name')"><div id="tb-ft-account-name-suggest" class="suggest-dropdown" hidden></div></div></div>
             <div class="field f-fixed" style="margin:0"><label>发布状态</label><select id="tb-ft-publish"><option value="">全部</option><option value="__empty__">空</option><option value="1">成功</option><option value="2">失败</option></select></div>
             <div class="field" style="margin:0;flex:0 0 170px"><label>创建账号</label><select id="tb-ft-created-by"><option value="">全部</option></select></div>
-            <button class="btn key f-auto" onclick="applySubmissionTrashFilters()">查询</button>
+            <button class="btn key f-auto" id="tb-query-btn" onclick="applySubmissionTrashFilters()">查询</button>
             <button class="btn f-auto" onclick="resetSubmissionTrashFilters()">重置</button>
           </div>
           <div id="tb-list"></div>
@@ -795,11 +796,11 @@ async function refreshSession(){
   }
   return REFRESH_PROMISE;
 }
-const api=async(m,p,b,isForm)=>{
+const api=async(m,p,b,isForm,requestOptions={})=>{
   const request=async retried=>{
     const requestToken=ME?.token;
-    const o={method:m,headers:{...H()}};if(b){if(isForm){o.body=b}else{o.headers['Content-Type']='application/json';o.body=JSON.stringify(b)}}
-    let r,d={};try{r=await fetch(p,o)}catch(e){return{ok:false,status:0,data:{}}}
+    const o={method:m,headers:{...H()},...requestOptions};if(b){if(isForm){o.body=b}else{o.headers['Content-Type']='application/json';o.body=JSON.stringify(b)}}
+    let r,d={};try{r=await fetch(p,o)}catch(e){return{ok:false,status:0,data:{},aborted:e?.name==='AbortError'}}
     try{d=await r.json()}catch(e){}
     if(r.status===401&&ME&&p!=='/users/login'&&p!=='/users/refresh'){
       if(!retried&&requestToken&&ME.token!==requestToken)return request(true);
@@ -874,6 +875,7 @@ function buildNav(){const items=ME.role==='admin'?NAV_ADMIN:NAV_USER;const group
   $('#nav').innerHTML=Object.entries(groups).map(([g,rows])=>`<div class="navgroup"><span>${g}</span>${rows.map(([sec,t,sub])=>`<div class="nav" data-sec="${sec}" title="${t}" tabindex="0" role="button" aria-label="${t}"><svg class="ico" viewBox="0 0 24 24">${ICO[sec]}</svg><span class="nav-t">${t}</span><span class="cnt" id="cnt-${sec}"></span></div>`).join('')}</div>`).join('');
   $$('.nav').forEach(n=>{n.onclick=()=>go(n.dataset.sec);n.onkeydown=e=>{if(e.key==='Enter'||e.key===' '){e.preventDefault();go(n.dataset.sec)}}});}
 const SUB={};
+let NAV_HASH_WRITE='';
 function go(sec){const navset=(ME.role==='admin'?NAV_ADMIN:NAV_USER);
   if(!navset.some(x=>x[1]===sec))sec=(ME.role==='admin'?'all':'submissions');  // 角色门控:越权/无效 sec 回落(挡 hashchange 直改 URL)
   $$('.nav').forEach(n=>n.classList.toggle('on',n.dataset.sec===sec));$$('section').forEach(s=>s.classList.toggle('on',s.id==='sec-'+sec));
@@ -884,11 +886,12 @@ function go(sec){const navset=(ME.role==='admin'?NAV_ADMIN:NAV_USER);
     else if(sec==='requirements')action.innerHTML='<button class="btn key" onclick="openRequirementEdit()">提新需求</button>';
     else action.innerHTML='';
   }
-  location.hash=sec;
+  const nextHash='#'+sec;
+  if(location.hash!==nextHash){NAV_HASH_WRITE=nextHash;location.hash=sec}
   if(sec!=='pending'&&typeof pendingTimer!=='undefined')clearTimeout(pendingTimer);  // 离开待审核→停轮询
   if(sec!=='rules-training'&&typeof trainingTimer!=='undefined')clearTimeout(trainingTimer);
   if(sec==='ingest'){if(typeof resetAudit==='function')resetAudit();if(typeof resetBatch==='function')resetBatch()}
-  if(sec==='mine')loadMine();if(sec==='public')loadPublic();if(sec==='all')loadAll();if(sec==='review')loadReview();if(sec==='works')loadWorks();if(sec==='roles')loadPerms();if(sec==='users')loadUsers();if(sec==='rules')loadRules();if(sec==='rules-training')loadTrainingPage();if(sec==='pending')loadPending();if(sec==='whitelist')loadWhitelist();if(sec==='blockwords')loadBlockwords();if(sec==='projects')loadProjects();if(sec==='submissions')loadMaterialSubmissions();if(sec==='submission-trash')loadSubmissionTrash();if(sec==='requirements')loadRequirements();
+  if(sec==='mine')loadMine();if(sec==='public')loadPublic();if(sec==='all')loadAll();if(sec==='review')loadReview();if(sec==='works')loadWorks();if(sec==='roles')loadPerms();if(sec==='users')loadUsers();if(sec==='rules')loadRules();if(sec==='rules-training')loadTrainingPage();if(sec==='pending')loadPending();if(sec==='whitelist')loadWhitelist();if(sec==='blockwords')loadBlockwords();if(sec==='projects')loadProjects();if(sec==='submissions'){refreshSubmissionCreatorOptions();loadMaterialSubmissions()}if(sec==='submission-trash'){refreshSubmissionCreatorOptions(true);loadSubmissionTrash()}if(sec==='requirements')loadRequirements();
   if(window.matchMedia('(max-width:900px)').matches)toggleNavOpen(false)}   // 手机上选完自动收起抽屉
 
 /* ── 折叠导航(桌面,默认收起)/ 手机抽屉 ── */
@@ -1804,6 +1807,10 @@ let SUBMISSION_DESIGNATED_ACCOUNT_NAME_OPTIONS=[];
 let SUBMISSION_DRAMA_NAME_OPTIONS=[];
 let SUBMISSION_TEAM_NAME_OPTIONS=[];
 let SUBMISSION_CREATOR_OPTIONS=[];
+const SUBMISSION_CREATOR_CACHE={active:null,trash:null};
+const SUBMISSION_CREATOR_PROMISE={active:null,trash:null};
+const SUBMISSION_LIST_REQUEST={active:{controller:null,sequence:0},trash:{controller:null,sequence:0}};
+const ASSET_DESK_FRONTEND_BUILD='20260814-submission-paging-v3';
 const SUBMISSION_SUGGEST_TIMERS={};
 let PREVIEW_KEY='';
 let PREVIEW_SUBMISSION_ID='';
@@ -2108,7 +2115,7 @@ async function lazyLoadSubmissionPreviews(){
   return fields.map(([k,v])=>`<div class="sb-field"><div class="kk">${k}</div><div class="vv">${v}</div></div>`).join('');
 }
 function renderSubmissionSuggestInput(id,value='',placeholder=''){
-  return `<div class="suggest-wrap"><input id="${id}" value="${esc(value||'')}" placeholder="${esc(placeholder||'')}" autocomplete="off" onfocus="openSubmissionSuggest('${id}')" oninput="onSubmissionSuggestInput('${id}')" onblur="scheduleSubmissionSuggestClose('${id}')"><div id="${id}-suggest" class="suggest-dropdown" hidden></div></div>`;
+  return `<div class="suggest-wrap"><input id="${id}" value="${esc(value||'')}" placeholder="${esc(placeholder||'')}" autocomplete="off" onfocus="openSubmissionSuggest('${id}')" oninput="onSubmissionSuggestInput('${id}')" onblur="scheduleSubmissionSuggestClose('${id}')"><div id="${id}-suggest" class="suggest-dropdown" style="max-height:min(260px,36vh);overflow-x:hidden;overflow-y:auto;align-content:start" hidden></div></div>`;
 }
 function renderSubmissionRejectAttachmentItems(keys){
   const rows=(keys||[]).map((k,i)=>`<div class="qrow" style="padding:8px 12px"><div class="meta"><div style="font-size:12.5px;word-break:break-all">${esc(submissionUploadedFileName(k))}</div></div><button class="btn sm block" type="button" onclick="removeSubmissionRejectAttachment(${i})">删除</button></div>`).join('');
@@ -2150,10 +2157,8 @@ async function refreshSubmissionDesignatedAccountNameOptions(keyword='',recycleB
   SUBMISSION_DESIGNATED_ACCOUNT_NAME_OPTIONS=r.data.items||[];
   return SUBMISSION_DESIGNATED_ACCOUNT_NAME_OPTIONS;
 }
-async function refreshSubmissionCreatorOptions(recycleBin=false){
-  const r=await api('GET','/admin/material-submissions/creator-accounts'+(recycleBin?'?recycle_bin=true':''));
-  if(!r.ok)return [];
-  SUBMISSION_CREATOR_OPTIONS=r.data.items||[];
+function renderSubmissionCreatorOptions(items,recycleBin=false){
+  SUBMISSION_CREATOR_OPTIONS=items||[];
   (recycleBin?['tb-ft-created-by']:['sb-ft-created-by','bp-created-by']).forEach(id=>{
     const select=$(`#${id}`);if(!select)return;
     const current=select.value;
@@ -2161,6 +2166,20 @@ async function refreshSubmissionCreatorOptions(recycleBin=false){
     if(SUBMISSION_CREATOR_OPTIONS.some(x=>String(x.id)===current))select.value=current;
   });
   return SUBMISSION_CREATOR_OPTIONS;
+}
+function invalidateSubmissionCreatorOptions(){
+  SUBMISSION_CREATOR_CACHE.active=null;SUBMISSION_CREATOR_CACHE.trash=null;
+}
+async function refreshSubmissionCreatorOptions(recycleBin=false,{force=false}={}){
+  const cacheKey=recycleBin?'trash':'active';
+  if(force)SUBMISSION_CREATOR_CACHE[cacheKey]=null;
+  if(SUBMISSION_CREATOR_CACHE[cacheKey])return renderSubmissionCreatorOptions(SUBMISSION_CREATOR_CACHE[cacheKey],recycleBin);
+  if(!SUBMISSION_CREATOR_PROMISE[cacheKey]){
+    SUBMISSION_CREATOR_PROMISE[cacheKey]=api('GET','/admin/material-submissions/creator-accounts'+(recycleBin?'?recycle_bin=true':''))
+      .then(r=>{if(r.ok)SUBMISSION_CREATOR_CACHE[cacheKey]=r.data.items||[];return SUBMISSION_CREATOR_CACHE[cacheKey]||[]})
+      .finally(()=>{SUBMISSION_CREATOR_PROMISE[cacheKey]=null});
+  }
+  return renderSubmissionCreatorOptions(await SUBMISSION_CREATOR_PROMISE[cacheKey],recycleBin);
 }
 function submissionSuggestKind(id){
   if(id.includes('designated-account')) return 'designated-account';
@@ -2257,7 +2276,7 @@ function renderMaterialSubmissionEditForm(s,isNew){
     <input type="hidden" id="sb-d-decoded-oss-key" value="${esc(x.decoded_oss_key||'')}">
     <div class="sb-section"><h4>基本信息</h4>
     <div class="row" style="align-items:flex-end;flex-wrap:wrap;gap:12px">
-      <div class="field f-grow" style="margin:0"><label>团队名称</label><input id="sb-d-team" value="${esc(x.team_name||'')}"></div>
+      <div class="field f-grow" style="margin:0"><label>团队名称</label>${renderSubmissionSuggestInput('sb-d-team',x.team_name||'','')}</div>
       <div class="field f-grow" style="margin:0"><label>视频交付时间</label><input id="sb-d-delivery" value="${esc(x.delivery_time||'')}"></div>
       <div class="field f-grow" style="margin:0"><label>剧名</label>${renderSubmissionSuggestInput('sb-d-drama',x.drama_name||'','')}</div>
     </div>
@@ -2605,8 +2624,13 @@ function toggleSubmissionSort(key,vkey='submissions'){
 }
 async function loadMaterialSubmissions(){
   const v=V.submissions;showSkeleton('#sb-list',v.size);
-  refreshSubmissionCreatorOptions();
-  const r=await api('GET','/admin/material-submissions?'+submissionQuery(v));
+  const state=SUBMISSION_LIST_REQUEST.active;
+  if(state.controller)state.controller.abort();
+  const controller=new AbortController(),sequence=++state.sequence;state.controller=controller;
+  const button=$('#sb-query-btn');if(button)button.disabled=true;
+  const r=await api('GET','/admin/material-submissions?'+submissionQuery(v),null,false,{signal:controller.signal});
+  if(sequence!==state.sequence||r.aborted)return;
+  state.controller=null;if(button)button.disabled=false;
   if(!r.ok){$('#sb-list').innerHTML='<div class="empty"><b class="disp">加载失败</b>请稍后重试。</div>';return}
   v.total=r.data.total??0;setCnt('submissions',v.total);
   const rows=r.data.submissions||[];
@@ -2648,8 +2672,13 @@ function resetSubmissionFilters(){
 
 async function loadSubmissionTrash(){
   const v=V.trash;showSkeleton('#tb-list',v.size);
-  refreshSubmissionCreatorOptions(true);
-  const r=await api('GET','/admin/material-submissions/recycle-bin?'+submissionQuery(v));
+  const state=SUBMISSION_LIST_REQUEST.trash;
+  if(state.controller)state.controller.abort();
+  const controller=new AbortController(),sequence=++state.sequence;state.controller=controller;
+  const button=$('#tb-query-btn');if(button)button.disabled=true;
+  const r=await api('GET','/admin/material-submissions/recycle-bin?'+submissionQuery(v),null,false,{signal:controller.signal});
+  if(sequence!==state.sequence||r.aborted)return;
+  state.controller=null;if(button)button.disabled=false;
   if(!r.ok){$('#tb-list').innerHTML='<div class="empty"><b class="disp">加载失败</b>请稍后重试。</div>';return}
   v.total=r.data.total??0;setCnt('submission-trash',v.total);
   const rows=r.data.submissions||[];
@@ -2683,7 +2712,7 @@ function resetSubmissionTrashFilters(){
 async function restoreMaterialSubmission(id,fromDrawer=false){
   if(!await appConfirm('恢复后，该素材提报会重新出现在“素材提报”列表中。',{title:'恢复素材提报？',confirmText:'恢复',danger:false}))return;
   const r=await api('POST',`/admin/material-submissions/${id}/restore`);
-  if(r.ok){toast('素材提报已恢复');if(fromDrawer)closeDrawer();loadSubmissionTrash()}
+  if(r.ok){toast('素材提报已恢复');invalidateSubmissionCreatorOptions();if(fromDrawer)closeDrawer();loadSubmissionTrash()}
   else toast(r.data.detail||'恢复失败',true);
 }
 function materialSubmissionBaseBody(){return {
@@ -2711,7 +2740,7 @@ async function saveMaterialSubmissionEdit(id){
   const isNew=!id;
   if(isNew){
     const r=await api('POST','/admin/material-submissions',materialSubmissionBaseBody());
-    if(r.ok){toast('素材提报已创建');closeDrawer();loadMaterialSubmissions()}
+    if(r.ok){toast('素材提报已创建');invalidateSubmissionCreatorOptions();closeDrawer();loadMaterialSubmissions()}
     else toast(r.data.detail||'创建失败',true);
   }else{
     const body=Object.assign({},materialSubmissionBaseBody(),materialSubmissionProcessBody());
@@ -2725,12 +2754,12 @@ async function deleteMaterialSubmissions(ids){
   const message=picked.length===1?'该素材提报将移入回收站，并保留 7 天。':`选中的 ${picked.length} 条素材提报将移入回收站，并保留 7 天。`;
   if(!await appConfirm(message,{title:picked.length===1?'删除素材提报？':`删除 ${picked.length} 条素材提报？`,confirmText:'确认删除'}))return;
   const r=await api('POST','/admin/material-submissions/batch/delete',{ids:picked});
-  if(r.ok){toast(`已删除 ${picked.length} 条素材提报`);loadMaterialSubmissions()}
+  if(r.ok){toast(`已删除 ${picked.length} 条素材提报`);invalidateSubmissionCreatorOptions();loadMaterialSubmissions()}
   else toast(r.data.detail||'删除失败',true)}
 async function deleteMaterialSubmissionFromDrawer(id){
   if(!await appConfirm('该素材提报将移入回收站，并保留 7 天。',{title:'删除素材提报？',confirmText:'确认删除'}))return;
   const r=await api('POST','/admin/material-submissions/batch/delete',{ids:[id]});
-  if(r.ok){toast('已删除素材提报');closeDrawer();loadMaterialSubmissions()}
+  if(r.ok){toast('已删除素材提报');invalidateSubmissionCreatorOptions();closeDrawer();loadMaterialSubmissions()}
   else toast(r.data.detail||'删除失败',true)}
 
 /* ── 素材提报：批量权限分配弹窗(admin) ── */
@@ -3126,7 +3155,7 @@ function boot(){$('#gate').style.display='none';$('#app').style.display='grid';
   const start=(location.hash||'').slice(1);const valid=(ME.role==='admin'?NAV_ADMIN:NAV_USER).some(x=>x[1]===start);
   go(valid?start:(ME.role==='admin'?'all':'submissions'))}
 
-window.addEventListener('hashchange',()=>{if(ME){const s=location.hash.slice(1);if(s)go(s)}});
+window.addEventListener('hashchange',()=>{if(NAV_HASH_WRITE===location.hash){NAV_HASH_WRITE='';return}if(ME){const s=location.hash.slice(1);if(s)go(s)}});
 if(ME)boot();
 </script>
 </body>

@@ -31,9 +31,8 @@ class PgMaterialSubmissionRepo:
         self._init_schema()
 
     def _conn(self):
-        import psycopg
-        return psycopg.connect(self._dsn, autocommit=True, connect_timeout=10,
-                               options="-c timezone=Asia/Shanghai")
+        from app.infrastructure.pg_pool import connection
+        return connection(self._dsn)
 
     def _init_schema(self) -> None:
         t = self._table
@@ -537,49 +536,61 @@ class PgMaterialSubmissionRepo:
              recycle_bin: bool = False, visible_to_user_id: str = "",
              exclude_ids: set[str] | None = None,
              sort_by: str = "", sort_order: str = "") -> list[MaterialSubmission]:
-        where = "del_flag <> 0 AND oss_del_flag = 0" if recycle_bin else "del_flag = 0"
+        alias = "submission"
+        where = (f"{alias}.del_flag <> 0 AND {alias}.oss_del_flag = 0"
+                 if recycle_bin else f"{alias}.del_flag = 0")
         params: list = []
         if team_name:
-            where += " AND team_name ILIKE %s"
+            where += f" AND {alias}.team_name ILIKE %s"
             params.append(f"%{team_name}%")
         if drama_name:
-            where += " AND drama_name ILIKE %s"
+            where += f" AND {alias}.drama_name ILIKE %s"
             params.append(f"%{drama_name}%")
         if video_file_name:
-            where += " AND video_file_name ILIKE %s"
+            where += f" AND {alias}.video_file_name ILIKE %s"
             params.append(f"%{video_file_name}%")
         if title_name:
-            where += " AND title_name ILIKE %s"
+            where += f" AND {alias}.title_name ILIKE %s"
             params.append(f"%{title_name}%")
         if can_upload_status is not None:
-            where += " AND can_upload_status = %s"
+            where += f" AND {alias}.can_upload_status = %s"
             params.append(can_upload_status)
         elif can_upload_status_empty:
-            where += " AND can_upload_status IS NULL"
+            where += f" AND {alias}.can_upload_status IS NULL"
         if designated_upload_account_name:
-            where += " AND designated_upload_account_name = %s"
+            where += f" AND {alias}.designated_upload_account_name = %s"
             params.append(designated_upload_account_name)
         if upload_account_name:
-            where += " AND upload_account_name = %s"
+            where += f" AND {alias}.upload_account_name = %s"
             params.append(upload_account_name)
         if created_by:
-            where += " AND create_by = %s"
+            where += f" AND {alias}.create_by = %s"
             params.append(created_by)
         if publish_status is not None:
-            where += " AND publish_status = %s"
+            where += f" AND {alias}.publish_status = %s"
             params.append(publish_status)
         elif publish_status_empty:
-            where += " AND publish_status IS NULL"
+            where += f" AND {alias}.publish_status IS NULL"
+        joins = (
+            f" LEFT JOIN app_user created_user ON created_user.domain_id = {alias}.create_by "
+            "AND created_user.del_flag = 0"
+            f" LEFT JOIN app_user updated_user ON updated_user.domain_id = {alias}.update_by "
+            "AND updated_user.del_flag = 0"
+        )
+        join_params: list = []
+        permission_select = "NULL::text"
         if visible_to_user_id:
-            where += (
-                f" AND EXISTS (SELECT 1 FROM {self._permission_table} visible_permission "
-                f"WHERE visible_permission.submission_id = {self._table}.id "
-                "AND visible_permission.user_id = %s)"
+            joins += (
+                f" LEFT JOIN {self._permission_table} visible_permission "
+                f"ON visible_permission.submission_id = {alias}.id "
+                "AND visible_permission.user_id = %s"
             )
-            params.append(visible_to_user_id)
+            join_params.append(visible_to_user_id)
+            where += " AND visible_permission.submission_id IS NOT NULL"
+            permission_select = "visible_permission.permission_type"
         numeric_exclude_ids = [int(item) for item in (exclude_ids or set()) if str(item).isdigit()]
         if numeric_exclude_ids:
-            where += " AND NOT (id = ANY(%s::bigint[]))"
+            where += f" AND NOT ({alias}.id = ANY(%s::bigint[]))"
             params.append(numeric_exclude_ids)
         sort_columns = {
             "team_name": "team_name",
@@ -594,17 +605,50 @@ class PgMaterialSubmissionRepo:
             column = sort_columns[sort_by]
             direction = sort_order.upper()
             if sort_by == "created_time":
-                order_by = f"{column} {direction}, id ASC"
+                order_by = f"{alias}.{column} {direction}, {alias}.id ASC"
             else:
-                order_by = f"NULLIF(BTRIM({column}), '') {direction} NULLS LAST, id ASC"
+                order_by = (f"NULLIF(BTRIM({alias}.{column}), '') {direction} NULLS LAST, "
+                            f"{alias}.id ASC")
         else:
-            order_by = "id ASC"
-        sql = f"SELECT {_SELECT_COLS} FROM {self._table} WHERE {where} ORDER BY {order_by}"
+            order_by = f"{alias}.id ASC"
+        selected = ", ".join(f"{alias}.{name.strip()}" for name in _SELECT_COLS.split(","))
+        sql = (
+            f"SELECT {selected}, created_user.name, updated_user.name, {permission_select} "
+            f"FROM {self._table} {alias}{joins} WHERE {where} ORDER BY {order_by}"
+        )
         if limit is not None:
             sql += f" LIMIT {int(limit)} OFFSET {int(offset)}"
         with self._conn() as c:
-            rows = c.execute(sql, params).fetchall()
+            rows = c.execute(sql, join_params + params).fetchall()
         return [self._to_submission(r) for r in rows]
+
+    def list_creator_accounts(self, recycle_bin: bool = False,
+                              visible_to_user_id: str = "") -> list[dict[str, str]]:
+        alias = "submission"
+        where = (f"{alias}.del_flag <> 0 AND {alias}.oss_del_flag = 0"
+                 if recycle_bin else f"{alias}.del_flag = 0")
+        joins = (
+            f" LEFT JOIN app_user creator ON creator.domain_id = {alias}.create_by "
+            "AND creator.del_flag = 0"
+        )
+        params: list = []
+        if visible_to_user_id:
+            joins += (
+                f" LEFT JOIN {self._permission_table} visible_permission "
+                f"ON visible_permission.submission_id = {alias}.id "
+                "AND visible_permission.user_id = %s"
+            )
+            params.append(visible_to_user_id)
+            where += " AND visible_permission.submission_id IS NOT NULL"
+        where += f" AND {alias}.create_by <> ''"
+        sql = (
+            f"SELECT {alias}.create_by, COALESCE(MAX(creator.name), {alias}.create_by), "
+            f"MAX({alias}.id) AS latest_id FROM {self._table} {alias}{joins} "
+            f"WHERE {where} GROUP BY {alias}.create_by ORDER BY latest_id DESC"
+        )
+        with self._conn() as c:
+            rows = c.execute(sql, params).fetchall()
+        return [{"id": str(row[0]), "name": str(row[1])} for row in rows]
 
     def count(self, team_name: str = "", drama_name: str = "", video_file_name: str = "",
               title_name: str = "", can_upload_status: int | None = None,
@@ -663,7 +707,7 @@ class PgMaterialSubmissionRepo:
 
     @staticmethod
     def _to_submission(row) -> MaterialSubmission:
-        return MaterialSubmission(
+        submission = MaterialSubmission(
             id=str(row[0]),
             team_name=row[1] or "",
             delivery_time=row[2] or "",
@@ -689,3 +733,8 @@ class PgMaterialSubmissionRepo:
             del_flag=int(row[22] or 0),
             oss_del_flag=int(row[23] or 0),
         )
+        if len(row) >= 27:
+            submission._created_by_name_hint = row[24] or ""
+            submission._updated_by_name_hint = row[25] or ""
+            submission._permission_type_hint = row[26] or ""
+        return submission

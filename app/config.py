@@ -71,6 +71,10 @@ class Settings(BaseSettings):
 
     # 数据库(RDS PostgreSQL + pgvector)
     database_url: str = "postgresql://user:pass@localhost:5432/assets"
+    database_pool_min_size: int = 1
+    database_pool_max_size: int = 20
+    database_pool_timeout_seconds: float = 10.0
+    database_pool_max_lifetime_seconds: float = 1800.0
 
     # Redis:素材兼容版后台转码的分布式锁与跨实例状态。
     redis_url: str = ""

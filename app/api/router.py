@@ -194,6 +194,9 @@ def _submission_permission(user: dict | None, submission: MaterialSubmission) ->
         return ""
     if user.get("role") == "admin":
         return "read_edit"
+    joined_permission = getattr(submission, "_permission_type_hint", None)
+    if joined_permission is not None:
+        return joined_permission
     return deps.material_submission_repo.permission_of(submission.id, user.get("id", ""))
 
 
@@ -228,6 +231,12 @@ def _require_deleted_submission_access(user: dict, submission_id: str,
 
 def _submission_out(s: MaterialSubmission, user: dict | None = None) -> dict:
     permission_type = _submission_permission(user, s)
+    created_by_name = getattr(s, "_created_by_name_hint", None)
+    if created_by_name is None:
+        created_by_name = _owner_name(s.created_by)
+    updated_by_name = getattr(s, "_updated_by_name_hint", None)
+    if updated_by_name is None:
+        updated_by_name = _owner_name(s.updated_by)
     video_url = ""
     decoded_video_url = ""
     if s.oss_key:
@@ -262,12 +271,12 @@ def _submission_out(s: MaterialSubmission, user: dict | None = None) -> dict:
         "platform_reject_reason": s.platform_reject_reason,
         "platform_reject_attachments": list(s.platform_reject_attachments or []),
         "created_by": s.created_by,
-        "created_by_name": _owner_name(s.created_by),
+        "created_by_name": created_by_name,
         "created_time": s.created_time,
         "updated_by": s.updated_by,
-        "updated_by_name": _owner_name(s.updated_by),
+        "updated_by_name": updated_by_name,
         "updated_time": s.updated_time,
-        "owner_name": _owner_name(s.created_by),
+        "owner_name": created_by_name,
         "is_owner": bool(user and s.created_by == user.get("id")),
         "permission_type": permission_type,
         "can_read": permission_type in ("read", "read_edit"),
@@ -2241,6 +2250,14 @@ def list_material_submission_team_names(
 @router.get("/admin/material-submissions/creator-accounts")
 def list_material_submission_creator_accounts(recycle_bin: bool = Query(False),
                                                user: dict = Depends(_user)):
+    _require_auth(user)
+    optimized_list = getattr(deps.material_submission_repo, "list_creator_accounts", None)
+    if callable(optimized_list):
+        visible_to_user_id = "" if user.get("role") == "admin" else user.get("id", "")
+        return {"items": optimized_list(
+            recycle_bin=recycle_bin,
+            visible_to_user_id=visible_to_user_id,
+        )}
     seen: set[str] = set()
     items = []
     for submission in reversed(_visible_material_submissions(user, recycle_bin=recycle_bin)):

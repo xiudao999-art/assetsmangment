@@ -1,0 +1,3 @@
+asset-desk build 20260814-submission-paging-v3
+creator accounts are loaded only when entering the submissions page
+drawer drama and team suggestions are capped at min(260px, 36vh)
