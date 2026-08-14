@@ -78,6 +78,7 @@ class Settings(BaseSettings):
 
     # Redis:素材兼容版后台转码的分布式锁与跨实例状态。
     redis_url: str = ""
+    redis_max_connections: int = 20
     submission_decode_lock_ttl_seconds: int = 10800  # 3 小时，覆盖最长转码与上传
     submission_decode_status_ttl_seconds: int = 86400  # 完成/失败状态保留 1 天
 

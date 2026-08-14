@@ -67,7 +67,9 @@ async def lifespan(app: FastAPI):
         if settings.submission_trash_cleanup_enabled:
             submission_trash_janitor.stop()
         task_janitor.stop()
+        from app.infrastructure.redis_job_coordinator import close_all_redis_pools
         from app.infrastructure.pg_pool import close_all_pools
+        close_all_redis_pools()
         close_all_pools()
 
 

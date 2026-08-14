@@ -256,9 +256,14 @@ audit_pool = ThreadPoolExecutor(max_workers=max(1, settings.audit_concurrency), 
 submission_transcode_pool = ThreadPoolExecutor(max_workers=1, thread_name_prefix="submission-transcode")
 if settings.redis_url:
     from app.infrastructure.redis_job_coordinator import RedisJobCoordinator
-    submission_decode_coordinator = RedisJobCoordinator(settings.redis_url)
+    submission_decode_coordinator = RedisJobCoordinator(
+        settings.redis_url,
+        max_connections=settings.redis_max_connections,
+    )
     submission_trash_coordinator = RedisJobCoordinator(
-        settings.redis_url, prefix="assets:submission-trash",
+        settings.redis_url,
+        prefix="assets:submission-trash",
+        max_connections=settings.redis_max_connections,
     )
 else:
     submission_decode_coordinator = None

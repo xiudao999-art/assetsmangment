@@ -17,3 +17,4 @@ When the user asks to “打包” or requests a deployment package:
 3. Every PostgreSQL repository and database operation must use the shared connection-pool infrastructure in `app/infrastructure/pg_pool.py`. Do not create a new direct `psycopg.connect()` connection per operation.
 4. Never execute SQL once per row/item inside a business loop. Avoid N+1 queries. Use set-based SQL such as `JOIN`/`LEFT JOIN`, `IN`/`ANY`, CTEs, batch writes (`executemany` where appropriate), or database aggregation.
 5. For list APIs, keep the number of SQL round trips bounded and independent of the number of returned rows. Review query plans and indexes when performance work explicitly permits index changes.
+6. Redis clients that use the same Redis URL must share a process-wide connection pool, use a configured `max_connections` limit, and close pools during application shutdown. Do not create a Redis client or pool per business operation.
