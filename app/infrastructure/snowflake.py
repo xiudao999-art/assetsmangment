@@ -67,3 +67,18 @@ def next_id() -> int:
 
 def next_id_str() -> str:
     return _default.next_id_str()
+
+
+def timestamp_ms(snowflake_id: int | str) -> int:
+    """从本项目雪花 ID 反解生成时间（毫秒）。"""
+    value = int(snowflake_id)
+    if value <= 0:
+        raise ValueError("snowflake_id 必须为正整数")
+    return (value >> (_WORKER_BITS + _SEQ_BITS)) + EPOCH_MS
+
+
+def minimum_id_for_timestamp(timestamp: int) -> int:
+    """返回指定毫秒生成的最小雪花 ID，便于数据库按删除时间筛选。"""
+    if timestamp < EPOCH_MS:
+        return 0
+    return (int(timestamp) - EPOCH_MS) << (_WORKER_BITS + _SEQ_BITS)

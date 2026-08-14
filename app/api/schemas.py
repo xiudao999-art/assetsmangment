@@ -25,6 +25,10 @@ class LoginIn(BaseModel):
     password: str
 
 
+class RefreshTokenIn(BaseModel):
+    refreshToken: str
+
+
 class GrantIn(BaseModel):
     role: str
     permission: str
@@ -116,6 +120,7 @@ class MaterialSubmissionIn(BaseModel):
     delivery_time: str = ""
     drama_name: str = ""
     oss_key: str = ""
+    decoded_oss_key: str = ""
     video_file_name: str = ""
     title_name: str = ""
     episode_range: str = ""
@@ -127,6 +132,7 @@ class MaterialSubmissionUpdateIn(BaseModel):
     delivery_time: str = ""
     drama_name: str = ""
     oss_key: str = ""
+    decoded_oss_key: str = ""
     video_file_name: str = ""
     title_name: str = ""
     episode_range: str = ""
@@ -168,6 +174,7 @@ class MaterialSubmissionUnselectedQueryIn(BaseModel):
     selected_submission_ids: list[str] = Field(default_factory=list, max_length=1000)
     page: int = Field(1, ge=1)
     size: int = Field(20, ge=1, le=100)
+    team_name: str = ""
     drama_name: str = ""
     title_name: str = ""
     can_upload_status: str = ""
@@ -175,6 +182,8 @@ class MaterialSubmissionUnselectedQueryIn(BaseModel):
     upload_account_name: str = ""
     created_by: str = ""
     publish_status: str = ""
+    sort_by: str = "created_time"
+    sort_order: str = "desc"
 
 
 class MaterialSubmissionProcessIn(BaseModel):

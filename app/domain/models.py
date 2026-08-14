@@ -102,6 +102,8 @@ class MaterialSubmission:
     delivery_time: str = ""
     drama_name: str = ""
     oss_key: str = ""
+    decoded_oss_key: str = ""
+    requires_decode: int = 0
     video_file_name: str = ""
     title_name: str = ""
     episode_range: str = ""
@@ -117,6 +119,9 @@ class MaterialSubmission:
     created_time: str = ""
     updated_by: str = ""
     updated_time: str = ""
+    # 0=正常/OSS 未删除；非 0 值均为雪花 ID。del_flag 同时承载逻辑删除时间。
+    del_flag: int = 0
+    oss_del_flag: int = 0
 
 
 @dataclass

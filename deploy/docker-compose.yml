@@ -8,6 +8,8 @@ services:
     restart: always
     ports:
       - "8088:8000"
+    extra_hosts:
+      - "host.docker.internal:host-gateway"
     volumes:
       - ${ASSETS_ROOT:-/software/project/python/assets}/data:/data
       - ${ASSETS_ROOT:-/software/project/python/assets}/logs/assetsmangment:/logs

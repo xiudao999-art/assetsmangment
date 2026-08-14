@@ -304,6 +304,9 @@ CREATE TABLE IF NOT EXISTS material_submission (
     delivery_time               TEXT NOT NULL DEFAULT '',
     drama_name                  TEXT NOT NULL DEFAULT '',
     oss_key                     TEXT NOT NULL DEFAULT '',
+    decoded_oss_key             TEXT NOT NULL DEFAULT '',
+    requires_decode             SMALLINT NOT NULL DEFAULT 0
+                                CONSTRAINT ck_material_submission_requires_decode CHECK (requires_decode IN (0, 1)),
     video_file_name             TEXT NOT NULL DEFAULT '',
     title_name                  TEXT NOT NULL DEFAULT '',
     episode_range               TEXT NOT NULL DEFAULT '',
@@ -316,12 +319,15 @@ CREATE TABLE IF NOT EXISTS material_submission (
     platform_reject_reason      TEXT NOT NULL DEFAULT '',
     platform_reject_attachments JSONB NOT NULL DEFAULT '[]'::jsonb,
     del_flag                    BIGINT NOT NULL DEFAULT 0,
+    oss_del_flag                BIGINT NOT NULL DEFAULT 0,
     create_by                   TEXT NOT NULL DEFAULT '',
     create_time                 TIMESTAMPTZ NOT NULL DEFAULT now(),
     update_by                   TEXT NOT NULL DEFAULT '',
     update_time                 TIMESTAMPTZ NOT NULL DEFAULT now()
 );
 CREATE INDEX IF NOT EXISTS idx_material_submission_live ON material_submission (del_flag) WHERE del_flag = 0;
+CREATE INDEX IF NOT EXISTS idx_material_submission_trash ON material_submission (del_flag)
+    WHERE del_flag <> 0 AND oss_del_flag = 0;
 
 -- Video-editing templates: reference product and BGM store OSS object keys only.
 CREATE TABLE IF NOT EXISTS video_editing_template (

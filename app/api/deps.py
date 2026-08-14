@@ -18,7 +18,7 @@ from app.service.audit_pipeline import AuditPipelineService
 from app.infrastructure.fakes import (
     InMemoryMaterialRepo, FakeStorage, FakeQueryEmbedder, FakePassAuditor,
     FakeVideoParser, FakeEmbedder, InMemoryVectorIndex, InMemoryUserRepo,
-    FakeHasher, FakeTokenIssuer, InMemoryRbac, ListAuditLog, InMemoryFavoriteRepo,
+    FakeHasher, FakeTokenIssuer, RotatingRefreshTokenIssuer, InMemoryRbac, ListAuditLog, InMemoryFavoriteRepo,
     FakeTranscriber, FakeVisionDescriber, FakeLlm, InMemoryAuditRuleRepo, InMemoryAuditReportRepo,
     InMemoryAuditTaskRepo, InMemoryWhitelistRepo, InMemoryProjectRepo, InMemoryBlockwordRepo,
     InMemoryTrainingSetRepo, InMemoryTrainingExampleRepo, InMemoryMaterialSubmissionRepo,
@@ -252,6 +252,17 @@ batches: dict[str, dict] = {}   # 批量上传进度(内存,轮询窗口足够)
 # 有界审核工作池:单条/批量的后台审核都提交到它,超出上限的排队(背压),不再无限起线程。
 from concurrent.futures import ThreadPoolExecutor
 audit_pool = ThreadPoolExecutor(max_workers=max(1, settings.audit_concurrency), thread_name_prefix="audit")
+# 素材兼容版转码是 CPU 密集任务；单并发排队，防止详情页集中打开拖垮服务。
+submission_transcode_pool = ThreadPoolExecutor(max_workers=1, thread_name_prefix="submission-transcode")
+if settings.redis_url:
+    from app.infrastructure.redis_job_coordinator import RedisJobCoordinator
+    submission_decode_coordinator = RedisJobCoordinator(settings.redis_url)
+    submission_trash_coordinator = RedisJobCoordinator(
+        settings.redis_url, prefix="assets:submission-trash",
+    )
+else:
+    submission_decode_coordinator = None
+    submission_trash_coordinator = None
 
 # 内容安全审核器:开通「内容安全增强版」并置 AM_ENABLE_CONTENT_SAFETY=true 才接真;否则走人工审核
 if settings.enable_content_safety:
@@ -267,6 +278,7 @@ else:
 # ── 共享单例:同一密钥签发/校验 token;同一 hasher ──
 _h = FakeHasher()
 token_issuer = FakeTokenIssuer()
+refresh_token_issuer = RotatingRefreshTokenIssuer()
 
 # ── AI 能力:有 DashScope key 就接真云(Qwen-VL 反解 + multimodal-embedding),否则假实现 ──
 if settings.dashscope_api_key:
@@ -365,6 +377,19 @@ task_janitor = TaskJanitor(
     storage=storage,
     scan_interval_s=settings.janitor_scan_interval_s,
     stuck_timeout_s=settings.janitor_stuck_timeout_s,
+)
+
+# ── 素材提报回收站（每天 1 点清理已逻辑删除超过 7 天的 OSS 对象）──
+from app.task.submission_trash_janitor import SubmissionTrashJanitor  # noqa: E402
+
+submission_trash_janitor = SubmissionTrashJanitor(
+    repo=material_submission_repo,
+    storage=storage,
+    retention_days=settings.submission_trash_retention_days,
+    run_hour=settings.submission_trash_run_hour,
+    lock_coordinator=submission_trash_coordinator,
+    lock_ttl_seconds=settings.submission_trash_lock_ttl_seconds,
+    require_distributed_lock=True,
 )
 
 
