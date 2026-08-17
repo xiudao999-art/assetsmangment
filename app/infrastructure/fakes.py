@@ -688,6 +688,24 @@ class InMemoryMaterialSubmissionRepo:
                 break
         return items
 
+    def aggregate_uploads_by_drama_names(self, tasks: list[tuple[str, str]]) -> dict[str, dict]:
+        result: dict[str, dict] = {}
+        live_items = [item for item in self._items.values() if item.del_flag == 0]
+        for task_id, drama_name in tasks:
+            key = (drama_name or "").strip().casefold()
+            matched = [item for item in live_items
+                       if key and (key in (item.drama_name or "").casefold()
+                                   or ((item.drama_name or "").strip()
+                                       and (item.drama_name or "").casefold() in key))]
+            result[str(task_id)] = {
+                "team_names": sorted({item.team_name.strip() for item in matched
+                                      if item.team_name.strip()}),
+                "upload_count": len(matched),
+                "can_upload_count": sum(item.can_upload_status == 1 for item in matched),
+                "publish_success_count": sum(item.publish_status == 1 for item in matched),
+            }
+        return result
+
     def list(self, team_name: str = "", drama_name: str = "", video_file_name: str = "",
              title_name: str = "", can_upload_status: int | None = None,
              can_upload_status_empty: bool = False,

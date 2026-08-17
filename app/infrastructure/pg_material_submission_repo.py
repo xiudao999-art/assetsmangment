@@ -650,6 +650,50 @@ class PgMaterialSubmissionRepo:
             rows = c.execute(sql, params).fetchall()
         return [{"id": str(row[0]), "name": str(row[1])} for row in rows]
 
+    def aggregate_uploads_by_drama_names(self, tasks: list[tuple[str, str]]) -> dict[str, dict]:
+        """Batch upload statistics for a page of short-drama tasks in one SQL round trip."""
+        if not tasks:
+            return {}
+        task_ids = [int(task_id) for task_id, _ in tasks]
+        drama_names = [(drama_name or "").strip() for _, drama_name in tasks]
+        sql = f"""
+            WITH tasks AS (
+                SELECT * FROM unnest(%s::bigint[], %s::text[]) AS task(task_id, drama_name)
+            )
+            SELECT task.task_id,
+                   COALESCE(
+                       array_agg(DISTINCT submission.team_name ORDER BY submission.team_name)
+                           FILTER (WHERE BTRIM(submission.team_name) <> ''),
+                       ARRAY[]::text[]
+                   ) AS team_names,
+                   COUNT(submission.id) AS upload_count,
+                   COUNT(submission.id) FILTER (WHERE submission.can_upload_status = 1)
+                       AS can_upload_count,
+                   COUNT(submission.id) FILTER (WHERE submission.publish_status = 1)
+                       AS publish_success_count
+              FROM tasks task
+              LEFT JOIN {self._table} submission
+                ON submission.del_flag = 0
+               AND task.drama_name <> ''
+               AND submission.drama_name <> ''
+               AND (
+                   submission.drama_name ILIKE '%%' || task.drama_name || '%%'
+                   OR task.drama_name ILIKE '%%' || submission.drama_name || '%%'
+               )
+             GROUP BY task.task_id
+        """
+        with self._conn() as c:
+            rows = c.execute(sql, (task_ids, drama_names)).fetchall()
+        return {
+            str(row[0]): {
+                "team_names": list(row[1] or []),
+                "upload_count": int(row[2] or 0),
+                "can_upload_count": int(row[3] or 0),
+                "publish_success_count": int(row[4] or 0),
+            }
+            for row in rows
+        }
+
     def count(self, team_name: str = "", drama_name: str = "", video_file_name: str = "",
               title_name: str = "", can_upload_status: int | None = None,
               can_upload_status_empty: bool = False,

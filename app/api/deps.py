@@ -27,6 +27,7 @@ from app.infrastructure.requirement_repo import InMemoryRequirementRepo
 from app.infrastructure.video_editing_template_repo import (
     InMemoryVideoEditingTemplateRepo, JsonVideoEditingTemplateRepo,
 )
+from app.infrastructure.short_drama_task_repo import InMemoryShortDramaTaskRepo
 
 # ── 进程内单例 ──
 # 存储:OSS 有密钥用真实现,否则假实现。
@@ -65,6 +66,7 @@ if settings.data_dir:
         f"{settings.data_dir.rstrip('/')}/video-editing-templates.json"
     )
     requirement_repo = InMemoryRequirementRepo()
+    short_drama_task_repo = InMemoryShortDramaTaskRepo()
 else:
     material_repo = InMemoryMaterialRepo()
     user_repo = InMemoryUserRepo()
@@ -81,6 +83,7 @@ else:
     material_submission_repo = InMemoryMaterialSubmissionRepo()
     video_editing_template_repo = InMemoryVideoEditingTemplateRepo()
     requirement_repo = InMemoryRequirementRepo()
+    short_drama_task_repo = InMemoryShortDramaTaskRepo()
 
 # 审核规则:配置了真实 AM_DATABASE_URL → PG 是唯一真源(audit_rule 表,雪花ID+软删基础字段),
 # 覆盖上面的 JSON/内存实现。连接/建表失败 = 启动即报错,**不静默回退 JSON**(回退会分叉真源、
@@ -216,6 +219,15 @@ if _real_db:
     except Exception as _e:
         raise RuntimeError(
             f"AM_DATABASE_URL 已配置但 PG 素材提报表连接/建表失败:{_e}。"
+        ) from _e
+
+    # 短剧任务（素材提报上游）
+    from app.infrastructure.short_drama_task_repo import PgShortDramaTaskRepo
+    try:
+        short_drama_task_repo = PgShortDramaTaskRepo(settings.database_url)
+    except Exception as _e:
+        raise RuntimeError(
+            f"AM_DATABASE_URL 已配置但 PG 短剧任务表连接/建表失败: {_e}"
         ) from _e
 
     # 新需求提报
