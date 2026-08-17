@@ -28,6 +28,7 @@ def _hermetic_storage(monkeypatch):
     )
     from app.infrastructure.requirement_repo import InMemoryRequirementRepo
     from app.infrastructure.video_editing_template_repo import InMemoryVideoEditingTemplateRepo
+    from app.infrastructure.short_drama_task_repo import InMemoryShortDramaTaskRepo
     monkeypatch.setattr(
         "app.api.router.transcode_hevc_to_h264",
         lambda fileobj, progress_callback=None: None,
@@ -55,6 +56,7 @@ def _hermetic_storage(monkeypatch):
     monkeypatch.setattr(deps, "submission_decode_coordinator", InMemoryJobCoordinator())
     monkeypatch.setattr(deps, "video_editing_template_repo", InMemoryVideoEditingTemplateRepo())
     monkeypatch.setattr(deps, "requirement_repo", InMemoryRequirementRepo())
+    monkeypatch.setattr(deps, "short_drama_task_repo", InMemoryShortDramaTaskRepo())
     monkeypatch.setattr(deps, "blockword_repo", InMemoryBlockwordRepo())
     monkeypatch.setattr(deps, "whitelist_repo", InMemoryWhitelistRepo())
     monkeypatch.setattr(deps, "user_repo", InMemoryUserRepo())

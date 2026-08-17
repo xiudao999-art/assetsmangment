@@ -9,14 +9,22 @@ import datetime
 import os
 import re
 import tempfile
+import io
+import json
+import asyncio
+import ipaddress
+import socket
+from pathlib import Path
+from urllib.parse import urljoin, urlparse
 from fastapi import APIRouter, HTTPException, UploadFile, File, Form, Header, Depends, Query
+from fastapi.responses import StreamingResponse
 from fastapi.concurrency import run_in_threadpool
 from app.api import deps, schemas
 from app.config import settings
 from app.infrastructure.snowflake import next_id_str   # 规则主键:雪花 BIGINT 的字符串形态(PG 规范)
 from app.domain.models import (MaterialType, AuditStatus, Material, AuditRule, User,
                                AuditTask, JobStatus, Project, TextSourceType,
-                               MaterialSubmission, VideoEditingTemplate, Requirement)
+                               MaterialSubmission, ShortDramaTask, VideoEditingTemplate, Requirement)
 from app.domain.mp4 import parse_mp4_duration_ms
 from app.service.material import MaterialNotFound
 from app.service.user import InvalidCredentials, DuplicateName
@@ -1910,8 +1918,13 @@ async def upload_admin_file(file: UploadFile = File(...), scope: str = Form("upl
         raise HTTPException(400, "上传任务 ID 格式不正确")
     safe_name = _safe_upload_file_name(file.filename or "")
     safe_scope = _safe_upload_scope(scope)
+    if safe_scope == "short-drama-tasks":
+        suffix = Path(safe_name).suffix.lower()
+        allowed_image_suffixes = {".jpg", ".jpeg", ".png", ".gif", ".webp", ".bmp"}
+        if suffix not in allowed_image_suffixes or not (file.content_type or "").lower().startswith("image/"):
+            raise HTTPException(400, "短剧任务附件仅支持 JPG、PNG、GIF、WebP 或 BMP 图片。")
     if user.get("role") != "admin":
-        if safe_scope in ("submissions", "requirements", "templates"):
+        if safe_scope in ("submissions", "requirements", "templates", "short-drama-tasks"):
             pass
         elif safe_scope == "submissions/rejects" and submission_id:
             _require_submission_access(user, submission_id, edit=True)
@@ -1920,6 +1933,8 @@ async def upload_admin_file(file: UploadFile = File(...), scope: str = Form("upl
     key = f"{safe_scope}/{uuid.uuid4().hex}-{safe_name}"
     await file.seek(0)
     total_size = _upload_file_size(file.file)
+    if safe_scope == "short-drama-tasks" and total_size > 10 * 1024 * 1024:
+        raise HTTPException(400, "短剧任务图片不能超过 10 MB。")
     if safe_upload_id:
         _set_upload_progress(
             safe_upload_id, user["id"], status="uploading", stage="storage",
@@ -2034,7 +2049,8 @@ def admin_upload_progress(upload_id: str, user: dict = Depends(_user)):
 @router.get("/admin/uploads/url")
 def admin_upload_signed_url(key: str = Query(...), dl: int = Query(0),
                             submission_id: str = Query(""), requirement_id: str = Query(""),
-                            template_id: str = Query(""), recycle_bin: bool = Query(False),
+                            template_id: str = Query(""), short_drama_task_id: str = Query(""),
+                            recycle_bin: bool = Query(False),
                             user: dict = Depends(_user)):
     _require_auth(user)
     if not key or not key.strip():
@@ -2045,6 +2061,10 @@ def admin_upload_signed_url(key: str = Query(...), dl: int = Query(0),
             template = _require_template_access(user, template_id)
             if k not in {template.reference_oss_key, template.bgm_oss_key}:
                 raise HTTPException(403, "No permission to access this template asset")
+        elif short_drama_task_id:
+            task = _require_short_drama_task(short_drama_task_id, user)
+            if k not in {task.cover_oss_key, task.data_image_oss_key}:
+                raise HTTPException(403, "无权访问该短剧任务图片")
         elif requirement_id:
             requirement = _require_requirement(requirement_id, user)
             if k not in set(requirement.attachments or []):
@@ -2159,6 +2179,410 @@ def update_video_editing_template(template_id: str, body: schemas.VideoEditingTe
     except ValueError as exc:
         raise HTTPException(409, str(exc)) from exc
     return _template_out(deps.video_editing_template_repo.get(template.id) or template, user)
+
+
+_SHORT_DRAMA_TASK_STATUSES = {"未上线", "已上线", "已结束"}
+_SHORT_DRAMA_TASK_SORT_FIELDS = {
+    "online_time", "drama_name", "task_type", "theme", "task_status", "task_id",
+    "settlement_mode", "settlement_period", "created_time",
+}
+_SHORT_DRAMA_TASK_SORT_ORDERS = {"asc", "desc"}
+_SHORT_DRAMA_TASK_EXCEL_COLUMNS = [
+    ("任务上线时间", "online_time"), ("剧名", "drama_name"), ("类型", "task_type"),
+    ("标签", "tags"), ("题材", "theme"), ("任务状态", "task_status"),
+    ("任务ID", "task_id"), ("要求", "requirements"), ("封面", "cover_oss_key"),
+    ("网盘素材", "cloud_material_url"), ("话题/剪辑要求", "topic_editing_requirements"),
+    ("投稿活动时间", "submission_activity_time"), ("结算模式", "settlement_mode"),
+    ("消耗计费分佣有效期", "commission_validity_period"), ("结算周期", "settlement_period"),
+    ("数据图", "data_image_oss_key"), ("优质案例", "quality_case"), ("备注", "remarks"),
+]
+
+
+def _empty_short_drama_upload_summary() -> dict:
+    return {
+        "team_names": [], "upload_count": 0,
+        "can_upload_count": 0, "publish_success_count": 0,
+    }
+
+
+def _short_drama_upload_summaries(items: list[ShortDramaTask]) -> dict[str, dict]:
+    if not items:
+        return {}
+    return deps.material_submission_repo.aggregate_uploads_by_drama_names(
+        [(item.id, item.drama_name) for item in items]
+    )
+
+
+def _short_drama_task_out(item: ShortDramaTask, upload_summary: dict | None = None) -> dict:
+    return {
+        "id": item.id, "online_time": item.online_time, "drama_name": item.drama_name,
+        "task_type": item.task_type, "tags": list(item.tags or []),
+        "pre_upload_teams": list(item.pre_upload_teams or []), "theme": item.theme,
+        "task_status": item.task_status, "task_id": item.task_id,
+        "requirements": item.requirements, "cover_oss_key": item.cover_oss_key,
+        "cloud_material_url": item.cloud_material_url,
+        "topic_editing_requirements": item.topic_editing_requirements,
+        "submission_activity_time": item.submission_activity_time,
+        "settlement_mode": item.settlement_mode,
+        "commission_validity_period": item.commission_validity_period,
+        "settlement_period": item.settlement_period,
+        "data_image_oss_key": item.data_image_oss_key, "quality_case": item.quality_case,
+        "remarks": item.remarks, "created_by": item.created_by,
+        "created_time": item.created_time, "updated_by": item.updated_by,
+        "updated_time": item.updated_time,
+        "upload_summary": upload_summary or _empty_short_drama_upload_summary(),
+    }
+
+
+def _short_drama_task_from_body(body: schemas.ShortDramaTaskIn, *, item_id: str,
+                                created_by: str) -> ShortDramaTask:
+    drama_name = (body.drama_name or "").strip()
+    if not drama_name:
+        raise HTTPException(400, "剧名不能为空")
+    status = (body.task_status or "未上线").strip()
+    if status not in _SHORT_DRAMA_TASK_STATUSES:
+        raise HTTPException(400, "任务状态只能是未上线、已上线或已结束")
+    tags: list[str] = []
+    for value in body.tags or []:
+        tag = str(value or "").strip()
+        if tag and tag not in tags:
+            tags.append(tag)
+    pre_upload_teams: list[str] = []
+    for value in body.pre_upload_teams or []:
+        team_name = str(value or "").strip()
+        if team_name and team_name not in pre_upload_teams:
+            pre_upload_teams.append(team_name)
+    return ShortDramaTask(
+        id=item_id, online_time=(body.online_time or "").strip(), drama_name=drama_name,
+        task_type=(body.task_type or "").strip(), tags=tags,
+        pre_upload_teams=pre_upload_teams, theme=(body.theme or "").strip(),
+        task_status=status, task_id=(body.task_id or "").strip(),
+        requirements=(body.requirements or "").strip(),
+        cover_oss_key=(body.cover_oss_key or "").strip(),
+        cloud_material_url=(body.cloud_material_url or "").strip(),
+        topic_editing_requirements=(body.topic_editing_requirements or "").strip(),
+        submission_activity_time=(body.submission_activity_time or "").strip(),
+        settlement_mode=(body.settlement_mode or "").strip(),
+        commission_validity_period=(body.commission_validity_period or "").strip(),
+        settlement_period=(body.settlement_period or "").strip(),
+        data_image_oss_key=(body.data_image_oss_key or "").strip(),
+        quality_case=(body.quality_case or "").strip(), remarks=(body.remarks or "").strip(),
+        created_by=created_by,
+    )
+
+
+def _require_short_drama_task(item_id: str, user: dict) -> ShortDramaTask:
+    _require_auth(user)
+    item = deps.short_drama_task_repo.get(item_id)
+    if not item:
+        raise HTTPException(404, "短剧任务不存在")
+    return item
+
+
+def _short_drama_task_sort(sort_by: str, sort_order: str) -> tuple[str, str]:
+    checked_by = (sort_by or "created_time").strip()
+    checked_order = (sort_order or "desc").strip().lower()
+    if checked_by not in _SHORT_DRAMA_TASK_SORT_FIELDS:
+        raise HTTPException(400, "非法短剧任务排序字段")
+    if checked_order not in _SHORT_DRAMA_TASK_SORT_ORDERS:
+        raise HTTPException(400, "非法短剧任务排序方向")
+    return checked_by, checked_order
+
+
+@router.get("/admin/short-drama-tasks")
+def list_short_drama_tasks(
+    drama_name: str = "", task_status: str = "", task_type: str = "", theme: str = "",
+    sort_by: str = "created_time", sort_order: str = "desc",
+    page: int = Query(1, ge=1), size: int = Query(10, ge=1, le=100),
+    user: dict = Depends(_user),
+):
+    _require_auth(user)
+    if task_status and task_status not in _SHORT_DRAMA_TASK_STATUSES:
+        raise HTTPException(400, "非法任务状态")
+    offset, limit = _page_args(page, size)
+    filters = dict(drama_name=drama_name.strip(), task_status=task_status.strip(),
+                   task_type=task_type.strip(), theme=theme.strip())
+    checked_sort_by, checked_sort_order = _short_drama_task_sort(sort_by, sort_order)
+    total = deps.short_drama_task_repo.count(**filters)
+    items = deps.short_drama_task_repo.list(
+        offset=offset, limit=limit, sort_by=checked_sort_by,
+        sort_order=checked_sort_order, **filters,
+    )
+    summaries = _short_drama_upload_summaries(items)
+    return _page_out(
+        [_short_drama_task_out(x, summaries.get(x.id)) for x in items],
+        total, page, size, key="tasks",
+    )
+
+
+@router.get("/admin/short-drama-tasks/options/{field}")
+def list_short_drama_task_options(
+    field: str, keyword: str = Query(""), q: str = Query(""),
+    limit: int = Query(200, ge=1, le=1000), user: dict = Depends(_user),
+):
+    _require_auth(user)
+    try:
+        items = deps.short_drama_task_repo.list_options(
+            field, keyword=(keyword or q).strip(), limit=limit,
+        )
+    except ValueError as exc:
+        raise HTTPException(400, str(exc)) from exc
+    return {"items": items}
+
+
+@router.get("/admin/short-drama-tasks/import-template")
+def download_short_drama_task_import_template(user: dict = Depends(_user)):
+    _require_auth(user)
+    from openpyxl import Workbook
+    from openpyxl.styles import Font, PatternFill
+    workbook = Workbook()
+    sheet = workbook.active
+    sheet.title = "短剧任务导入"
+    sheet.append([x[0] for x in _SHORT_DRAMA_TASK_EXCEL_COLUMNS])
+    sheet.append([
+        "2026-08-20", "示例短剧（请删除示例行）", "短剧", "爆剧、新剧", "都市",
+        "未上线", "TASK-001", "示例要求", "", "https://pan.example.com/example",
+        "示例话题及剪辑要求", "2026-08-20 至 2026-09-20", "按消耗分佣", "30天", "月结",
+        "", "https://example.com/case", "封面和数据图请填写可访问的图片链接",
+    ])
+    for cell in sheet[1]:
+        cell.font = Font(bold=True, color="FFFFFF")
+        cell.fill = PatternFill("solid", fgColor="C85A3E")
+    sheet.freeze_panes = "A2"
+    for column in sheet.columns:
+        letter = column[0].column_letter
+        sheet.column_dimensions[letter].width = min(40, max(14, max(len(str(c.value or "")) for c in column) + 2))
+    stream = io.BytesIO()
+    workbook.save(stream)
+    stream.seek(0)
+    return StreamingResponse(
+        stream, media_type="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
+        headers={"Content-Disposition": 'attachment; filename="short-drama-task-import-template.xlsx"'},
+    )
+
+
+def _excel_tags(value) -> list[str]:
+    raw = str(value or "").strip()
+    if not raw:
+        return []
+    if raw.startswith("["):
+        try:
+            parsed = json.loads(raw)
+        except json.JSONDecodeError as exc:
+            raise ValueError("标签不是合法 JSON 数组") from exc
+        if not isinstance(parsed, list):
+            raise ValueError("标签必须是 JSON 数组")
+        values = parsed
+    else:
+        values = re.split(r"[,，、;；\r\n]+", raw)
+    return list(dict.fromkeys(str(x or "").strip() for x in values if str(x or "").strip()))
+
+
+def _validate_public_image_url(url: str) -> str:
+    parsed = urlparse((url or "").strip())
+    if parsed.scheme not in {"http", "https"} or not parsed.hostname or parsed.username or parsed.password:
+        raise ValueError("附件必须填写 http 或 https 图片链接")
+    port = parsed.port or (443 if parsed.scheme == "https" else 80)
+    try:
+        addresses = socket.getaddrinfo(parsed.hostname, port, type=socket.SOCK_STREAM)
+    except OSError as exc:
+        raise ValueError("附件图片链接无法解析") from exc
+    if not addresses or any(
+        not ipaddress.ip_address(row[4][0].split("%", 1)[0]).is_global for row in addresses
+    ):
+        raise ValueError("附件图片链接必须指向公网地址")
+    return parsed.geturl()
+
+
+def _short_task_image_extension(data: bytes) -> str:
+    if data.startswith(b"\x89PNG\r\n\x1a\n"):
+        return "png"
+    if data.startswith(b"\xff\xd8\xff"):
+        return "jpg"
+    if data.startswith((b"GIF87a", b"GIF89a")):
+        return "gif"
+    if len(data) >= 12 and data[:4] == b"RIFF" and data[8:12] == b"WEBP":
+        return "webp"
+    if data.startswith(b"BM"):
+        return "bmp"
+    raise ValueError("附件链接内容不是支持的图片格式")
+
+
+async def _download_short_task_image(client, url: str) -> str:
+    current = url
+    for _ in range(4):
+        current = await run_in_threadpool(_validate_public_image_url, current)
+        async with client.stream("GET", current) as response:
+            if response.status_code in {301, 302, 303, 307, 308}:
+                location = response.headers.get("location", "")
+                if not location:
+                    raise ValueError("附件图片链接跳转地址无效")
+                current = urljoin(current, location)
+                continue
+            if response.status_code < 200 or response.status_code >= 300:
+                raise ValueError("附件图片链接下载失败")
+            payload = bytearray()
+            async for chunk in response.aiter_bytes():
+                payload.extend(chunk)
+                if len(payload) > 10 * 1024 * 1024:
+                    raise ValueError("单张附件图片不能超过 10MB")
+        extension = _short_task_image_extension(bytes(payload))
+        key = f"short-drama-tasks/{uuid.uuid4().hex}-excel-image.{extension}"
+        await run_in_threadpool(deps.storage.put_fileobj, key, io.BytesIO(payload))
+        return key
+    raise ValueError("附件图片链接跳转次数过多")
+
+
+async def _store_short_task_excel_images(items: list[ShortDramaTask]) -> None:
+    import httpx
+    bindings: dict[str, list[tuple[ShortDramaTask, str]]] = {}
+    for item in items:
+        for field in ("cover_oss_key", "data_image_oss_key"):
+            url = str(getattr(item, field, "") or "").strip()
+            if url:
+                bindings.setdefault(url, []).append((item, field))
+    if not bindings:
+        return
+    semaphore = asyncio.Semaphore(6)
+
+    async def download(client, url):
+        async with semaphore:
+            return await _download_short_task_image(client, url)
+
+    urls = list(bindings)
+    async with httpx.AsyncClient(timeout=20.0, follow_redirects=False) as client:
+        results = await asyncio.gather(
+            *(download(client, url) for url in urls), return_exceptions=True,
+        )
+    created_keys = [value for value in results if isinstance(value, str)]
+    failure = next((value for value in results if isinstance(value, Exception)), None)
+    if failure:
+        for key in created_keys:
+            try:
+                await run_in_threadpool(deps.storage.delete, key)
+            except Exception:
+                pass
+        raise HTTPException(400, str(failure)) from failure
+    for url, key in zip(urls, results):
+        for item, field in bindings[url]:
+            setattr(item, field, key)
+
+
+@router.post("/admin/short-drama-tasks/import")
+async def import_short_drama_tasks(file: UploadFile = File(...), user: dict = Depends(_user)):
+    _require_auth(user)
+    if not (file.filename or "").lower().endswith(".xlsx"):
+        raise HTTPException(400, "仅支持 .xlsx 文件")
+    content = await file.read()
+    if len(content) > 20 * 1024 * 1024:
+        raise HTTPException(400, "Excel 文件不能超过 20MB")
+    from openpyxl import load_workbook
+    try:
+        workbook = load_workbook(io.BytesIO(content), read_only=True, data_only=True)
+        sheet = workbook.active
+        rows = sheet.iter_rows(values_only=True)
+        headers = [str(x or "").strip() for x in next(rows)]
+    except (StopIteration, ValueError, KeyError, OSError) as exc:
+        raise HTTPException(400, "无法读取 Excel 文件") from exc
+    expected = {label: key for label, key in _SHORT_DRAMA_TASK_EXCEL_COLUMNS}
+    missing = [label for label in ("剧名",) if label not in headers]
+    if missing:
+        raise HTTPException(400, f"缺少必填列：{missing[0]}")
+    column_keys = [expected.get(x, "") for x in headers]
+    deduplicated: dict[str, ShortDramaTask] = {}
+    errors: list[str] = []
+    for row_number, row in enumerate(rows, start=2):
+        raw = {key: row[index] for index, key in enumerate(column_keys)
+               if key and index < len(row)}
+        if not any(value not in (None, "") for value in raw.values()):
+            continue
+        try:
+            payload = {key: str(raw.get(key) or "").strip()
+                       for _, key in _SHORT_DRAMA_TASK_EXCEL_COLUMNS if key != "tags"}
+            payload["tags"] = _excel_tags(raw.get("tags"))
+            for asset_field in ("cover_oss_key", "data_image_oss_key"):
+                asset_url = payload.get(asset_field, "")
+                if asset_url and urlparse(asset_url).scheme not in {"http", "https"}:
+                    raise ValueError("封面和数据图请填写 http 或 https 图片链接")
+            task = _short_drama_task_from_body(
+                schemas.ShortDramaTaskIn(**payload), item_id=next_id_str(), created_by=user["id"],
+            )
+            deduplicated[task.drama_name.casefold()] = task
+        except (ValueError, TypeError, HTTPException) as exc:
+            detail = exc.detail if isinstance(exc, HTTPException) else str(exc)
+            errors.append(f"第 {row_number} 行：{detail}")
+        if len(deduplicated) > 5000:
+            raise HTTPException(400, "单次最多导入 5000 条任务")
+    if errors:
+        raise HTTPException(400, {"message": "导入校验失败", "errors": errors[:50]})
+    if not deduplicated:
+        raise HTTPException(400, "Excel 中没有可导入的数据")
+    imported_tasks = list(deduplicated.values())
+    await _store_short_task_excel_images(imported_tasks)
+    created, updated = deps.short_drama_task_repo.bulk_upsert(imported_tasks, by=user["id"])
+    return {"total": len(deduplicated), "created": created, "updated": updated}
+
+
+@router.get("/admin/short-drama-tasks/{item_id}")
+def get_short_drama_task(item_id: str, user: dict = Depends(_user)):
+    item = _require_short_drama_task(item_id, user)
+    summary = _short_drama_upload_summaries([item]).get(item.id)
+    return _short_drama_task_out(item, summary)
+
+
+@router.put("/admin/short-drama-tasks/{item_id}/pre-upload-teams")
+def set_short_drama_task_pre_upload_teams(
+    item_id: str, body: schemas.ShortDramaTaskPreUploadTeamsIn,
+    user: dict = Depends(_user),
+):
+    current = _require_short_drama_task(item_id, user)
+    team_names: list[str] = []
+    for value in body.team_names or []:
+        team_name = str(value or "").strip()
+        if team_name and team_name not in team_names:
+            team_names.append(team_name)
+    current.pre_upload_teams = team_names
+    deps.short_drama_task_repo.save(current, by=user["id"])
+    saved = deps.short_drama_task_repo.get(item_id) or current
+    summary = _short_drama_upload_summaries([saved]).get(saved.id)
+    return _short_drama_task_out(saved, summary)
+
+
+@router.post("/admin/short-drama-tasks")
+def create_short_drama_task(body: schemas.ShortDramaTaskIn, user: dict = Depends(_user)):
+    _require_auth(user)
+    item = _short_drama_task_from_body(body, item_id=next_id_str(), created_by=user["id"])
+    if deps.short_drama_task_repo.get_by_drama_name(item.drama_name):
+        raise HTTPException(409, "剧名已存在")
+    try:
+        deps.short_drama_task_repo.save(item, by=user["id"])
+    except ValueError as exc:
+        raise HTTPException(409, str(exc)) from exc
+    return _short_drama_task_out(deps.short_drama_task_repo.get(item.id) or item)
+
+
+@router.put("/admin/short-drama-tasks/{item_id}")
+def update_short_drama_task(item_id: str, body: schemas.ShortDramaTaskIn,
+                            user: dict = Depends(_user)):
+    current = _require_short_drama_task(item_id, user)
+    item = _short_drama_task_from_body(body, item_id=current.id, created_by=current.created_by)
+    item.pre_upload_teams = list(current.pre_upload_teams or [])
+    duplicate = deps.short_drama_task_repo.get_by_drama_name(item.drama_name)
+    if duplicate and duplicate.id != item.id:
+        raise HTTPException(409, "剧名已存在")
+    try:
+        deps.short_drama_task_repo.save(item, by=user["id"])
+    except ValueError as exc:
+        raise HTTPException(409, str(exc)) from exc
+    return _short_drama_task_out(deps.short_drama_task_repo.get(item.id) or item)
+
+
+@router.delete("/admin/short-drama-tasks/{item_id}")
+def delete_short_drama_task(item_id: str, user: dict = Depends(_user)):
+    _require_short_drama_task(item_id, user)
+    if not deps.short_drama_task_repo.delete(item_id):
+        raise HTTPException(404, "短剧任务不存在")
+    return {"ok": True, "id": item_id}
 
 
 def _visible_material_submissions(user: dict, **filters) -> list[MaterialSubmission]:

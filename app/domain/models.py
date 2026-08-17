@@ -125,6 +125,35 @@ class MaterialSubmission:
 
 
 @dataclass
+class ShortDramaTask:
+    """素材提报的上游短剧任务。"""
+    id: str
+    online_time: str = ""
+    drama_name: str = ""
+    task_type: str = ""
+    tags: list[str] = field(default_factory=list)
+    pre_upload_teams: list[str] = field(default_factory=list)
+    theme: str = ""
+    task_status: str = "未上线"
+    task_id: str = ""
+    requirements: str = ""
+    cover_oss_key: str = ""
+    cloud_material_url: str = ""
+    topic_editing_requirements: str = ""
+    submission_activity_time: str = ""
+    settlement_mode: str = ""
+    commission_validity_period: str = ""
+    settlement_period: str = ""
+    data_image_oss_key: str = ""
+    quality_case: str = ""
+    remarks: str = ""
+    created_by: str = ""
+    created_time: str = ""
+    updated_by: str = ""
+    updated_time: str = ""
+
+
+@dataclass
 class VideoEditingTemplate:
     """Video-editing template; media fields store OSS object keys only."""
     id: str
