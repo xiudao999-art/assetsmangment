@@ -694,6 +694,20 @@ class PgMaterialSubmissionRepo:
             for row in rows
         }
 
+    def list_drama_names_by_team(self, team_name: str) -> list[str]:
+        """Return live submission drama names for a fuzzy team-name filter."""
+        key = (team_name or "").strip()
+        if not key:
+            return []
+        with self._conn() as c:
+            rows = c.execute(
+                f"SELECT DISTINCT drama_name FROM {self._table} "
+                "WHERE del_flag=0 AND team_name ILIKE %s AND BTRIM(drama_name) <> '' "
+                "ORDER BY drama_name",
+                (f"%{key}%",),
+            ).fetchall()
+        return [str(row[0]) for row in rows]
+
     def count(self, team_name: str = "", drama_name: str = "", video_file_name: str = "",
               title_name: str = "", can_upload_status: int | None = None,
               can_upload_status_empty: bool = False,

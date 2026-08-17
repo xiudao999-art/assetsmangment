@@ -24,6 +24,7 @@ _SORT_COLUMNS["created_time"] = "create_time"
 _OPTION_FIELDS = {
     "drama_name", "task_type", "theme", "settlement_mode",
     "commission_validity_period", "settlement_period", "tags",
+    "pre_upload_teams", "online_time", "task_id",
 }
 
 
@@ -32,12 +33,28 @@ def _now() -> str:
 
 
 def _matches(item: ShortDramaTask, drama_name: str, task_status: str,
-             task_type: str, theme: str) -> bool:
+             task_type: str, theme: str, online_time: str = "", task_id: str = "",
+             tag: str = "", pre_upload_team: str = "",
+             actual_upload_drama_names: list[str] | None = None) -> bool:
+    tag_key = tag.casefold()
+    team_key = pre_upload_team.casefold()
+    item_drama = item.drama_name.casefold()
+    actual_match = actual_upload_drama_names is None or any(
+        (name_key := str(name or "").strip().casefold())
+        and (name_key in item_drama or item_drama in name_key)
+        for name in actual_upload_drama_names
+    )
     return (
         (not drama_name or drama_name.casefold() in item.drama_name.casefold())
         and (not task_status or task_status == item.task_status)
         and (not task_type or task_type.casefold() in item.task_type.casefold())
         and (not theme or theme.casefold() in item.theme.casefold())
+        and (not online_time or online_time.casefold() in item.online_time.casefold())
+        and (not task_id or task_id.casefold() in item.task_id.casefold())
+        and (not tag_key or any(tag_key in value.casefold() for value in item.tags))
+        and (not team_key or any(team_key in value.casefold()
+                                 for value in item.pre_upload_teams))
+        and actual_match
     )
 
 
@@ -88,11 +105,14 @@ class InMemoryShortDramaTaskRepo:
             return self._items.pop(str(item_id), None) is not None
 
     def list(self, drama_name: str = "", task_status: str = "", task_type: str = "",
-             theme: str = "", sort_by: str = "created_time", sort_order: str = "desc",
+             theme: str = "", online_time: str = "", task_id: str = "", tag: str = "",
+             pre_upload_team: str = "", sort_by: str = "created_time",
+             sort_order: str = "desc", actual_upload_drama_names: list[str] | None = None,
              offset: int = 0,
              limit: int | None = None) -> list[ShortDramaTask]:
         items = [x for x in self._items.values()
-                 if _matches(x, drama_name, task_status, task_type, theme)]
+                 if _matches(x, drama_name, task_status, task_type, theme, online_time,
+                             task_id, tag, pre_upload_team, actual_upload_drama_names)]
         items.sort(key=lambda x: int(x.id), reverse=True)
         checked_sort = sort_by if sort_by in _SORT_FIELDS else "created_time"
         items.sort(
@@ -102,9 +122,12 @@ class InMemoryShortDramaTaskRepo:
         return items[offset:] if limit is None else items[offset:offset + limit]
 
     def count(self, drama_name: str = "", task_status: str = "", task_type: str = "",
-              theme: str = "") -> int:
+              theme: str = "", online_time: str = "", task_id: str = "", tag: str = "",
+              pre_upload_team: str = "",
+              actual_upload_drama_names: list[str] | None = None) -> int:
         return sum(1 for x in self._items.values()
-                   if _matches(x, drama_name, task_status, task_type, theme))
+                   if _matches(x, drama_name, task_status, task_type, theme, online_time,
+                               task_id, tag, pre_upload_team, actual_upload_drama_names))
 
     def list_options(self, field: str, keyword: str = "", limit: int = 200) -> list[str]:
         if field not in _OPTION_FIELDS:
@@ -112,7 +135,8 @@ class InMemoryShortDramaTaskRepo:
         key = (keyword or "").strip().casefold()
         values: list[str] = []
         for item in sorted(self._items.values(), key=lambda x: x.updated_time, reverse=True):
-            raw_values = item.tags if field == "tags" else [getattr(item, field, "")]
+            raw_values = (getattr(item, field, []) if field in {"tags", "pre_upload_teams"}
+                          else [getattr(item, field, "")])
             values.extend(str(value or "").strip() for value in raw_values)
         seen: set[str] = set()
         result: list[str] = []
@@ -320,23 +344,49 @@ class PgShortDramaTaskRepo:
         return result.rowcount > 0
 
     @staticmethod
-    def _where(drama_name: str, task_status: str, task_type: str, theme: str) -> tuple[str, list]:
+    def _where(drama_name: str, task_status: str, task_type: str, theme: str,
+               online_time: str = "", task_id: str = "", tag: str = "",
+               pre_upload_team: str = "",
+               actual_upload_drama_names: list[str] | None = None) -> tuple[str, list]:
         where = "del_flag = 0"
         params: list = []
         for column, value, exact in (
             ("drama_name", drama_name, False), ("task_status", task_status, True),
             ("task_type", task_type, False), ("theme", theme, False),
+            ("online_time", online_time, False), ("task_id", task_id, False),
         ):
             if value:
                 where += f" AND {column} {'=' if exact else 'ILIKE'} %s"
                 params.append(value if exact else f"%{value}%")
+        for column, value in (("tags", tag), ("pre_upload_teams", pre_upload_team)):
+            if value:
+                where += (
+                    f" AND EXISTS (SELECT 1 FROM jsonb_array_elements_text({column}) option "
+                    "WHERE option ILIKE %s)"
+                )
+                params.append(f"%{value}%")
+        if actual_upload_drama_names is not None:
+            if not actual_upload_drama_names:
+                where += " AND FALSE"
+            else:
+                where += (
+                    " AND EXISTS (SELECT 1 FROM unnest(%s::text[]) upload_drama "
+                    "WHERE upload_drama ILIKE '%%' || drama_name || '%%' "
+                    "OR drama_name ILIKE '%%' || upload_drama || '%%')"
+                )
+                params.append(actual_upload_drama_names)
         return where, params
 
     def list(self, drama_name: str = "", task_status: str = "", task_type: str = "",
-             theme: str = "", sort_by: str = "created_time", sort_order: str = "desc",
+             theme: str = "", online_time: str = "", task_id: str = "", tag: str = "",
+             pre_upload_team: str = "", sort_by: str = "created_time",
+             sort_order: str = "desc", actual_upload_drama_names: list[str] | None = None,
              offset: int = 0,
              limit: int | None = None) -> list[ShortDramaTask]:
-        where, params = self._where(drama_name, task_status, task_type, theme)
+        where, params = self._where(
+            drama_name, task_status, task_type, theme, online_time, task_id, tag,
+            pre_upload_team, actual_upload_drama_names,
+        )
         checked_sort = sort_by if sort_by in _SORT_FIELDS else "created_time"
         sort_column = _SORT_COLUMNS[checked_sort]
         checked_order = "ASC" if sort_order == "asc" else "DESC"
@@ -352,8 +402,13 @@ class PgShortDramaTaskRepo:
         return [self._to_model(row) for row in rows]
 
     def count(self, drama_name: str = "", task_status: str = "", task_type: str = "",
-              theme: str = "") -> int:
-        where, params = self._where(drama_name, task_status, task_type, theme)
+              theme: str = "", online_time: str = "", task_id: str = "", tag: str = "",
+              pre_upload_team: str = "",
+              actual_upload_drama_names: list[str] | None = None) -> int:
+        where, params = self._where(
+            drama_name, task_status, task_type, theme, online_time, task_id, tag,
+            pre_upload_team, actual_upload_drama_names,
+        )
         with self._conn() as c:
             row = c.execute(f"SELECT COUNT(*) FROM {self._table} WHERE {where}", params).fetchone()
         return int(row[0]) if row else 0
@@ -362,8 +417,8 @@ class PgShortDramaTaskRepo:
         if field not in _OPTION_FIELDS:
             raise ValueError("不支持的短剧任务选项字段")
         params: list = []
-        if field == "tags":
-            value_sql = "jsonb_array_elements_text(tags)"
+        if field in {"tags", "pre_upload_teams"}:
+            value_sql = f"jsonb_array_elements_text({field})"
             source_sql = f"SELECT {value_sql} AS value, update_time FROM {self._table} WHERE del_flag=0"
         else:
             source_sql = f"SELECT {field} AS value, update_time FROM {self._table} WHERE del_flag=0"

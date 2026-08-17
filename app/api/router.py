@@ -2292,6 +2292,8 @@ def _short_drama_task_sort(sort_by: str, sort_order: str) -> tuple[str, str]:
 @router.get("/admin/short-drama-tasks")
 def list_short_drama_tasks(
     drama_name: str = "", task_status: str = "", task_type: str = "", theme: str = "",
+    online_time: str = "", task_id: str = "", tag: str = "", pre_upload_team: str = "",
+    actual_upload_team: str = "",
     sort_by: str = "created_time", sort_order: str = "desc",
     page: int = Query(1, ge=1), size: int = Query(10, ge=1, le=100),
     user: dict = Depends(_user),
@@ -2300,8 +2302,16 @@ def list_short_drama_tasks(
     if task_status and task_status not in _SHORT_DRAMA_TASK_STATUSES:
         raise HTTPException(400, "非法任务状态")
     offset, limit = _page_args(page, size)
+    actual_team = actual_upload_team.strip()
+    actual_upload_drama_names = (
+        deps.material_submission_repo.list_drama_names_by_team(actual_team)
+        if actual_team else None
+    )
     filters = dict(drama_name=drama_name.strip(), task_status=task_status.strip(),
-                   task_type=task_type.strip(), theme=theme.strip())
+                   task_type=task_type.strip(), theme=theme.strip(),
+                   online_time=online_time.strip(), task_id=task_id.strip(),
+                   tag=tag.strip(), pre_upload_team=pre_upload_team.strip(),
+                   actual_upload_drama_names=actual_upload_drama_names)
     checked_sort_by, checked_sort_order = _short_drama_task_sort(sort_by, sort_order)
     total = deps.short_drama_task_repo.count(**filters)
     items = deps.short_drama_task_repo.list(
