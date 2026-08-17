@@ -706,6 +706,16 @@ class InMemoryMaterialSubmissionRepo:
             }
         return result
 
+    def list_drama_names_by_team(self, team_name: str) -> list[str]:
+        key = (team_name or "").strip().casefold()
+        if not key:
+            return []
+        return sorted({
+            item.drama_name.strip() for item in self._items.values()
+            if item.del_flag == 0 and key in item.team_name.casefold()
+            and item.drama_name.strip()
+        })
+
     def list(self, team_name: str = "", drama_name: str = "", video_file_name: str = "",
              title_name: str = "", can_upload_status: int | None = None,
              can_upload_status_empty: bool = False,

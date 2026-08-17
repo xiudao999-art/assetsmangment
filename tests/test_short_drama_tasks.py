@@ -119,6 +119,11 @@ def test_short_drama_task_crud_and_unique_drama_name():
         params={"keyword": "爆"},
     )
     assert tag_options.json()["items"] == ["爆剧"]
+    team_options = client.get(
+        "/admin/short-drama-tasks/options/pre_upload_teams", headers=headers,
+        params={"keyword": "甲"},
+    )
+    assert team_options.json()["items"] == ["团队甲"]
     assert client.get(
         "/admin/short-drama-tasks/options/requirements", headers=headers,
     ).status_code == 400
@@ -136,10 +141,19 @@ def test_short_drama_task_crud_and_unique_drama_name():
 
     listed = client.get(
         "/admin/short-drama-tasks", headers=headers,
-        params={"drama_name": "唯一", "task_status": "未上线"},
+        params={
+            "drama_name": "唯一", "task_status": "未上线", "task_id": "001",
+            "online_time": "08-20", "tag": "爆", "pre_upload_team": "甲",
+            "actual_upload_team": "乙",
+        },
     ).json()
     assert listed["total"] == 1
     assert listed["tasks"][0]["upload_summary"]["upload_count"] == 3
+    no_actual_team = client.get(
+        "/admin/short-drama-tasks", headers=headers,
+        params={"actual_upload_team": "不存在的团队"},
+    ).json()
+    assert no_actual_team["total"] == 0
 
     updated = client.put(
         f"/admin/short-drama-tasks/{item['id']}", headers=headers,
