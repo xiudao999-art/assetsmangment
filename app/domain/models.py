@@ -129,6 +129,7 @@ class ShortDramaTask:
     """素材提报的上游短剧任务。"""
     id: str
     online_time: str = ""
+    expiration_time: str = ""
     drama_name: str = ""
     task_type: str = ""
     tags: list[str] = field(default_factory=list)

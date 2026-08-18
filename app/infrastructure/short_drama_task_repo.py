@@ -9,14 +9,14 @@ from app.domain.models import ShortDramaTask
 
 _TABLE_RE = re.compile(r"^[a-z_][a-z0-9_]*$")
 _SELECT_COLS = (
-    "id, online_time, drama_name, task_type, tags, pre_upload_teams, theme, task_status, task_id, "
+    "id, online_time, expiration_time, drama_name, task_type, tags, pre_upload_teams, theme, task_status, task_id, "
     "requirements, cover_oss_key, cloud_material_url, topic_editing_requirements, "
     "submission_activity_time, settlement_mode, commission_validity_period, "
     "settlement_period, data_image_oss_key, quality_case, remarks, "
     "create_by, create_time, update_by, update_time"
 )
 _SORT_FIELDS = {
-    "online_time", "drama_name", "task_type", "theme", "task_status", "task_id",
+    "online_time", "expiration_time", "drama_name", "task_type", "theme", "task_status", "task_id",
     "settlement_mode", "settlement_period", "created_time",
 }
 _SORT_COLUMNS = {field: field for field in _SORT_FIELDS}
@@ -24,7 +24,7 @@ _SORT_COLUMNS["created_time"] = "create_time"
 _OPTION_FIELDS = {
     "drama_name", "task_type", "theme", "settlement_mode",
     "commission_validity_period", "settlement_period", "tags",
-    "pre_upload_teams", "online_time", "task_id",
+    "pre_upload_teams", "online_time", "expiration_time", "task_id",
 }
 
 
@@ -33,7 +33,8 @@ def _now() -> str:
 
 
 def _matches(item: ShortDramaTask, drama_name: str, task_status: str,
-             task_type: str, theme: str, online_time: str = "", task_id: str = "",
+             task_type: str, theme: str, online_time: str = "", expiration_time: str = "",
+             task_id: str = "",
              tag: str = "", pre_upload_team: str = "",
              actual_upload_drama_names: list[str] | None = None) -> bool:
     tag_key = tag.casefold()
@@ -50,6 +51,7 @@ def _matches(item: ShortDramaTask, drama_name: str, task_status: str,
         and (not task_type or task_type.casefold() in item.task_type.casefold())
         and (not theme or theme.casefold() in item.theme.casefold())
         and (not online_time or online_time.casefold() in item.online_time.casefold())
+        and (not expiration_time or expiration_time.casefold() in item.expiration_time.casefold())
         and (not task_id or task_id.casefold() in item.task_id.casefold())
         and (not tag_key or any(tag_key in value.casefold() for value in item.tags))
         and (not team_key or any(team_key in value.casefold()
@@ -105,14 +107,16 @@ class InMemoryShortDramaTaskRepo:
             return self._items.pop(str(item_id), None) is not None
 
     def list(self, drama_name: str = "", task_status: str = "", task_type: str = "",
-             theme: str = "", online_time: str = "", task_id: str = "", tag: str = "",
+             theme: str = "", online_time: str = "", expiration_time: str = "",
+             task_id: str = "", tag: str = "",
              pre_upload_team: str = "", sort_by: str = "created_time",
              sort_order: str = "desc", actual_upload_drama_names: list[str] | None = None,
              offset: int = 0,
              limit: int | None = None) -> list[ShortDramaTask]:
         items = [x for x in self._items.values()
                  if _matches(x, drama_name, task_status, task_type, theme, online_time,
-                             task_id, tag, pre_upload_team, actual_upload_drama_names)]
+                             expiration_time, task_id, tag, pre_upload_team,
+                             actual_upload_drama_names)]
         items.sort(key=lambda x: int(x.id), reverse=True)
         checked_sort = sort_by if sort_by in _SORT_FIELDS else "created_time"
         items.sort(
@@ -122,12 +126,14 @@ class InMemoryShortDramaTaskRepo:
         return items[offset:] if limit is None else items[offset:offset + limit]
 
     def count(self, drama_name: str = "", task_status: str = "", task_type: str = "",
-              theme: str = "", online_time: str = "", task_id: str = "", tag: str = "",
+              theme: str = "", online_time: str = "", expiration_time: str = "",
+              task_id: str = "", tag: str = "",
               pre_upload_team: str = "",
               actual_upload_drama_names: list[str] | None = None) -> int:
         return sum(1 for x in self._items.values()
                    if _matches(x, drama_name, task_status, task_type, theme, online_time,
-                               task_id, tag, pre_upload_team, actual_upload_drama_names))
+                               expiration_time, task_id, tag, pre_upload_team,
+                               actual_upload_drama_names))
 
     def list_options(self, field: str, keyword: str = "", limit: int = 200) -> list[str]:
         if field not in _OPTION_FIELDS:
@@ -170,6 +176,7 @@ class PgShortDramaTaskRepo:
                 CREATE TABLE IF NOT EXISTS {t} (
                     id BIGINT PRIMARY KEY,
                     online_time TEXT NOT NULL DEFAULT '',
+                    expiration_time TEXT NOT NULL DEFAULT '',
                     drama_name TEXT NOT NULL,
                     task_type TEXT NOT NULL DEFAULT '',
                     tags JSONB NOT NULL DEFAULT '[]'::jsonb,
@@ -200,6 +207,10 @@ class PgShortDramaTaskRepo:
                 "pre_upload_teams JSONB NOT NULL DEFAULT '[]'::jsonb"
             )
             c.execute(
+                f"ALTER TABLE {t} ADD COLUMN IF NOT EXISTS "
+                "expiration_time TEXT NOT NULL DEFAULT ''"
+            )
+            c.execute(
                 f"CREATE UNIQUE INDEX IF NOT EXISTS uq_{t}_live_drama_name "
                 f"ON {t} (lower(drama_name)) WHERE del_flag = 0"
             )
@@ -216,7 +227,8 @@ class PgShortDramaTaskRepo:
     def _params(item: ShortDramaTask, by: str) -> tuple:
         from psycopg.types.json import Jsonb
         return (
-            int(item.id), item.online_time, item.drama_name, item.task_type,
+            int(item.id), item.online_time, item.expiration_time,
+            item.drama_name, item.task_type,
             Jsonb(item.tags or []), Jsonb(item.pre_upload_teams or []),
             item.theme, item.task_status, item.task_id,
             item.requirements, item.cover_oss_key, item.cloud_material_url,
@@ -238,14 +250,15 @@ class PgShortDramaTaskRepo:
         t = self._table
         return f"""
             INSERT INTO {t}
-                (id, online_time, drama_name, task_type, tags, pre_upload_teams, theme, task_status,
+                (id, online_time, expiration_time, drama_name, task_type, tags, pre_upload_teams, theme, task_status,
                  task_id, requirements, cover_oss_key, cloud_material_url,
                  topic_editing_requirements, submission_activity_time, settlement_mode,
                  commission_validity_period, settlement_period, data_image_oss_key,
                  quality_case, remarks, create_by, update_by)
-            VALUES ({', '.join(['%s'] * 22)})
+            VALUES ({', '.join(['%s'] * 23)})
             ON CONFLICT (id) DO UPDATE SET
-                online_time=EXCLUDED.online_time, drama_name=EXCLUDED.drama_name,
+                online_time=EXCLUDED.online_time, expiration_time=EXCLUDED.expiration_time,
+                drama_name=EXCLUDED.drama_name,
                 task_type=EXCLUDED.task_type, tags=EXCLUDED.tags,
                 pre_upload_teams=EXCLUDED.pre_upload_teams, theme=EXCLUDED.theme,
                 task_status=EXCLUDED.task_status, task_id=EXCLUDED.task_id,
@@ -279,21 +292,26 @@ class PgShortDramaTaskRepo:
                     item.created_by = previous[2] or ""
                     item.created_time = previous[3].isoformat() if previous[3] else ""
                     updated += 1
-            c.executemany(self._upsert_drama_sql(), [self._params(x, by) for x in items])
+            with c.cursor() as cursor:
+                cursor.executemany(
+                    self._upsert_drama_sql(),
+                    [self._params(x, by) for x in items],
+                )
         return len(items) - updated, updated
 
     def _upsert_drama_sql(self) -> str:
         t = self._table
         return f"""
             INSERT INTO {t}
-                (id, online_time, drama_name, task_type, tags, pre_upload_teams, theme, task_status,
+                (id, online_time, expiration_time, drama_name, task_type, tags, pre_upload_teams, theme, task_status,
                  task_id, requirements, cover_oss_key, cloud_material_url,
                  topic_editing_requirements, submission_activity_time, settlement_mode,
                  commission_validity_period, settlement_period, data_image_oss_key,
                  quality_case, remarks, create_by, update_by)
-            VALUES ({', '.join(['%s'] * 22)})
+            VALUES ({', '.join(['%s'] * 23)})
             ON CONFLICT (lower(drama_name)) WHERE del_flag = 0 DO UPDATE SET
-                online_time=EXCLUDED.online_time, task_type=EXCLUDED.task_type,
+                online_time=EXCLUDED.online_time, expiration_time=EXCLUDED.expiration_time,
+                task_type=EXCLUDED.task_type,
                 tags=EXCLUDED.tags, pre_upload_teams={t}.pre_upload_teams,
                 theme=EXCLUDED.theme, task_status=EXCLUDED.task_status,
                 task_id=EXCLUDED.task_id, requirements=EXCLUDED.requirements,
@@ -345,7 +363,7 @@ class PgShortDramaTaskRepo:
 
     @staticmethod
     def _where(drama_name: str, task_status: str, task_type: str, theme: str,
-               online_time: str = "", task_id: str = "", tag: str = "",
+               online_time: str = "", expiration_time: str = "", task_id: str = "", tag: str = "",
                pre_upload_team: str = "",
                actual_upload_drama_names: list[str] | None = None) -> tuple[str, list]:
         where = "del_flag = 0"
@@ -353,7 +371,8 @@ class PgShortDramaTaskRepo:
         for column, value, exact in (
             ("drama_name", drama_name, False), ("task_status", task_status, True),
             ("task_type", task_type, False), ("theme", theme, False),
-            ("online_time", online_time, False), ("task_id", task_id, False),
+            ("online_time", online_time, False),
+            ("expiration_time", expiration_time, False), ("task_id", task_id, False),
         ):
             if value:
                 where += f" AND {column} {'=' if exact else 'ILIKE'} %s"
@@ -378,13 +397,15 @@ class PgShortDramaTaskRepo:
         return where, params
 
     def list(self, drama_name: str = "", task_status: str = "", task_type: str = "",
-             theme: str = "", online_time: str = "", task_id: str = "", tag: str = "",
+             theme: str = "", online_time: str = "", expiration_time: str = "",
+             task_id: str = "", tag: str = "",
              pre_upload_team: str = "", sort_by: str = "created_time",
              sort_order: str = "desc", actual_upload_drama_names: list[str] | None = None,
              offset: int = 0,
              limit: int | None = None) -> list[ShortDramaTask]:
         where, params = self._where(
-            drama_name, task_status, task_type, theme, online_time, task_id, tag,
+            drama_name, task_status, task_type, theme, online_time, expiration_time,
+            task_id, tag,
             pre_upload_team, actual_upload_drama_names,
         )
         checked_sort = sort_by if sort_by in _SORT_FIELDS else "created_time"
@@ -402,11 +423,13 @@ class PgShortDramaTaskRepo:
         return [self._to_model(row) for row in rows]
 
     def count(self, drama_name: str = "", task_status: str = "", task_type: str = "",
-              theme: str = "", online_time: str = "", task_id: str = "", tag: str = "",
+              theme: str = "", online_time: str = "", expiration_time: str = "",
+              task_id: str = "", tag: str = "",
               pre_upload_team: str = "",
               actual_upload_drama_names: list[str] | None = None) -> int:
         where, params = self._where(
-            drama_name, task_status, task_type, theme, online_time, task_id, tag,
+            drama_name, task_status, task_type, theme, online_time, expiration_time,
+            task_id, tag,
             pre_upload_team, actual_upload_drama_names,
         )
         with self._conn() as c:
@@ -441,16 +464,16 @@ class PgShortDramaTaskRepo:
     @staticmethod
     def _to_model(row) -> ShortDramaTask:
         return ShortDramaTask(
-            id=str(row[0]), online_time=row[1] or "", drama_name=row[2] or "",
-            task_type=row[3] or "", tags=list(row[4] or []),
-            pre_upload_teams=list(row[5] or []), theme=row[6] or "",
-            task_status=row[7] or "未上线", task_id=row[8] or "",
-            requirements=row[9] or "", cover_oss_key=row[10] or "",
-            cloud_material_url=row[11] or "", topic_editing_requirements=row[12] or "",
-            submission_activity_time=row[13] or "", settlement_mode=row[14] or "",
-            commission_validity_period=row[15] or "", settlement_period=row[16] or "",
-            data_image_oss_key=row[17] or "", quality_case=row[18] or "",
-            remarks=row[19] or "", created_by=row[20] or "",
-            created_time=row[21].isoformat() if row[21] else "", updated_by=row[22] or "",
-            updated_time=row[23].isoformat() if row[23] else "",
+            id=str(row[0]), online_time=row[1] or "", expiration_time=row[2] or "",
+            drama_name=row[3] or "", task_type=row[4] or "", tags=list(row[5] or []),
+            pre_upload_teams=list(row[6] or []), theme=row[7] or "",
+            task_status=row[8] or "未上线", task_id=row[9] or "",
+            requirements=row[10] or "", cover_oss_key=row[11] or "",
+            cloud_material_url=row[12] or "", topic_editing_requirements=row[13] or "",
+            submission_activity_time=row[14] or "", settlement_mode=row[15] or "",
+            commission_validity_period=row[16] or "", settlement_period=row[17] or "",
+            data_image_oss_key=row[18] or "", quality_case=row[19] or "",
+            remarks=row[20] or "", created_by=row[21] or "",
+            created_time=row[22].isoformat() if row[22] else "", updated_by=row[23] or "",
+            updated_time=row[24].isoformat() if row[24] else "",
         )

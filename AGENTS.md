@@ -10,6 +10,11 @@ When the user asks to “打包” or requests a deployment package:
 4. Do not substitute or primarily deliver `release\assetsmangment.zip`, a timestamped archive, or a manually assembled archive.
 5. After packaging, verify the root archive contains `Dockerfile`, `app/`, and `frontend/`, excludes `__pycache__` and `*.pyc`, and report its SHA256 hash.
 
+## Git push
+
+1. When the user asks to push and does not specify a port, use the local HTTP/HTTPS proxy at `http://127.0.0.1:7897` for the push.
+2. Prefer a per-command proxy override such as `git -c http.proxy=http://127.0.0.1:7897 -c https.proxy=http://127.0.0.1:7897 push`; do not persist or replace the user's global Git proxy configuration.
+
 ## Persistence and PostgreSQL
 
 1. Local-file storage and JSON repository implementations are legacy and are no longer maintained for business runtime behavior. Do not add features, fixes, or new business persistence paths to JSON/local repositories unless the user explicitly requests legacy work.
