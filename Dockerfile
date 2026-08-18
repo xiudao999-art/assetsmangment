@@ -21,7 +21,8 @@ RUN pip install --no-cache-dir \
     "sqlalchemy>=2.0" "psycopg[binary]>=3.2" "psycopg-pool>=3.2" "pgvector>=0.3" "alembic>=1.14" \
     "redis>=5.2" "celery>=5.4" "oss2>=2.19" "dashscope>=1.20" \
     "alibabacloud_tea_openapi>=0.4.5" \
-    "alibabacloud-green20220302==3.2.4" "httpx>=0.28" "python-multipart>=0.0.12"
+    "alibabacloud-green20220302==3.2.4" "httpx>=0.28" "python-multipart>=0.0.12" \
+    "openpyxl>=3.1"
 
 COPY app ./app
 COPY frontend ./frontend
