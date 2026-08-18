@@ -317,6 +317,5 @@ def test_short_drama_task_excel_import_upserts_and_template(monkeypatch):
     template_headers = next(template_book.active.values)
     assert template_headers == (
         "剧名", "任务ID", "类型", "题材", "标签", "任务上线时间", "任务到期时间", "任务状态",
-        "要求", "话题/剪辑要求", "网盘素材", "优质案例", "投稿活动时间",
-        "结算模式", "消耗计费分佣有效期", "结算周期", "封面", "数据图", "备注",
+        "要求", "话题/剪辑要求", "网盘素材", "优质案例", "封面", "备注",
     )

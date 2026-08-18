@@ -2195,9 +2195,7 @@ _SHORT_DRAMA_TASK_EXCEL_COLUMNS = [
     ("任务状态", "task_status"), ("要求", "requirements"),
     ("话题/剪辑要求", "topic_editing_requirements"),
     ("网盘素材", "cloud_material_url"), ("优质案例", "quality_case"),
-    ("投稿活动时间", "submission_activity_time"), ("结算模式", "settlement_mode"),
-    ("消耗计费分佣有效期", "commission_validity_period"), ("结算周期", "settlement_period"),
-    ("封面", "cover_oss_key"), ("数据图", "data_image_oss_key"), ("备注", "remarks"),
+    ("封面", "cover_oss_key"), ("备注", "remarks"),
 ]
 
 
@@ -2406,10 +2404,9 @@ def download_short_drama_task_import_template(user: dict = Depends(_user)):
     sheet.title = "短剧任务导入"
     sheet.append([x[0] for x in _SHORT_DRAMA_TASK_EXCEL_COLUMNS])
     sheet.append([
-        "2026-08-20", "示例短剧（请删除示例行）", "短剧", "爆剧、新剧", "都市",
-        "未上线", "TASK-001", "示例要求", "", "https://pan.example.com/example",
-        "示例话题及剪辑要求", "2026-08-20 至 2026-09-20", "按消耗分佣", "30天", "月结",
-        "", "https://example.com/case", "封面和数据图请填写可访问的图片链接",
+        "示例短剧（请删除示例行）", "TASK-001", "短剧", "都市", "爆剧、新剧",
+        "2026-08-20", "2026-09-20", "未上线", "示例要求", "示例话题及剪辑要求",
+        "https://pan.example.com/example", "https://example.com/case", "", "",
     ])
     for cell in sheet[1]:
         cell.font = Font(bold=True, color="FFFFFF")
@@ -2566,10 +2563,10 @@ async def import_short_drama_tasks(file: UploadFile = File(...), user: dict = De
             payload = {key: str(raw.get(key) or "").strip()
                        for _, key in _SHORT_DRAMA_TASK_EXCEL_COLUMNS if key != "tags"}
             payload["tags"] = _excel_tags(raw.get("tags"))
-            for asset_field in ("cover_oss_key", "data_image_oss_key"):
+            for asset_field in ("cover_oss_key",):
                 asset_url = payload.get(asset_field, "")
                 if asset_url and urlparse(asset_url).scheme not in {"http", "https"}:
-                    raise ValueError("封面和数据图请填写 http 或 https 图片链接")
+                    raise ValueError("封面请填写 http 或 https 图片链接")
             task = _short_drama_task_from_body(
                 schemas.ShortDramaTaskIn(**payload), item_id=next_id_str(), created_by=user["id"],
             )
