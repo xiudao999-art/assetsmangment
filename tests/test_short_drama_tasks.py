@@ -4,7 +4,8 @@ from fastapi.testclient import TestClient
 from openpyxl import Workbook, load_workbook
 
 from app.api import deps
-from app.domain.models import MaterialSubmission
+from app.domain.models import MaterialSubmission, ShortDramaTask
+from app.infrastructure.short_drama_task_repo import PgShortDramaTaskRepo
 from app.main import app
 
 client = TestClient(app)
@@ -20,6 +21,7 @@ def _headers():
 def _payload(name: str, **overrides):
     data = {
         "online_time": "2026-08-20",
+        "expiration_time": "2026-09-20",
         "drama_name": name,
         "task_type": "短剧",
         "tags": ["爆剧", "新剧"],
@@ -40,6 +42,56 @@ def _payload(name: str, **overrides):
     }
     data.update(overrides)
     return data
+
+
+def test_pg_short_drama_bulk_upsert_uses_cursor_executemany():
+    class Result:
+        @staticmethod
+        def fetchall():
+            return []
+
+    class Cursor:
+        def __init__(self):
+            self.calls = []
+
+        def __enter__(self):
+            return self
+
+        def __exit__(self, *_args):
+            return False
+
+        def executemany(self, sql, params):
+            self.calls.append((sql, params))
+
+    class Connection:
+        def __init__(self):
+            self.cursor_instance = Cursor()
+
+        def __enter__(self):
+            return self
+
+        def __exit__(self, *_args):
+            return False
+
+        @staticmethod
+        def execute(_sql, _params):
+            return Result()
+
+        def cursor(self):
+            return self.cursor_instance
+
+    connection = Connection()
+    repo = PgShortDramaTaskRepo.__new__(PgShortDramaTaskRepo)
+    repo._table = "short_drama_task"
+    repo._conn = lambda: connection
+    task = ShortDramaTask(id="123", drama_name="批量导入剧", cloud_material_url="https://pan.example.com")
+
+    assert repo.bulk_upsert([task], by="admin") == (1, 0)
+    assert len(connection.cursor_instance.calls) == 1
+    sql, params = connection.cursor_instance.calls[0]
+    assert "INSERT INTO short_drama_task" in sql
+    assert len(params) == 1
+    assert len(params[0]) == 23
 
 
 def test_short_drama_task_image_upload_validates_and_returns_oss_key():
@@ -72,12 +124,30 @@ def test_short_drama_task_image_upload_validates_and_returns_oss_key():
 
 def test_short_drama_task_crud_and_unique_drama_name():
     headers = _headers()
+    for field in ("drama_name", "cloud_material_url"):
+        invalid = client.post(
+            "/admin/short-drama-tasks", headers=headers,
+            json=_payload("必填校验", **{field: ""}),
+        )
+        assert invalid.status_code == 422
+    without_cover = client.post(
+        "/admin/short-drama-tasks", headers=headers,
+        json=_payload("无封面任务", cover_oss_key=""),
+    )
+    assert without_cover.status_code == 200
+    assert without_cover.json()["cover_oss_key"] == ""
+    assert client.delete(
+        f"/admin/short-drama-tasks/{without_cover.json()['id']}", headers=headers,
+    ).status_code == 200
     created = client.post(
         "/admin/short-drama-tasks", headers=headers, json=_payload("唯一剧名")
     )
     assert created.status_code == 200
     item = created.json()
+    assert item["expiration_time"] == "2026-09-20"
     assert item["tags"] == ["爆剧", "新剧"]
+    assert item["upload_degree"] == "无人问津"
+    assert item["upload_degree_team_count"] == 0
     deps.material_submission_repo.add(MaterialSubmission(
         id="9001", team_name="团队甲", drama_name="唯一剧名", can_upload_status=1,
         publish_status=1,
@@ -102,13 +172,17 @@ def test_short_drama_task_crud_and_unique_drama_name():
         "upload_count": 3,
         "can_upload_count": 2,
         "publish_success_count": 2,
+        "upload_degree": "适中",
+        "upload_degree_team_count": 2,
     }
     assigned = client.put(
         f"/admin/short-drama-tasks/{item['id']}/pre-upload-teams", headers=headers,
-        json={"team_names": ["团队甲", "团队乙", "团队甲"]},
+        json={"team_names": ["团队甲", "团队乙", "团队丙", "全新团队", "团队甲"]},
     )
     assert assigned.status_code == 200
-    assert assigned.json()["pre_upload_teams"] == ["团队甲", "团队乙"]
+    assert assigned.json()["pre_upload_teams"] == ["团队甲", "团队乙", "团队丙", "全新团队"]
+    assert assigned.json()["upload_degree"] == "饱和"
+    assert assigned.json()["upload_degree_team_count"] == 4
     type_options = client.get(
         "/admin/short-drama-tasks/options/task_type", headers=headers,
     )
@@ -124,6 +198,16 @@ def test_short_drama_task_crud_and_unique_drama_name():
         params={"keyword": "甲"},
     )
     assert team_options.json()["items"] == ["团队甲"]
+    new_team_options = client.get(
+        "/admin/short-drama-tasks/options/pre_upload_teams", headers=headers,
+        params={"keyword": "全新"},
+    )
+    assert new_team_options.json()["items"] == ["全新团队"]
+    too_long_team = client.put(
+        f"/admin/short-drama-tasks/{item['id']}/pre-upload-teams", headers=headers,
+        json={"team_names": ["新" * 501]},
+    )
+    assert too_long_team.status_code == 400
     assert client.get(
         "/admin/short-drama-tasks/options/requirements", headers=headers,
     ).status_code == 400
@@ -143,12 +227,22 @@ def test_short_drama_task_crud_and_unique_drama_name():
         "/admin/short-drama-tasks", headers=headers,
         params={
             "drama_name": "唯一", "task_status": "未上线", "task_id": "001",
-            "online_time": "08-20", "tag": "爆", "pre_upload_team": "甲",
-            "actual_upload_team": "乙",
+            "online_time": "08-20", "expiration_time": "09-20",
+            "tag": "爆", "pre_upload_team": "甲",
+            "actual_upload_team": "乙", "upload_degree": "饱和",
         },
     ).json()
     assert listed["total"] == 1
     assert listed["tasks"][0]["upload_summary"]["upload_count"] == 3
+    assert listed["tasks"][0]["upload_degree"] == "饱和"
+    assert client.get(
+        "/admin/short-drama-tasks", headers=headers,
+        params={"upload_degree": "无人问津"},
+    ).json()["total"] == 0
+    assert client.get(
+        "/admin/short-drama-tasks", headers=headers,
+        params={"upload_degree": "未知"},
+    ).status_code == 400
     no_actual_team = client.get(
         "/admin/short-drama-tasks", headers=headers,
         params={"actual_upload_team": "不存在的团队"},
@@ -161,7 +255,7 @@ def test_short_drama_task_crud_and_unique_drama_name():
     )
     assert updated.status_code == 200
     assert updated.json()["task_status"] == "已上线"
-    assert updated.json()["pre_upload_teams"] == ["团队甲", "团队乙"]
+    assert updated.json()["pre_upload_teams"] == ["团队甲", "团队乙", "团队丙", "全新团队"]
 
     assert client.delete(
         f"/admin/short-drama-tasks/{item['id']}", headers=headers
@@ -171,18 +265,23 @@ def test_short_drama_task_crud_and_unique_drama_name():
     ).status_code == 404
 
 
-def test_short_drama_task_excel_import_upserts_and_template():
+def test_short_drama_task_excel_import_upserts_and_template(monkeypatch):
     headers = _headers()
     existing = client.post(
         "/admin/short-drama-tasks", headers=headers, json=_payload("导入更新剧", remarks="旧值")
     )
     assert existing.status_code == 200
 
+    async def store_test_images(items):
+        for task in items:
+            task.cover_oss_key = f"short-drama-tasks/{task.drama_name}.png"
+
+    monkeypatch.setattr("app.api.router._store_short_task_excel_images", store_test_images)
     workbook = Workbook()
     sheet = workbook.active
-    sheet.append(["剧名", "任务状态", "标签", "备注", "网盘素材"])
-    sheet.append(["导入更新剧", "已结束", '["完结","爆剧"]', "新值", "https://pan.example.com/a"])
-    sheet.append(["导入新增剧", "未上线", "新剧、待播", "新增", "https://pan.example.com/b"])
+    sheet.append(["剧名", "任务状态", "标签", "任务到期时间", "备注", "网盘素材", "封面"])
+    sheet.append(["导入更新剧", "已结束", '["完结","爆剧"]', "2026-10-01", "新值", "https://pan.example.com/a", "https://img.example.com/a.png"])
+    sheet.append(["导入新增剧", "未上线", "新剧、待播", "2026-11-01", "新增", "https://pan.example.com/b", "https://img.example.com/b.png"])
     stream = io.BytesIO()
     workbook.save(stream)
 
@@ -200,6 +299,7 @@ def test_short_drama_task_excel_import_upserts_and_template():
     by_name = {x["drama_name"]: x for x in listed["tasks"]}
     assert by_name["导入更新剧"]["remarks"] == "新值"
     assert by_name["导入更新剧"]["tags"] == ["完结", "爆剧"]
+    assert by_name["导入更新剧"]["expiration_time"] == "2026-10-01"
     client.put(
         f"/admin/short-drama-tasks/{by_name['导入更新剧']['id']}", headers=headers,
         json=_payload("导入更新剧", remarks="新值", tags=["完结", "爆剧"]),
@@ -215,6 +315,7 @@ def test_short_drama_task_excel_import_upserts_and_template():
     assert template.status_code == 200
     template_book = load_workbook(io.BytesIO(template.content), read_only=True)
     template_headers = next(template_book.active.values)
-    assert "剧名" in template_headers
-    assert "封面" in template_headers
-    assert "数据图" in template_headers
+    assert template_headers == (
+        "剧名", "任务ID", "类型", "题材", "标签", "任务上线时间", "任务到期时间", "任务状态",
+        "要求", "话题/剪辑要求", "网盘素材", "优质案例", "封面", "备注",
+    )

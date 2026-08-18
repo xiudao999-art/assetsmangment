@@ -200,6 +200,7 @@ class MaterialSubmissionProcessIn(BaseModel):
 # ── 规则训练 ──
 class ShortDramaTaskIn(BaseModel):
     online_time: str = Field(default="", max_length=500)
+    expiration_time: str = Field(default="", max_length=500)
     drama_name: str = Field(min_length=1, max_length=500)
     task_type: str = Field(default="", max_length=500)
     tags: list[str] = Field(default_factory=list, max_length=100)
@@ -209,7 +210,7 @@ class ShortDramaTaskIn(BaseModel):
     task_id: str = Field(default="", max_length=500)
     requirements: str = Field(default="", max_length=20000)
     cover_oss_key: str = Field(default="", max_length=2000)
-    cloud_material_url: str = Field(default="", max_length=5000)
+    cloud_material_url: str = Field(min_length=1, max_length=5000)
     topic_editing_requirements: str = Field(default="", max_length=20000)
     submission_activity_time: str = Field(default="", max_length=500)
     settlement_mode: str = Field(default="", max_length=1000)

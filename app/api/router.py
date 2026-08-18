@@ -2182,19 +2182,20 @@ def update_video_editing_template(template_id: str, body: schemas.VideoEditingTe
 
 
 _SHORT_DRAMA_TASK_STATUSES = {"未上线", "已上线", "已结束"}
+_SHORT_DRAMA_UPLOAD_DEGREES = {"无人问津", "适中", "饱和"}
 _SHORT_DRAMA_TASK_SORT_FIELDS = {
-    "online_time", "drama_name", "task_type", "theme", "task_status", "task_id",
+    "online_time", "expiration_time", "drama_name", "task_type", "theme", "task_status", "task_id",
     "settlement_mode", "settlement_period", "created_time",
 }
 _SHORT_DRAMA_TASK_SORT_ORDERS = {"asc", "desc"}
 _SHORT_DRAMA_TASK_EXCEL_COLUMNS = [
-    ("任务上线时间", "online_time"), ("剧名", "drama_name"), ("类型", "task_type"),
-    ("标签", "tags"), ("题材", "theme"), ("任务状态", "task_status"),
-    ("任务ID", "task_id"), ("要求", "requirements"), ("封面", "cover_oss_key"),
-    ("网盘素材", "cloud_material_url"), ("话题/剪辑要求", "topic_editing_requirements"),
-    ("投稿活动时间", "submission_activity_time"), ("结算模式", "settlement_mode"),
-    ("消耗计费分佣有效期", "commission_validity_period"), ("结算周期", "settlement_period"),
-    ("数据图", "data_image_oss_key"), ("优质案例", "quality_case"), ("备注", "remarks"),
+    ("剧名", "drama_name"), ("任务ID", "task_id"), ("类型", "task_type"),
+    ("题材", "theme"), ("标签", "tags"), ("任务上线时间", "online_time"),
+    ("任务到期时间", "expiration_time"),
+    ("任务状态", "task_status"), ("要求", "requirements"),
+    ("话题/剪辑要求", "topic_editing_requirements"),
+    ("网盘素材", "cloud_material_url"), ("优质案例", "quality_case"),
+    ("封面", "cover_oss_key"), ("备注", "remarks"),
 ]
 
 
@@ -2213,9 +2214,32 @@ def _short_drama_upload_summaries(items: list[ShortDramaTask]) -> dict[str, dict
     )
 
 
+def _short_drama_upload_degree(item: ShortDramaTask,
+                               upload_summary: dict | None = None) -> tuple[str, int]:
+    teams = {
+        str(name or "").strip().casefold()
+        for name in [
+            *(item.pre_upload_teams or []),
+            *((upload_summary or {}).get("team_names") or []),
+        ]
+        if str(name or "").strip()
+    }
+    team_count = len(teams)
+    if team_count == 0:
+        return "无人问津", team_count
+    if team_count >= 3:
+        return "饱和", team_count
+    return "适中", team_count
+
+
 def _short_drama_task_out(item: ShortDramaTask, upload_summary: dict | None = None) -> dict:
+    summary = dict(upload_summary or _empty_short_drama_upload_summary())
+    upload_degree, upload_degree_team_count = _short_drama_upload_degree(item, summary)
+    summary.update(upload_degree=upload_degree,
+                   upload_degree_team_count=upload_degree_team_count)
     return {
-        "id": item.id, "online_time": item.online_time, "drama_name": item.drama_name,
+        "id": item.id, "online_time": item.online_time,
+        "expiration_time": item.expiration_time, "drama_name": item.drama_name,
         "task_type": item.task_type, "tags": list(item.tags or []),
         "pre_upload_teams": list(item.pre_upload_teams or []), "theme": item.theme,
         "task_status": item.task_status, "task_id": item.task_id,
@@ -2230,7 +2254,8 @@ def _short_drama_task_out(item: ShortDramaTask, upload_summary: dict | None = No
         "remarks": item.remarks, "created_by": item.created_by,
         "created_time": item.created_time, "updated_by": item.updated_by,
         "updated_time": item.updated_time,
-        "upload_summary": upload_summary or _empty_short_drama_upload_summary(),
+        "upload_summary": summary, "upload_degree": upload_degree,
+        "upload_degree_team_count": upload_degree_team_count,
     }
 
 
@@ -2239,6 +2264,10 @@ def _short_drama_task_from_body(body: schemas.ShortDramaTaskIn, *, item_id: str,
     drama_name = (body.drama_name or "").strip()
     if not drama_name:
         raise HTTPException(400, "剧名不能为空")
+    cloud_material_url = (body.cloud_material_url or "").strip()
+    if not cloud_material_url:
+        raise HTTPException(400, "网盘素材不能为空")
+    cover_oss_key = (body.cover_oss_key or "").strip()
     status = (body.task_status or "未上线").strip()
     if status not in _SHORT_DRAMA_TASK_STATUSES:
         raise HTTPException(400, "任务状态只能是未上线、已上线或已结束")
@@ -2248,18 +2277,24 @@ def _short_drama_task_from_body(body: schemas.ShortDramaTaskIn, *, item_id: str,
         if tag and tag not in tags:
             tags.append(tag)
     pre_upload_teams: list[str] = []
+    seen_pre_upload_teams: set[str] = set()
     for value in body.pre_upload_teams or []:
         team_name = str(value or "").strip()
-        if team_name and team_name not in pre_upload_teams:
+        if len(team_name) > 500:
+            raise HTTPException(400, "团队名称不能超过 500 个字符")
+        normalized_team_name = team_name.casefold()
+        if team_name and normalized_team_name not in seen_pre_upload_teams:
+            seen_pre_upload_teams.add(normalized_team_name)
             pre_upload_teams.append(team_name)
     return ShortDramaTask(
-        id=item_id, online_time=(body.online_time or "").strip(), drama_name=drama_name,
+        id=item_id, online_time=(body.online_time or "").strip(),
+        expiration_time=(body.expiration_time or "").strip(), drama_name=drama_name,
         task_type=(body.task_type or "").strip(), tags=tags,
         pre_upload_teams=pre_upload_teams, theme=(body.theme or "").strip(),
         task_status=status, task_id=(body.task_id or "").strip(),
         requirements=(body.requirements or "").strip(),
-        cover_oss_key=(body.cover_oss_key or "").strip(),
-        cloud_material_url=(body.cloud_material_url or "").strip(),
+        cover_oss_key=cover_oss_key,
+        cloud_material_url=cloud_material_url,
         topic_editing_requirements=(body.topic_editing_requirements or "").strip(),
         submission_activity_time=(body.submission_activity_time or "").strip(),
         settlement_mode=(body.settlement_mode or "").strip(),
@@ -2292,8 +2327,8 @@ def _short_drama_task_sort(sort_by: str, sort_order: str) -> tuple[str, str]:
 @router.get("/admin/short-drama-tasks")
 def list_short_drama_tasks(
     drama_name: str = "", task_status: str = "", task_type: str = "", theme: str = "",
-    online_time: str = "", task_id: str = "", tag: str = "", pre_upload_team: str = "",
-    actual_upload_team: str = "",
+    online_time: str = "", expiration_time: str = "", task_id: str = "", tag: str = "", pre_upload_team: str = "",
+    actual_upload_team: str = "", upload_degree: str = "",
     sort_by: str = "created_time", sort_order: str = "desc",
     page: int = Query(1, ge=1), size: int = Query(10, ge=1, le=100),
     user: dict = Depends(_user),
@@ -2301,6 +2336,9 @@ def list_short_drama_tasks(
     _require_auth(user)
     if task_status and task_status not in _SHORT_DRAMA_TASK_STATUSES:
         raise HTTPException(400, "非法任务状态")
+    checked_upload_degree = upload_degree.strip()
+    if checked_upload_degree and checked_upload_degree not in _SHORT_DRAMA_UPLOAD_DEGREES:
+        raise HTTPException(400, "非法上传程度")
     offset, limit = _page_args(page, size)
     actual_team = actual_upload_team.strip()
     actual_upload_drama_names = (
@@ -2309,16 +2347,32 @@ def list_short_drama_tasks(
     )
     filters = dict(drama_name=drama_name.strip(), task_status=task_status.strip(),
                    task_type=task_type.strip(), theme=theme.strip(),
-                   online_time=online_time.strip(), task_id=task_id.strip(),
+                   online_time=online_time.strip(), expiration_time=expiration_time.strip(),
+                   task_id=task_id.strip(),
                    tag=tag.strip(), pre_upload_team=pre_upload_team.strip(),
                    actual_upload_drama_names=actual_upload_drama_names)
     checked_sort_by, checked_sort_order = _short_drama_task_sort(sort_by, sort_order)
-    total = deps.short_drama_task_repo.count(**filters)
-    items = deps.short_drama_task_repo.list(
-        offset=offset, limit=limit, sort_by=checked_sort_by,
-        sort_order=checked_sort_order, **filters,
-    )
-    summaries = _short_drama_upload_summaries(items)
+    if checked_upload_degree:
+        filtered_items = deps.short_drama_task_repo.list(
+            offset=0, limit=None, sort_by=checked_sort_by,
+            sort_order=checked_sort_order, **filters,
+        )
+        all_summaries = _short_drama_upload_summaries(filtered_items)
+        matched_items = [
+            item for item in filtered_items
+            if _short_drama_upload_degree(item, all_summaries.get(item.id))[0]
+            == checked_upload_degree
+        ]
+        total = len(matched_items)
+        items = matched_items[offset:offset + limit]
+        summaries = {item.id: all_summaries.get(item.id) for item in items}
+    else:
+        total = deps.short_drama_task_repo.count(**filters)
+        items = deps.short_drama_task_repo.list(
+            offset=offset, limit=limit, sort_by=checked_sort_by,
+            sort_order=checked_sort_order, **filters,
+        )
+        summaries = _short_drama_upload_summaries(items)
     return _page_out(
         [_short_drama_task_out(x, summaries.get(x.id)) for x in items],
         total, page, size, key="tasks",
@@ -2350,10 +2404,9 @@ def download_short_drama_task_import_template(user: dict = Depends(_user)):
     sheet.title = "短剧任务导入"
     sheet.append([x[0] for x in _SHORT_DRAMA_TASK_EXCEL_COLUMNS])
     sheet.append([
-        "2026-08-20", "示例短剧（请删除示例行）", "短剧", "爆剧、新剧", "都市",
-        "未上线", "TASK-001", "示例要求", "", "https://pan.example.com/example",
-        "示例话题及剪辑要求", "2026-08-20 至 2026-09-20", "按消耗分佣", "30天", "月结",
-        "", "https://example.com/case", "封面和数据图请填写可访问的图片链接",
+        "示例短剧（请删除示例行）", "TASK-001", "短剧", "都市", "爆剧、新剧",
+        "2026-08-20", "2026-09-20", "未上线", "示例要求", "示例话题及剪辑要求",
+        "https://pan.example.com/example", "https://example.com/case", "", "",
     ])
     for cell in sheet[1]:
         cell.font = Font(bold=True, color="FFFFFF")
@@ -2495,7 +2548,7 @@ async def import_short_drama_tasks(file: UploadFile = File(...), user: dict = De
     except (StopIteration, ValueError, KeyError, OSError) as exc:
         raise HTTPException(400, "无法读取 Excel 文件") from exc
     expected = {label: key for label, key in _SHORT_DRAMA_TASK_EXCEL_COLUMNS}
-    missing = [label for label in ("剧名",) if label not in headers]
+    missing = [label for label in ("剧名", "网盘素材") if label not in headers]
     if missing:
         raise HTTPException(400, f"缺少必填列：{missing[0]}")
     column_keys = [expected.get(x, "") for x in headers]
@@ -2510,10 +2563,10 @@ async def import_short_drama_tasks(file: UploadFile = File(...), user: dict = De
             payload = {key: str(raw.get(key) or "").strip()
                        for _, key in _SHORT_DRAMA_TASK_EXCEL_COLUMNS if key != "tags"}
             payload["tags"] = _excel_tags(raw.get("tags"))
-            for asset_field in ("cover_oss_key", "data_image_oss_key"):
+            for asset_field in ("cover_oss_key",):
                 asset_url = payload.get(asset_field, "")
                 if asset_url and urlparse(asset_url).scheme not in {"http", "https"}:
-                    raise ValueError("封面和数据图请填写 http 或 https 图片链接")
+                    raise ValueError("封面请填写 http 或 https 图片链接")
             task = _short_drama_task_from_body(
                 schemas.ShortDramaTaskIn(**payload), item_id=next_id_str(), created_by=user["id"],
             )
@@ -2547,9 +2600,14 @@ def set_short_drama_task_pre_upload_teams(
 ):
     current = _require_short_drama_task(item_id, user)
     team_names: list[str] = []
+    seen_team_names: set[str] = set()
     for value in body.team_names or []:
         team_name = str(value or "").strip()
-        if team_name and team_name not in team_names:
+        if len(team_name) > 500:
+            raise HTTPException(400, "团队名称不能超过 500 个字符")
+        normalized_team_name = team_name.casefold()
+        if team_name and normalized_team_name not in seen_team_names:
+            seen_team_names.add(normalized_team_name)
             team_names.append(team_name)
     current.pre_upload_teams = team_names
     deps.short_drama_task_repo.save(current, by=user["id"])
@@ -2568,7 +2626,9 @@ def create_short_drama_task(body: schemas.ShortDramaTaskIn, user: dict = Depends
         deps.short_drama_task_repo.save(item, by=user["id"])
     except ValueError as exc:
         raise HTTPException(409, str(exc)) from exc
-    return _short_drama_task_out(deps.short_drama_task_repo.get(item.id) or item)
+    saved = deps.short_drama_task_repo.get(item.id) or item
+    summary = _short_drama_upload_summaries([saved]).get(saved.id)
+    return _short_drama_task_out(saved, summary)
 
 
 @router.put("/admin/short-drama-tasks/{item_id}")
@@ -2584,7 +2644,9 @@ def update_short_drama_task(item_id: str, body: schemas.ShortDramaTaskIn,
         deps.short_drama_task_repo.save(item, by=user["id"])
     except ValueError as exc:
         raise HTTPException(409, str(exc)) from exc
-    return _short_drama_task_out(deps.short_drama_task_repo.get(item.id) or item)
+    saved = deps.short_drama_task_repo.get(item.id) or item
+    summary = _short_drama_upload_summaries([saved]).get(saved.id)
+    return _short_drama_task_out(saved, summary)
 
 
 @router.delete("/admin/short-drama-tasks/{item_id}")
