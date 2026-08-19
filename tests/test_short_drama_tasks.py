@@ -1,4 +1,5 @@
 import io
+from pathlib import Path
 
 from fastapi.testclient import TestClient
 from openpyxl import Workbook, load_workbook
@@ -92,6 +93,27 @@ def test_pg_short_drama_bulk_upsert_uses_cursor_executemany():
     assert "INSERT INTO short_drama_task" in sql
     assert len(params) == 1
     assert len(params[0]) == 23
+
+
+def test_pg_short_drama_remarks_filter_uses_fuzzy_match():
+    where, params = PgShortDramaTaskRepo._where(
+        drama_name="", task_status="", task_type="", theme="", remarks="重点跟进",
+    )
+    assert "remarks ILIKE %s" in where
+    assert params == ["%重点跟进%"]
+
+
+def test_short_drama_filter_layout_keeps_status_on_first_row_and_remarks_on_second():
+    html = (Path(__file__).resolve().parents[1] / "frontend" / "index.html").read_text(
+        encoding="utf-8",
+    )
+    top_start = html.index('<div class="sdt-filter-row top">')
+    bottom_start = html.index('<div class="sdt-filter-row bottom">', top_start)
+    list_start = html.index('<div id="sdt-list">', bottom_start)
+    assert 'id="sdt-ft-status"' in html[top_start:bottom_start]
+    bottom_filters = html[bottom_start:list_start]
+    assert 'id="sdt-ft-remarks"' in bottom_filters
+    assert bottom_filters.index('id="sdt-ft-degree"') < bottom_filters.index('id="sdt-ft-remarks"')
 
 
 def test_short_drama_task_image_upload_validates_and_returns_oss_key():
@@ -228,7 +250,7 @@ def test_short_drama_task_crud_and_unique_drama_name():
         params={
             "drama_name": "唯一", "task_status": "未上线", "task_id": "001",
             "online_time": "08-20", "expiration_time": "09-20",
-            "tag": "爆", "pre_upload_team": "甲",
+            "tag": "爆", "pre_upload_team": "甲", "remarks": "备注",
             "actual_upload_team": "乙", "upload_degree": "饱和",
         },
     ).json()

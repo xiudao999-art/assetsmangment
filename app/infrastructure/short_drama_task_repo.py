@@ -34,7 +34,7 @@ def _now() -> str:
 
 def _matches(item: ShortDramaTask, drama_name: str, task_status: str,
              task_type: str, theme: str, online_time: str = "", expiration_time: str = "",
-             task_id: str = "",
+             task_id: str = "", remarks: str = "",
              tag: str = "", pre_upload_team: str = "",
              actual_upload_drama_names: list[str] | None = None) -> bool:
     tag_key = tag.casefold()
@@ -53,6 +53,7 @@ def _matches(item: ShortDramaTask, drama_name: str, task_status: str,
         and (not online_time or online_time.casefold() in item.online_time.casefold())
         and (not expiration_time or expiration_time.casefold() in item.expiration_time.casefold())
         and (not task_id or task_id.casefold() in item.task_id.casefold())
+        and (not remarks or remarks.casefold() in item.remarks.casefold())
         and (not tag_key or any(tag_key in value.casefold() for value in item.tags))
         and (not team_key or any(team_key in value.casefold()
                                  for value in item.pre_upload_teams))
@@ -108,14 +109,14 @@ class InMemoryShortDramaTaskRepo:
 
     def list(self, drama_name: str = "", task_status: str = "", task_type: str = "",
              theme: str = "", online_time: str = "", expiration_time: str = "",
-             task_id: str = "", tag: str = "",
+             task_id: str = "", remarks: str = "", tag: str = "",
              pre_upload_team: str = "", sort_by: str = "created_time",
              sort_order: str = "desc", actual_upload_drama_names: list[str] | None = None,
              offset: int = 0,
              limit: int | None = None) -> list[ShortDramaTask]:
         items = [x for x in self._items.values()
                  if _matches(x, drama_name, task_status, task_type, theme, online_time,
-                             expiration_time, task_id, tag, pre_upload_team,
+                             expiration_time, task_id, remarks, tag, pre_upload_team,
                              actual_upload_drama_names)]
         items.sort(key=lambda x: int(x.id), reverse=True)
         checked_sort = sort_by if sort_by in _SORT_FIELDS else "created_time"
@@ -127,12 +128,12 @@ class InMemoryShortDramaTaskRepo:
 
     def count(self, drama_name: str = "", task_status: str = "", task_type: str = "",
               theme: str = "", online_time: str = "", expiration_time: str = "",
-              task_id: str = "", tag: str = "",
+              task_id: str = "", remarks: str = "", tag: str = "",
               pre_upload_team: str = "",
               actual_upload_drama_names: list[str] | None = None) -> int:
         return sum(1 for x in self._items.values()
                    if _matches(x, drama_name, task_status, task_type, theme, online_time,
-                               expiration_time, task_id, tag, pre_upload_team,
+                               expiration_time, task_id, remarks, tag, pre_upload_team,
                                actual_upload_drama_names))
 
     def list_options(self, field: str, keyword: str = "", limit: int = 200) -> list[str]:
@@ -364,7 +365,7 @@ class PgShortDramaTaskRepo:
     @staticmethod
     def _where(drama_name: str, task_status: str, task_type: str, theme: str,
                online_time: str = "", expiration_time: str = "", task_id: str = "", tag: str = "",
-               pre_upload_team: str = "",
+               pre_upload_team: str = "", remarks: str = "",
                actual_upload_drama_names: list[str] | None = None) -> tuple[str, list]:
         where = "del_flag = 0"
         params: list = []
@@ -373,6 +374,7 @@ class PgShortDramaTaskRepo:
             ("task_type", task_type, False), ("theme", theme, False),
             ("online_time", online_time, False),
             ("expiration_time", expiration_time, False), ("task_id", task_id, False),
+            ("remarks", remarks, False),
         ):
             if value:
                 where += f" AND {column} {'=' if exact else 'ILIKE'} %s"
@@ -398,7 +400,7 @@ class PgShortDramaTaskRepo:
 
     def list(self, drama_name: str = "", task_status: str = "", task_type: str = "",
              theme: str = "", online_time: str = "", expiration_time: str = "",
-             task_id: str = "", tag: str = "",
+             task_id: str = "", remarks: str = "", tag: str = "",
              pre_upload_team: str = "", sort_by: str = "created_time",
              sort_order: str = "desc", actual_upload_drama_names: list[str] | None = None,
              offset: int = 0,
@@ -406,7 +408,7 @@ class PgShortDramaTaskRepo:
         where, params = self._where(
             drama_name, task_status, task_type, theme, online_time, expiration_time,
             task_id, tag,
-            pre_upload_team, actual_upload_drama_names,
+            pre_upload_team, remarks, actual_upload_drama_names,
         )
         checked_sort = sort_by if sort_by in _SORT_FIELDS else "created_time"
         sort_column = _SORT_COLUMNS[checked_sort]
@@ -424,13 +426,13 @@ class PgShortDramaTaskRepo:
 
     def count(self, drama_name: str = "", task_status: str = "", task_type: str = "",
               theme: str = "", online_time: str = "", expiration_time: str = "",
-              task_id: str = "", tag: str = "",
+              task_id: str = "", remarks: str = "", tag: str = "",
               pre_upload_team: str = "",
               actual_upload_drama_names: list[str] | None = None) -> int:
         where, params = self._where(
             drama_name, task_status, task_type, theme, online_time, expiration_time,
             task_id, tag,
-            pre_upload_team, actual_upload_drama_names,
+            pre_upload_team, remarks, actual_upload_drama_names,
         )
         with self._conn() as c:
             row = c.execute(f"SELECT COUNT(*) FROM {self._table} WHERE {where}", params).fetchone()
