@@ -2328,7 +2328,7 @@ def _short_drama_task_sort(sort_by: str, sort_order: str) -> tuple[str, str]:
 def list_short_drama_tasks(
     drama_name: str = "", task_status: str = "", task_type: str = "", theme: str = "",
     online_time: str = "", expiration_time: str = "", task_id: str = "", tag: str = "", pre_upload_team: str = "",
-    actual_upload_team: str = "", upload_degree: str = "",
+    actual_upload_team: str = "", upload_degree: str = "", remarks: str = "",
     sort_by: str = "created_time", sort_order: str = "desc",
     page: int = Query(1, ge=1), size: int = Query(10, ge=1, le=100),
     user: dict = Depends(_user),
@@ -2348,7 +2348,7 @@ def list_short_drama_tasks(
     filters = dict(drama_name=drama_name.strip(), task_status=task_status.strip(),
                    task_type=task_type.strip(), theme=theme.strip(),
                    online_time=online_time.strip(), expiration_time=expiration_time.strip(),
-                   task_id=task_id.strip(),
+                   task_id=task_id.strip(), remarks=remarks.strip(),
                    tag=tag.strip(), pre_upload_team=pre_upload_team.strip(),
                    actual_upload_drama_names=actual_upload_drama_names)
     checked_sort_by, checked_sort_order = _short_drama_task_sort(sort_by, sort_order)
